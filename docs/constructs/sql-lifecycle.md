@@ -22,7 +22,7 @@ lockApplicationDecisionWithSql(
 - Errors: `SqlError`
 - Requirements: none
 - Side effects: Waits for application row custody and increments its fence version until commit or rollback.
-- Source: [packages/database/src/admissions/evidence.ts:24](../../packages/database/src/admissions/evidence.ts#L24)
+- Source: [packages/database/src/admissions/evidence.ts:28](../../packages/database/src/admissions/evidence.ts#L28)
 
 **How it works**
 
@@ -61,7 +61,7 @@ readApplicationAdmissionEvidenceWithSql(
 - Errors: `SqlError | Schema.SchemaError | AdmissionOutcomeFailure`
 - Requirements: none
 - Side effects: Reads evidence and, on writes, acquires versioned application custody until transaction end.
-- Source: [packages/database/src/admissions/evidence.ts:47](../../packages/database/src/admissions/evidence.ts#L47)
+- Source: [packages/database/src/admissions/evidence.ts:51](../../packages/database/src/admissions/evidence.ts#L51)
 
 **How it works**
 
@@ -99,7 +99,7 @@ accountAccessEnabled(
 - Errors: `SqlError`
 - Requirements: none
 - Side effects: Reads `auth."user"`; with `ForShare` it holds a share lock on the row until the transaction ends.
-- Source: [packages/database/src/identity-access.ts:34](../../packages/database/src/identity-access.ts#L34)
+- Source: [packages/database/src/identity-access.ts:38](../../packages/database/src/identity-access.ts#L38)
 
 **How it works**
 
@@ -142,7 +142,7 @@ outboxClaimAssignments(
 - Errors: none
 - Requirements: none
 - Side effects: none: it builds a fragment, and the aggregate's UPDATE writes the row.
-- Source: [packages/database/src/outbox-lifecycle.ts:140](../../packages/database/src/outbox-lifecycle.ts#L140)
+- Source: [packages/database/src/outbox-lifecycle.ts:144](../../packages/database/src/outbox-lifecycle.ts#L144)
 
 **How it works**
 
@@ -185,7 +185,7 @@ markOutboxDelivered(
 - Errors: `OutboxClaimLost | SqlError`
 - Requirements: none
 - Side effects: Writes the outbox row that the claim still owns.
-- Source: [packages/database/src/outbox-lifecycle.ts:172](../../packages/database/src/outbox-lifecycle.ts#L172)
+- Source: [packages/database/src/outbox-lifecycle.ts:176](../../packages/database/src/outbox-lifecycle.ts#L176)
 
 **How it works**
 
@@ -229,7 +229,7 @@ markOutboxFailed(
 - Errors: `OutboxClaimLost | SqlError`
 - Requirements: none
 - Side effects: Writes the outbox row that the claim still owns.
-- Source: [packages/database/src/outbox-lifecycle.ts:216](../../packages/database/src/outbox-lifecycle.ts#L216)
+- Source: [packages/database/src/outbox-lifecycle.ts:220](../../packages/database/src/outbox-lifecycle.ts#L220)
 
 **How it works**
 
@@ -270,7 +270,7 @@ quarantineOutboxClaim(
 - Errors: `OutboxClaimLost | SqlError`
 - Requirements: none
 - Side effects: Writes the outbox row that the claim still owns.
-- Source: [packages/database/src/outbox-lifecycle.ts:245](../../packages/database/src/outbox-lifecycle.ts#L245)
+- Source: [packages/database/src/outbox-lifecycle.ts:249](../../packages/database/src/outbox-lifecycle.ts#L249)
 
 **How it works**
 
@@ -312,7 +312,7 @@ releaseOutboxClaim(
 - Errors: `SqlError`
 - Requirements: none
 - Side effects: Writes the outbox row when the claim still owns it.
-- Source: [packages/database/src/outbox-lifecycle.ts:282](../../packages/database/src/outbox-lifecycle.ts#L282)
+- Source: [packages/database/src/outbox-lifecycle.ts:286](../../packages/database/src/outbox-lifecycle.ts#L286)
 
 **How it works**
 
@@ -354,7 +354,7 @@ recoverStaleOutboxClaims(
 - Errors: `SqlError`
 - Requirements: none
 - Side effects: Writes every stale Processing row of the table.
-- Source: [packages/database/src/outbox-lifecycle.ts:317](../../packages/database/src/outbox-lifecycle.ts#L317)
+- Source: [packages/database/src/outbox-lifecycle.ts:321](../../packages/database/src/outbox-lifecycle.ts#L321)
 
 **How it works**
 

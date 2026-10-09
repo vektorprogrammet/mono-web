@@ -221,8 +221,12 @@ export const toolImportExceptions = [
       "packages/database/src/admissions/evidence-upgrade.test.ts",
       "packages/database/src/application/ownership-upgrade.postgres.test.ts",
       "packages/database/src/migrations.test.ts",
+      "packages/database/src/native-postgres-deadlines.test.ts",
+      "packages/database/src/password-recovery.test.ts",
+      "packages/database/src/test-support/native-pg-transport.ts",
     ],
     reason:
+      "Native SQL admission, cancellation, physical-close and recovery tests own disposable PostgreSQL peers through the same test-only fixture boundary. " +
       "The admission outcome policy, frozen evidence, immutable applicant ownership, and decision-instant precision tests prove semantic upgrades and decision/announcement races on disposable PostgreSQL 17/18. " +
       "Test harnesses, browser evidence drivers, and PostgreSQL proofs start disposable clusters of the selected major through the one toolchain and reserve their loopback ports through it. The OAuth refresh window test needs a session TimeZone with daylight saving time on the real server. The Content workspace visibility test checks scoped working copies against real PostgreSQL. The Content slug test exercises the 255-character bound and atomic create on the real server. The team application queue migration proves its upgrade on the real server, and the queue's transaction test runs through a disposable PgBouncer in transaction mode. The Organization national-team reach regression runs against a real server to reject home-board administration of a hosted national team while retaining valid national/local authority.",
   },

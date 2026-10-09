@@ -18,7 +18,7 @@ encodePathIdentity(identity: string): string
 - Throws: The `Problem` request.malformed when `identity` is not a string of Unicode scalar values, such as one with a lone surrogate.
 - Requirements: none
 - Side effects: none
-- Source: [apps/backend/src/http-semantics.ts:381](../../apps/backend/src/http-semantics.ts#L381)
+- Source: [apps/backend/src/http-semantics.ts:382](../../apps/backend/src/http-semantics.ts#L382)
 
 **How it works**
 
@@ -55,7 +55,7 @@ normalizeTarget(routeTemplate: string, identities: Readonly<Record<string, strin
 - Throws: The `Problem` request.malformed when `identities` lacks a name of the template, or an identity is not a string of Unicode scalar values.
 - Requirements: none
 - Side effects: none
-- Source: [apps/backend/src/http-semantics.ts:413](../../apps/backend/src/http-semantics.ts#L413)
+- Source: [apps/backend/src/http-semantics.ts:414](../../apps/backend/src/http-semantics.ts#L414)
 
 **How it works**
 
@@ -88,7 +88,7 @@ deriveHttpIdentity(identity: NativeIdempotencyIdentity): DerivedHttpIdentity
 - Throws: The `Problem` request.malformed when the subject, operation id, or target is outside its grammar, and idempotency-key.invalid when the key is.
 - Requirements: none
 - Side effects: none
-- Source: [apps/backend/src/http-semantics.ts:463](../../apps/backend/src/http-semantics.ts#L463)
+- Source: [apps/backend/src/http-semantics.ts:464](../../apps/backend/src/http-semantics.ts#L464)
 
 **How it works**
 
@@ -117,11 +117,11 @@ Keeps an identity request's cancellation signal attached to its native Effect fi
 ```ts
 withIdentityRequestCancellation(
   request: Request
-): <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>
+): (<A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>)
 ```
 
 - Inputs: `request: Request`
-- Output: `<A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>`
+- Output: `(<A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>)`
 - Errors: none
 - Requirements: none
 - Side effects: Registers one abort listener only while the operation runs, removing it on exit.
