@@ -1,5 +1,9 @@
-import { Schema } from "effect";
-import { OpenApi } from "effect/unstable/httpapi";
+/**
+ * EX-0022: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+import { Result, Schema } from "effect";
+import { OpenApi } from "effect/http-api";
 import { describe, expect, it } from "vitest";
 import { ExternalNativeApi } from "../src/api.js";
 import { canonicalOpenApiDigest, getIn, jsonObject, mapRefs, setIn } from "./openapi-canonical.js";
@@ -14,9 +18,10 @@ import { canonicalOpenApiDigest, getIn, jsonObject, mapRefs, setIn } from "./ope
  */
 const acceptedCanonicalDigest = "b30a076c336d60d682cf8e63c14dc4923ff5c125437d81c35a632cfe7a2aa95a";
 
-const decodeJson = Schema.decodeUnknownSync(Schema.Json);
+const decodeJson = Schema.decodeUnknownResult(Schema.Json);
 
-const document = (): Schema.Json => decodeJson(OpenApi.fromApi(ExternalNativeApi));
+const document = (): Schema.Json =>
+  Result.getOrThrow(decodeJson(OpenApi.fromApi(ExternalNativeApi)));
 
 const schemasPath = ["components", "schemas"] as const;
 
@@ -37,7 +42,11 @@ const swapComponents = (spec: Schema.Json, left: string, right: string): Schema.
   const leftContent = getIn(swapped, [...schemasPath, left]);
   const rightContent = getIn(swapped, [...schemasPath, right]);
 
-  return setIn(setIn(swapped, [...schemasPath, left], rightContent), [...schemasPath, right], leftContent);
+  return setIn(
+    setIn(swapped, [...schemasPath, left], rightContent),
+    [...schemasPath, right],
+    leftContent,
+  );
 };
 
 describe("generated native OpenAPI semantics", () => {
@@ -64,11 +73,9 @@ describe("generated native OpenAPI semantics", () => {
     const open = operationPath(base, "admissions.listOpenAdmissionPeriods");
 
     const mutated = [
-      setIn(
-        base,
-        [...schemasPath, "AdmissionPeriodManagementItem", "properties", "revision"],
-        { type: "string" },
-      ),
+      setIn(base, [...schemasPath, "AdmissionPeriodManagementItem", "properties", "revision"], {
+        type: "string",
+      }),
       setIn(base, [...submit, "responses", "201"], undefined),
       setIn(base, [...confirmation, "responses", "200", "headers", "cache-control"], undefined),
       setIn(base, [...decide, "security"], []),

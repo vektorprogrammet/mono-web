@@ -1,7 +1,11 @@
+/**
+ * EX-0022: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { Capability, Concealment, type HttpAccessAnnotationSpec } from "@effx/runtime";
 import { TEAM_APPLICATION_INTAKE_LIST_LIMIT } from "@vektorprogrammet/domain/team-application";
 import { Context, Option, Predicate, Schema } from "effect";
-import { HttpApiSchema, OpenApi } from "effect/unstable/httpapi";
+import { HttpApiSchema, OpenApi } from "effect/http-api";
 import { describe, expect, it } from "vitest";
 import { AccessSpecAnnotation, reflectAccessSpec } from "../src/access.js";
 import { ExternalNativeApi } from "../src/api.js";
@@ -170,7 +174,8 @@ const declaredAccess = [
 const accessAt = (index: number): HttpAccessAnnotationSpec => {
   const access = declaredAccess[index];
 
-  if (access === undefined) throw new TypeError("The seven declarations need seven access policies");
+  if (access === undefined)
+    throw new TypeError("The seven declarations need seven access policies");
 
   return access;
 };
@@ -191,10 +196,17 @@ describe("TeamApplications effx source declarations", () => {
 
     for (const { declaration, endpoint } of cases) {
       expect(annotation(declaration, "Http.In")).toBe(TeamApplicationsGroup);
-      expect(annotation(declaration, endpoint.method === "GET" ? "Query" : "Command")).toMatchObject({
+      expect(
+        annotation(declaration, endpoint.method === "GET" ? "Query" : "Command"),
+      ).toMatchObject({
         name: `team-applications.${endpoint.identifier}`,
       });
-      expect(annotation(declaration, `Http.${endpoint.method[0]}${endpoint.method.slice(1).toLowerCase()}`)).toBe(endpoint.path);
+      expect(
+        annotation(
+          declaration,
+          `Http.${endpoint.method[0]}${endpoint.method.slice(1).toLowerCase()}`,
+        ),
+      ).toBe(endpoint.path);
     }
   });
 
@@ -207,14 +219,17 @@ describe("TeamApplications effx source declarations", () => {
       });
       const derived = nativeProblems(problemName, codes);
 
-      expect(derived.map((response) => HttpApiSchema.isWithHeaders(response) && response.headers.ast)).toEqual(
-        [...endpoint.error].map((response) => HttpApiSchema.isWithHeaders(response) && response.headers.ast),
+      expect(
+        derived.map((response) => HttpApiSchema.isWithHeaders(response) && response.headers.ast),
+      ).toEqual(
+        [...endpoint.error].map(
+          (response) => HttpApiSchema.isWithHeaders(response) && response.headers.ast,
+        ),
       );
     }
   });
 
   it("preserves original header, media, status and middleware boundaries", () => {
-
     const expectedHeaderSchemas = [
       TeamApplicationsNoStoreResponseHeaders,
       TeamApplicationsNoStoreResponseHeaders,
@@ -250,10 +265,21 @@ describe("TeamApplications effx source declarations", () => {
     }
 
     expect(contracts[0]).toMatchObject({ params: TeamApplicationTeamParams });
-    expect(contracts[3]).toMatchObject({ params: TeamApplicationTeamParams, query: TeamApplicationListQuery });
+    expect(contracts[3]).toMatchObject({
+      params: TeamApplicationTeamParams,
+      query: TeamApplicationListQuery,
+    });
     expect(contracts[4]).toMatchObject({ params: TeamApplicationParams });
-    expect(contracts[2]).toMatchObject({ headers: IdempotencyHeaders, params: TeamApplicationTeamParams, status: 201 });
-    expect(contracts[5]).toMatchObject({ headers: IdempotencyHeaders, params: TeamApplicationParams, status: 204 });
+    expect(contracts[2]).toMatchObject({
+      headers: IdempotencyHeaders,
+      params: TeamApplicationTeamParams,
+      status: 201,
+    });
+    expect(contracts[5]).toMatchObject({
+      headers: IdempotencyHeaders,
+      params: TeamApplicationParams,
+      status: 204,
+    });
     expect(contracts[6]).toMatchObject({
       headers: IdempotencyIfMatchHeaders,
       params: TeamApplicationTeamParams,
@@ -261,8 +287,12 @@ describe("TeamApplications effx source declarations", () => {
     });
     expect(Object.keys(contracts[5] ?? {})).not.toContain("payload");
     expect(Object.keys(contracts[5] ?? {})).not.toContain("mediaType");
-    expect(noContentMutationResponse().headers.ast).toEqual(TeamApplicationsNoStoreResponseHeaders.ast);
-    expect(noStoreReadResponse(Schema.String).headers.ast).toEqual(TeamApplicationsNoStoreResponseHeaders.ast);
+    expect(noContentMutationResponse().headers.ast).toEqual(
+      TeamApplicationsNoStoreResponseHeaders.ast,
+    );
+    expect(noStoreReadResponse(Schema.String).headers.ast).toEqual(
+      TeamApplicationsNoStoreResponseHeaders.ast,
+    );
   });
 
   it("projects exactly the original anonymous and Person authority without authorizing", () => {
@@ -286,17 +316,57 @@ describe("TeamApplications effx source declarations", () => {
   it("rejects copied resolver symbols and unsafe access combinations", () => {
     for (const [index, valid] of declaredAccess.entries()) {
       expect(() => teamApplicationsAccessAnnotations(valid)).not.toThrow();
-      expect(() => teamApplicationsAccessAnnotations({ ...valid, canonicalScopeResolver: { id: cases[index]?.resolver.id } })).toThrow();
-      expect(() => teamApplicationsAccessAnnotations({ ...valid, acceptedCredentials: ["OAuthUserBearer", "BetterAuthCookie"] })).toThrow();
-      expect(() => teamApplicationsAccessAnnotations({ ...valid, principalKinds: [index < 3 ? "Person" : "Anonymous"] })).toThrow();
-      expect(() => teamApplicationsAccessAnnotations({ ...valid, requirements: [{ id: "team-applications.read" }] })).toThrow();
-      expect(() => teamApplicationsAccessAnnotations({ ...valid, decisionTime: valid.decisionTime === "Transaction" ? "SnapshotRead" : "Transaction" })).toThrow();
-      expect(() => teamApplicationsAccessAnnotations({ ...valid, capabilities: index < 3 ? Capability.one("team-applications.read") : Capability.none })).toThrow();
-      expect(() => teamApplicationsAccessAnnotations({ ...valid, concealment: Concealment.notFound("Scope") })).toThrow();
+      expect(() =>
+        teamApplicationsAccessAnnotations({
+          ...valid,
+          canonicalScopeResolver: { id: cases[index]?.resolver.id },
+        }),
+      ).toThrow();
+      expect(() =>
+        teamApplicationsAccessAnnotations({
+          ...valid,
+          acceptedCredentials: ["OAuthUserBearer", "BetterAuthCookie"],
+        }),
+      ).toThrow();
+      expect(() =>
+        teamApplicationsAccessAnnotations({
+          ...valid,
+          principalKinds: [index < 3 ? "Person" : "Anonymous"],
+        }),
+      ).toThrow();
+      expect(() =>
+        teamApplicationsAccessAnnotations({
+          ...valid,
+          requirements: [{ id: "team-applications.read" }],
+        }),
+      ).toThrow();
+      expect(() =>
+        teamApplicationsAccessAnnotations({
+          ...valid,
+          decisionTime: valid.decisionTime === "Transaction" ? "SnapshotRead" : "Transaction",
+        }),
+      ).toThrow();
+      expect(() =>
+        teamApplicationsAccessAnnotations({
+          ...valid,
+          capabilities: index < 3 ? Capability.one("team-applications.read") : Capability.none,
+        }),
+      ).toThrow();
+      expect(() =>
+        teamApplicationsAccessAnnotations({ ...valid, concealment: Concealment.notFound("Scope") }),
+      ).toThrow();
       expect(() => teamApplicationsAccessAnnotations({ ...valid, exposure: "Internal" })).toThrow();
     }
 
-    expect(() => teamApplicationsAccessAnnotations(staffAccess("team-applications.manage", TeamApplicationsListResolver, "Transaction"))).toThrow();
-    expect(() => teamApplicationsAccessAnnotations(publicAccess(TeamApplicationsCreateResolver, "SnapshotRead"))).toThrow();
+    expect(() =>
+      teamApplicationsAccessAnnotations(
+        staffAccess("team-applications.manage", TeamApplicationsListResolver, "Transaction"),
+      ),
+    ).toThrow();
+    expect(() =>
+      teamApplicationsAccessAnnotations(
+        publicAccess(TeamApplicationsCreateResolver, "SnapshotRead"),
+      ),
+    ).toThrow();
   });
 });

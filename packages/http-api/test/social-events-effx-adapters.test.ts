@@ -1,6 +1,6 @@
 import type { HttpAccessAnnotationSpec } from "@effx/runtime";
 import { SocialEventScope } from "@vektorprogrammet/domain/social-events";
-import { Context, Option, Schema } from "effect";
+import { Context, Option, Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   create as CreateSocialEventEndpoint,
@@ -86,18 +86,23 @@ describe("SocialEvents effx contract preparation", () => {
     expect(ListSocialEventsEndpoint.query).toBeDefined();
 
     // HttpApiEndpoint normalizes the query schema; the exported source retains its fields.
-    const decodeQuery = Schema.decodeUnknownSync(SocialEventScopeQuery, { onExcessProperty: "error" });
-    expect(decodeQuery({ departmentId: "1", semesterId: "2026-autumn" })).toEqual({
-      departmentId: "1",
-      semesterId: "2026-autumn",
+    const decodeQuery = Schema.decodeUnknownResult(SocialEventScopeQuery, {
+      onExcessProperty: "error",
     });
+
+    expect(decodeQuery({ departmentId: "1", semesterId: "2026-autumn" })).toEqual(
+      Result.succeed({
+        departmentId: "1",
+        semesterId: "2026-autumn",
+      }),
+    );
 
     for (const invalid of [
       { departmentId: "1" },
       { departmentId: "1", semesterId: null },
       { departmentId: "1", semesterId: "2026-autumn", extra: "1" },
     ]) {
-      expect(() => decodeQuery(invalid)).toThrow();
+      expect(Result.isFailure(decodeQuery(invalid))).toBe(true);
     }
   });
 
@@ -105,7 +110,7 @@ describe("SocialEvents effx contract preparation", () => {
     expect(privateReadResponse(Schema.String).headers).toBe(PrivateReadResponseHeaders);
     expect(createdMutationResponse(Schema.String).headers).toBe(CreatedMutationResponseHeaders);
 
-    const decodeHeaders = Schema.decodeUnknownSync(CreatedMutationResponseHeaders, {
+    const decodeHeaders = Schema.decodeUnknownResult(CreatedMutationResponseHeaders, {
       onExcessProperty: "error",
     });
 
@@ -116,17 +121,17 @@ describe("SocialEvents effx contract preparation", () => {
       location: "/api/social-events/event-1",
     };
 
-    expect(decodeHeaders(headers)).toEqual(headers);
+    expect(decodeHeaders(headers)).toEqual(Result.succeed(headers));
 
     for (const invalid of [
       { ...headers, "cache-control": "private, no-store" },
       { ...headers, vary: "*" },
-      { ...headers, etag: "W/\"weak\"" },
+      { ...headers, etag: 'W/"weak"' },
       { ...headers, location: "https://example.org/event-1" },
       { "cache-control": headers["cache-control"], vary: headers.vary, etag: headers.etag },
       { ...headers, extra: "unexpected" },
     ]) {
-      expect(() => decodeHeaders(invalid)).toThrow();
+      expect(Result.isFailure(decodeHeaders(invalid))).toBe(true);
     }
   });
 
@@ -161,10 +166,8 @@ describe("SocialEvents effx contract preparation", () => {
     for (const requested of triples) {
       for (const candidate of triples) {
         for (const decisionTime of ["SnapshotRead", "Transaction"] as const) {
-          if (
-            requested.resolver === candidate.resolver &&
-            requested.decisionTime === decisionTime
-          ) continue;
+          if (requested.resolver === candidate.resolver && requested.decisionTime === decisionTime)
+            continue;
 
           expect(() =>
             socialEventsAccessAnnotations(

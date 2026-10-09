@@ -1,7 +1,11 @@
+/**
+ * EX-0022: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import type { HttpAccessAnnotationSpec } from "@effx/runtime";
 import { CONTACT_IP_HEADER } from "@vektorprogrammet/domain/contact";
-import { Context, Option, Schema } from "effect";
-import { OpenApi } from "effect/unstable/httpapi";
+import { Context, Option, Result, Schema } from "effect";
+import { OpenApi } from "effect/http-api";
 import { describe, expect, it } from "vitest";
 import { submitContactMessage } from "../.effx/generated/contact-contract.js";
 import { ExternalNativeApi } from "../src/api.js";
@@ -43,7 +47,9 @@ describe("Contact effx contract preparation", () => {
     const spec = Context.get(contactAccessAnnotations(declared), AccessSpecAnnotation);
 
     expect(spec.exposure).toBe("External");
-    expect(spec.acceptedCredentials.map((mechanism) => mechanism._tag)).toEqual(["ObjectCapability"]);
+    expect(spec.acceptedCredentials.map((mechanism) => mechanism._tag)).toEqual([
+      "ObjectCapability",
+    ]);
     expect(spec.principalKinds).toEqual(["CapabilityHolder"]);
     expect(spec.capabilities._tag).toBe("One");
     expect(spec.capabilities).toMatchObject({ capability: { type: "contact.submit" } });
@@ -98,20 +104,22 @@ describe("Contact effx contract preparation", () => {
       "media-type.unsupported",
       "internal.error",
     ]);
-    expect(ContactProblem.members.map((member) => member.fields.code.literal)).toEqual(ContactCodes);
+    expect(ContactProblem.members.map((member) => member.fields.code.literal)).toEqual(
+      ContactCodes,
+    );
   });
 
   it("keeps the required canonical visitor address header and the strict no-store response headers", () => {
     expect(Object.keys(ContactIpHeaders.fields)).toEqual([CONTACT_IP_HEADER]);
     expect(Object.keys(ContactSubmittedResponseHeaders.fields)).toEqual(["cache-control", "vary"]);
 
-    const decodeHeaders = Schema.decodeUnknownSync(ContactSubmittedResponseHeaders, {
+    const decodeHeaders = Schema.decodeUnknownResult(ContactSubmittedResponseHeaders, {
       onExcessProperty: "error",
     });
 
     const headers = { "cache-control": "no-store", vary: "Origin" };
 
-    expect(decodeHeaders(headers)).toEqual(headers);
+    expect(decodeHeaders(headers)).toEqual(Result.succeed(headers));
 
     for (const invalid of [
       { ...headers, "cache-control": "private, no-store" },
@@ -119,14 +127,16 @@ describe("Contact effx contract preparation", () => {
       { "cache-control": "no-store" },
       { ...headers, location: "/api/contact-messages/1" },
     ]) {
-      expect(() => decodeHeaders(invalid)).toThrow();
+      expect(Result.isFailure(decodeHeaders(invalid))).toBe(true);
     }
 
-    const decodeIp = Schema.decodeUnknownSync(ContactIpHeaders, { onExcessProperty: "error" });
+    const decodeIp = Schema.decodeUnknownResult(ContactIpHeaders, { onExcessProperty: "error" });
 
-    expect(decodeIp({ [CONTACT_IP_HEADER]: "203.0.113.9" })).toEqual({
-      [CONTACT_IP_HEADER]: "203.0.113.9",
-    });
+    expect(decodeIp({ [CONTACT_IP_HEADER]: "203.0.113.9" })).toEqual(
+      Result.succeed({
+        [CONTACT_IP_HEADER]: "203.0.113.9",
+      }),
+    );
 
     for (const invalid of [
       {},
@@ -134,7 +144,7 @@ describe("Contact effx contract preparation", () => {
       { [CONTACT_IP_HEADER]: "203.0.113.0/24" },
       { [CONTACT_IP_HEADER]: "fe80::1%eth0" },
     ]) {
-      expect(() => decodeIp(invalid)).toThrow();
+      expect(Result.isFailure(decodeIp(invalid))).toBe(true);
     }
   });
 });

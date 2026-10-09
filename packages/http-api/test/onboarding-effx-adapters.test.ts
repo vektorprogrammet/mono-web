@@ -1,7 +1,11 @@
+/**
+ * EX-0022: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { Capability, Concealment, type HttpAccessAnnotationSpec } from "@effx/runtime";
 import { OnboardingBoard } from "@vektorprogrammet/domain/onboarding";
-import { Context, Option, Schema } from "effect";
-import { OpenApi } from "effect/unstable/httpapi";
+import { Context, Option, Result, Schema } from "effect";
+import { OpenApi } from "effect/http-api";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { command, readBoard } from "../.effx/generated/onboarding-contract.js";
 import { AccessSpecAnnotation, personNativeAccess, reflectAccessSpec } from "../src/access.js";
@@ -30,7 +34,9 @@ import {
 } from "../src/onboarding-effx-adapters.js";
 import { ClaimOnboardingEndpoint, OnboardingApi } from "../src/onboarding.js";
 
-const access = (decisionTime: HttpAccessAnnotationSpec["decisionTime"]): HttpAccessAnnotationSpec => ({
+const access = (
+  decisionTime: HttpAccessAnnotationSpec["decisionTime"],
+): HttpAccessAnnotationSpec => ({
   exposure: "External",
   acceptedCredentials: ["BetterAuthCookie", "OAuthUserBearer"],
   principalKinds: ["Person"],
@@ -64,12 +70,12 @@ describe("onboarding's ordered problem derivation", () => {
     expect(
       OnboardingCommandProblem.members.map((member) => member.fields.code.literal),
     ).toStrictEqual(OnboardingCommandCodes);
-    expect(OnboardingClaimProblem.members.map((member) => member.fields.code.literal)).toStrictEqual([
-      ...OnboardingCodes,
-      "credential.missing",
-      "credential.invalid",
-    ]);
-    expect(nativeProblems("OnboardingCommandProblem", OnboardingCommandDeclarationCodes)).toHaveLength(
+    expect(
+      OnboardingClaimProblem.members.map((member) => member.fields.code.literal),
+    ).toStrictEqual([...OnboardingCodes, "credential.missing", "credential.invalid"]);
+    expect(
+      nativeProblems("OnboardingCommandProblem", OnboardingCommandDeclarationCodes),
+    ).toHaveLength(
       new Set(OnboardingCommandCodes.map((code) => NativeProblemRegistry[code].status)).size,
     );
   });
@@ -130,7 +136,9 @@ describe("the original mixed onboarding group", () => {
     expect(OnboardingApi.endpoints.readBoard).toBe(readBoard);
     expect(OnboardingApi.endpoints.command).toBe(command);
     expect(OnboardingApi.endpoints.claim).toBe(ClaimOnboardingEndpoint);
-    expect(Context.getUnsafe(OnboardingApi.annotations, OpenApi.Title)).toBe("Applicant account onboarding");
+    expect(Context.getUnsafe(OnboardingApi.annotations, OpenApi.Title)).toBe(
+      "Applicant account onboarding",
+    );
     expect(Context.getUnsafe(OnboardingApi.annotations, OpenApi.Description)).toBe(
       "Explicit applicant identity proof and account linking.",
     );
@@ -179,7 +187,7 @@ describe("the original mixed onboarding group", () => {
   });
 
   it("refuses a board item without the server-owned canIssue field", () => {
-    const decode = Schema.decodeUnknownSync(OnboardingResource, { onExcessProperty: "error" });
+    const decode = Schema.decodeUnknownResult(OnboardingResource, { onExcessProperty: "error" });
 
     const item = {
       applicationId: "onboarding-adapter-application",
@@ -196,7 +204,10 @@ describe("the original mixed onboarding group", () => {
       etag: `"vkr2.${"a".repeat(43)}"`,
     };
 
-    expect(() => decode({ ...board, items: [item] })).toThrow();
-    expect(decode({ ...board, items: [{ ...item, canIssue: false }] }).items[0]?.canIssue).toBe(false);
+    expect(Result.isFailure(decode({ ...board, items: [item] }))).toBe(true);
+    expect(
+      Result.getOrThrow(decode({ ...board, items: [{ ...item, canIssue: false }] })).items[0]
+        ?.canIssue,
+    ).toBe(false);
   });
 });

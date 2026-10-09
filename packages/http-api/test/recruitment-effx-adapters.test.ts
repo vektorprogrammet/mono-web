@@ -1,5 +1,5 @@
 import { Capability, Concealment, type HttpAccessAnnotationSpec } from "@effx/runtime";
-import { Context, Option, Predicate, Schema } from "effect";
+import { Context, Option, Predicate, Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { RecruitmentApi } from "../.effx/generated/recruitment-contract.js";
 import { AccessSpecAnnotation, reflectAccessSpec } from "../src/access.js";
@@ -30,13 +30,21 @@ const cases = Object.values(RecruitmentApi.endpoints).map((endpoint) => {
 
   const declared: HttpAccessAnnotationSpec = {
     exposure: "External",
-    acceptedCredentials: invitation ? ["ObjectCapability"] : ["BetterAuthCookie", "OAuthUserBearer"],
+    acceptedCredentials: invitation
+      ? ["ObjectCapability"]
+      : ["BetterAuthCookie", "OAuthUserBearer"],
     principalKinds: invitation ? ["CapabilityHolder"] : ["Person"],
     capabilities: Capability.one(native.capabilities.capability.type),
     requirements: native.requirements,
     canonicalScopeResolver: resolver,
     concealment: invitation
-      ? Concealment.notFound("CredentialFailure", "PrincipalKind", "Capability", "Scope", "Requirement")
+      ? Concealment.notFound(
+          "CredentialFailure",
+          "PrincipalKind",
+          "Capability",
+          "Scope",
+          "Requirement",
+        )
       : Concealment.reveal,
     decisionTime: native.decisionTime,
   };
@@ -82,7 +90,10 @@ describe("Recruitment generated authority contract", () => {
         { ...declared, principalKinds: ["Anonymous"] as const },
         { ...declared, capabilities: Capability.none },
         { ...declared, capabilities: Capability.one("contact.submit") },
-        { ...declared, capabilities: Capability.any("recruitment.invitation-response", "reviewApplicants") },
+        {
+          ...declared,
+          capabilities: Capability.any("recruitment.invitation-response", "reviewApplicants"),
+        },
         { ...declared, canonicalScopeResolver: { id: "recruitment.interview-by-id" } },
         { ...declared, canonicalScopeResolver: {} },
         {
@@ -95,9 +106,10 @@ describe("Recruitment generated authority contract", () => {
         },
         {
           ...declared,
-          requirements: declared.requirements.length === 0
-            ? [{ id: "recruitment.not-known-self" }]
-            : declared.requirements.slice(0, -1),
+          requirements:
+            declared.requirements.length === 0
+              ? [{ id: "recruitment.not-known-self" }]
+              : declared.requirements.slice(0, -1),
         },
         {
           ...declared,
@@ -111,19 +123,37 @@ describe("Recruitment generated authority contract", () => {
 
     if (invitation) {
       it(`${endpoint.identifier} cannot reveal any omitted concealment stage or accept a Person policy`, () => {
-        for (const missing of ["CredentialFailure", "PrincipalKind", "Capability", "Scope", "Requirement"]) {
-          const stages = ["CredentialFailure", "PrincipalKind", "Capability", "Scope", "Requirement"].filter(
-            (stage) => stage !== missing,
+        for (const missing of [
+          "CredentialFailure",
+          "PrincipalKind",
+          "Capability",
+          "Scope",
+          "Requirement",
+        ]) {
+          const stages = [
+            "CredentialFailure",
+            "PrincipalKind",
+            "Capability",
+            "Scope",
+            "Requirement",
+          ].filter((stage) => stage !== missing);
+
+          const decodedStages = Schema.decodeUnknownResult(Schema.NonEmptyArray(Schema.String))(
+            stages,
           );
 
-          expect(() => annotate({ ...declared, concealment: Concealment.notFound(...Schema.decodeUnknownSync(Schema.NonEmptyArray(Schema.String))(stages)) })).toThrow();
+          expect(Result.isSuccess(decodedStages)).toBe(true);
+          const concealment = Concealment.notFound(...Result.getOrThrow(decodedStages));
+          expect(() => annotate({ ...declared, concealment })).toThrow();
         }
 
-        expect(() => annotate({
-          ...declared,
-          acceptedCredentials: ["BetterAuthCookie", "OAuthUserBearer"],
-          principalKinds: ["Person"],
-        })).toThrow();
+        expect(() =>
+          annotate({
+            ...declared,
+            acceptedCredentials: ["BetterAuthCookie", "OAuthUserBearer"],
+            principalKinds: ["Person"],
+          }),
+        ).toThrow();
       });
     }
   }

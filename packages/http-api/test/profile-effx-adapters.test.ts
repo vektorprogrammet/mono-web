@@ -22,7 +22,9 @@ const TestCapability = Schema.TaggedStruct("One", { capability: Schema.String })
 
 const TestReveal = Schema.TaggedStruct("Reveal", {});
 
-const TestNotFound = Schema.TaggedStruct("NotFound", { stages: Schema.NonEmptyArray(Schema.String) });
+const TestNotFound = Schema.TaggedStruct("NotFound", {
+  stages: Schema.NonEmptyArray(Schema.String),
+});
 
 const readAccess = {
   exposure: "External",
@@ -46,12 +48,12 @@ describe("Profile effx contract adapters", () => {
   });
 
   it("derives each existing problem union from the same exported code tuple", () => {
-    expect(ProfileReadOwnProfileProblem.members.map((member) => member.fields.code.literal)).toEqual(
-      ProfileReadOwnProfileCodes,
-    );
-    expect(ProfileUpdateOwnProfileProblem.members.map((member) => member.fields.code.literal)).toEqual(
-      ProfileUpdateOwnProfileCodes,
-    );
+    expect(
+      ProfileReadOwnProfileProblem.members.map((member) => member.fields.code.literal),
+    ).toEqual(ProfileReadOwnProfileCodes);
+    expect(
+      ProfileUpdateOwnProfileProblem.members.map((member) => member.fields.code.literal),
+    ).toEqual(ProfileUpdateOwnProfileCodes);
   });
 
   it("derives the same person-owned AccessSpec without authorizing", () => {
@@ -108,5 +110,4 @@ describe("Profile effx contract adapters", () => {
     );
     expect(() => registry("InvalidProblem", ["not-a-native-problem"])).toThrow();
   });
-
 });

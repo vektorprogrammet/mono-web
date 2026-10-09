@@ -1,4 +1,8 @@
-import { HttpApi, OpenApi } from "effect/unstable/httpapi";
+/**
+ * EX-0022: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+import { HttpApi, OpenApi } from "effect/http-api";
 import { describe, expect, it } from "vitest";
 import { ReceiptsApi } from "../src/receipts.js";
 

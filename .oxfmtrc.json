@@ -39,6 +39,7 @@
     "!/packages/http-api/package.json",
     "!/packages/http-api/src/",
     "!/packages/http-api/scripts/",
+    "!/packages/http-api/test/",
     "!/packages/sdk/",
     "/packages/sdk/*",
     "!/packages/sdk/package.json",

@@ -1,6 +1,15 @@
-import { Capability, Concealment, type HttpAccessAnnotationSpec, type ProblemRegistry } from "@effx/runtime";
-import { Context, Option, Schema } from "effect";
-import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi";
+/**
+ * EX-0022: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+import {
+  Capability,
+  Concealment,
+  type HttpAccessAnnotationSpec,
+  type ProblemRegistry,
+} from "@effx/runtime";
+import { Context, Option, Result, Schema } from "effect";
+import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/http-api";
 import { describe, expect, it } from "vitest";
 import { AccessSpecAnnotation, reflectAccessSpec } from "../src/access.js";
 import { ExternalNativeApi } from "../src/api.js";
@@ -61,12 +70,48 @@ import {
 } from "../src/http-semantics.js";
 
 const staffCases = [
-  { endpoint: readContentWorkspace, capability: "content.read-workspace", resolver: ContentArticlesResolver, requirements: [], time: "SnapshotRead" },
-  { endpoint: createArticle, capability: "content.create-article", resolver: ContentArticleCreateResolver, requirements: [], time: "Transaction" },
-  { endpoint: readArticle, capability: "content.read-article", resolver: ContentArticleByIdResolver, requirements: [], time: "SnapshotRead" },
-  { endpoint: reviseArticle, capability: "content.revise-article", resolver: ContentArticleByIdResolver, requirements: ["content.revisable"], time: "Transaction" },
-  { endpoint: publishArticle, capability: "content.publish-article", resolver: ContentArticleByIdResolver, requirements: ["content.publishable"], time: "Transaction" },
-  { endpoint: unpublishArticle, capability: "content.publish-article", resolver: ContentArticleByIdResolver, requirements: ["content.unpublishable"], time: "Transaction" },
+  {
+    endpoint: readContentWorkspace,
+    capability: "content.read-workspace",
+    resolver: ContentArticlesResolver,
+    requirements: [],
+    time: "SnapshotRead",
+  },
+  {
+    endpoint: createArticle,
+    capability: "content.create-article",
+    resolver: ContentArticleCreateResolver,
+    requirements: [],
+    time: "Transaction",
+  },
+  {
+    endpoint: readArticle,
+    capability: "content.read-article",
+    resolver: ContentArticleByIdResolver,
+    requirements: [],
+    time: "SnapshotRead",
+  },
+  {
+    endpoint: reviseArticle,
+    capability: "content.revise-article",
+    resolver: ContentArticleByIdResolver,
+    requirements: ["content.revisable"],
+    time: "Transaction",
+  },
+  {
+    endpoint: publishArticle,
+    capability: "content.publish-article",
+    resolver: ContentArticleByIdResolver,
+    requirements: ["content.publishable"],
+    time: "Transaction",
+  },
+  {
+    endpoint: unpublishArticle,
+    capability: "content.publish-article",
+    resolver: ContentArticleByIdResolver,
+    requirements: ["content.unpublishable"],
+    time: "Transaction",
+  },
 ] as const;
 
 const publicCases = [
@@ -106,24 +151,62 @@ const publicAccess = (resolver: ContentResolverSymbol): HttpAccessAnnotationSpec
 });
 
 const problemCases = [
-  [readContentWorkspace, ContentReadContentWorkspaceCodes, ContentReadContentWorkspaceProblem, "ContentReadContentWorkspaceProblem"],
-  [createArticle, ContentCreateArticleCodes, ContentCreateArticleProblem, "ContentCreateArticleProblem"],
+  [
+    readContentWorkspace,
+    ContentReadContentWorkspaceCodes,
+    ContentReadContentWorkspaceProblem,
+    "ContentReadContentWorkspaceProblem",
+  ],
+  [
+    createArticle,
+    ContentCreateArticleCodes,
+    ContentCreateArticleProblem,
+    "ContentCreateArticleProblem",
+  ],
   [readArticle, ContentReadArticleCodes, ContentReadArticleProblem, "ContentReadArticleProblem"],
-  [reviseArticle, ContentReviseArticleCodes, ContentReviseArticleProblem, "ContentReviseArticleProblem"],
-  [publishArticle, ContentPublishArticleCodes, ContentPublishArticleProblem, "ContentPublishArticleProblem"],
-  [unpublishArticle, ContentUnpublishArticleCodes, ContentUnpublishArticleProblem, "ContentUnpublishArticleProblem"],
+  [
+    reviseArticle,
+    ContentReviseArticleCodes,
+    ContentReviseArticleProblem,
+    "ContentReviseArticleProblem",
+  ],
+  [
+    publishArticle,
+    ContentPublishArticleCodes,
+    ContentPublishArticleProblem,
+    "ContentPublishArticleProblem",
+  ],
+  [
+    unpublishArticle,
+    ContentUnpublishArticleCodes,
+    ContentUnpublishArticleProblem,
+    "ContentUnpublishArticleProblem",
+  ],
   [listNews, ContentListNewsCodes, ContentListNewsProblem, "ContentListNewsProblem"],
-  [readNewsArticle, ContentReadNewsArticleCodes, ContentReadNewsArticleProblem, "ContentReadNewsArticleProblem"],
+  [
+    readNewsArticle,
+    ContentReadNewsArticleCodes,
+    ContentReadNewsArticleProblem,
+    "ContentReadNewsArticleProblem",
+  ],
 ] as const;
 
 describe("generated Content contract", () => {
   it("reuses actual Struct query and route parameter schemas on generated endpoints", () => {
-    expect(Schema.decodeSync(ContentDepartmentQuery)({})).toEqual({});
-    expect(Schema.decodeSync(ContentDepartmentQuery)({ department: "1" })).toEqual({ department: "1" });
-    expect(Schema.decodeSync(NewsVersionQuery)({ version: 1 })).toEqual({ version: 1 });
-    expect(() => Schema.decodeSync(NewsVersionQuery)({ version: 0 })).toThrow();
-    expect(Schema.decodeSync(ContentArticleParams)({ articleId: 1 })).toEqual({ articleId: 1 });
-    expect(Schema.decodeSync(ContentNewsSlugParams)({ slug: "penerimaan-anggota-2026" })).toEqual({ slug: "penerimaan-anggota-2026" });
+    expect(Schema.decodeResult(ContentDepartmentQuery)({})).toEqual(Result.succeed({}));
+    expect(Schema.decodeResult(ContentDepartmentQuery)({ department: "1" })).toEqual(
+      Result.succeed({ department: "1" }),
+    );
+    expect(Schema.decodeResult(NewsVersionQuery)({ version: 1 })).toEqual(
+      Result.succeed({ version: 1 }),
+    );
+    expect(Result.isFailure(Schema.decodeResult(NewsVersionQuery)({ version: 0 }))).toBe(true);
+    expect(Schema.decodeResult(ContentArticleParams)({ articleId: 1 })).toEqual(
+      Result.succeed({ articleId: 1 }),
+    );
+    expect(Schema.decodeResult(ContentNewsSlugParams)({ slug: "penerimaan-anggota-2026" })).toEqual(
+      Result.succeed({ slug: "penerimaan-anggota-2026" }),
+    );
 
     expect(readContentWorkspace.query).toBeDefined();
     expect(listNews.query).toBeDefined();
@@ -142,7 +225,11 @@ describe("generated Content contract", () => {
       [spec.paths["/api/content/articles/{articleId}:publish"]?.post, "articleId"],
       [spec.paths["/api/content/articles/{articleId}:unpublish"]?.post, "articleId"],
     ] as const) {
-      expect((operation?.parameters ?? []).some((parameter) => "name" in parameter && parameter.name === name)).toBe(true);
+      expect(
+        (operation?.parameters ?? []).some(
+          (parameter) => "name" in parameter && parameter.name === name,
+        ),
+      ).toBe(true);
     }
   });
 
@@ -154,9 +241,19 @@ describe("generated Content contract", () => {
     expect(privateOk.headers).toBe(ProfileReadResponseHeaders);
     expect(privateNotModified.headers).toBe(ProfileReadResponseHeaders);
     expect(PublicConditionalResponseHeaders).not.toBe(ProfileReadResponseHeaders);
-    const headers = { "cache-control": "public, max-age=60, s-maxage=300, must-revalidate", vary: "Origin", etag: `"vkr2.${"A".repeat(43)}"` };
-    expect(Schema.decodeUnknownSync(PublicConditionalResponseHeaders)(headers)).toEqual(headers);
-    expect(() => Schema.decodeUnknownSync(ProfileReadResponseHeaders)(headers)).toThrow();
+
+    const headers = {
+      "cache-control": "public, max-age=60, s-maxage=300, must-revalidate",
+      vary: "Origin",
+      etag: `"vkr2.${"A".repeat(43)}"`,
+    };
+
+    expect(Schema.decodeUnknownResult(PublicConditionalResponseHeaders)(headers)).toEqual(
+      Result.succeed(headers),
+    );
+    expect(Result.isFailure(Schema.decodeUnknownResult(ProfileReadResponseHeaders)(headers))).toBe(
+      true,
+    );
 
     const publicProbe = HttpApiEndpoint.get("publicProbe", "/public-probe", {
       success: publicConditionalResponses(Schema.String),
@@ -179,7 +276,6 @@ describe("generated Content contract", () => {
       expect(endpoint.success.size).toBe(2);
       expect(headerSchemas(endpoint)).toEqual(headerSchemas(expected));
     }
-
   });
 
   it("preserves annotated public success identifiers, descriptions and examples", () => {
@@ -226,15 +322,15 @@ describe("generated Content contract", () => {
       expect(actualOperation).toBeDefined();
 
       for (const status of new Set(codes.map((code) => NativeProblemRegistry[code].status))) {
-        expect(actualOperation?.responses[status]).toEqual(
-          expectedOperation?.responses[status],
-        );
+        expect(actualOperation?.responses[status]).toEqual(expectedOperation?.responses[status]);
       }
 
       expect(actualSpec.components.schemas[identifier]).toEqual(
         expectedSpec.components.schemas[identifier],
       );
-      expect(endpoint.error.size).toBe(new Set(codes.map((code) => NativeProblemRegistry[code].status)).size);
+      expect(endpoint.error.size).toBe(
+        new Set(codes.map((code) => NativeProblemRegistry[code].status)).size,
+      );
     }
 
     expect(() => registry("UnknownContentProblem", ["not-a-native-problem"])).toThrow();
@@ -242,7 +338,10 @@ describe("generated Content contract", () => {
 
   it("derives six Person and two Anonymous specs exactly as the live native endpoints", () => {
     for (const { endpoint, capability, resolver, requirements, time } of staffCases) {
-      const annotations = contentAccessAnnotations(staffAccess(capability, resolver, requirements, time));
+      const annotations = contentAccessAnnotations(
+        staffAccess(capability, resolver, requirements, time),
+      );
+
       expect(Context.get(annotations, AccessSpecAnnotation)).toEqual(
         Option.getOrThrow(reflectAccessSpec(endpoint)),
       );
@@ -259,31 +358,78 @@ describe("generated Content contract", () => {
   });
 
   it("rejects every staff cross-product of wrong resolver, credential, principal, requirement or time", () => {
-    const resolvers = [ContentArticlesResolver, ContentArticleCreateResolver, ContentArticleByIdResolver, ...publicCases.map(({ resolver }) => resolver)];
+    const resolvers = [
+      ContentArticlesResolver,
+      ContentArticleCreateResolver,
+      ContentArticleByIdResolver,
+      ...publicCases.map(({ resolver }) => resolver),
+    ];
 
     for (const { capability, resolver, requirements, time } of staffCases) {
       const valid = staffAccess(capability, resolver, requirements, time);
 
       for (const wrong of resolvers) {
-        if (wrong !== resolver) expect(() => contentAccessAnnotations({ ...valid, canonicalScopeResolver: wrong })).toThrow();
+        if (wrong !== resolver)
+          expect(() =>
+            contentAccessAnnotations({ ...valid, canonicalScopeResolver: wrong }),
+          ).toThrow();
       }
 
-      expect(() => contentAccessAnnotations({ ...valid, canonicalScopeResolver: { id: resolver.id } })).toThrow();
-      expect(() => contentAccessAnnotations({ ...valid, acceptedCredentials: ["OAuthUserBearer", "BetterAuthCookie"] })).toThrow();
+      expect(() =>
+        contentAccessAnnotations({ ...valid, canonicalScopeResolver: { id: resolver.id } }),
+      ).toThrow();
+      expect(() =>
+        contentAccessAnnotations({
+          ...valid,
+          acceptedCredentials: ["OAuthUserBearer", "BetterAuthCookie"],
+        }),
+      ).toThrow();
       expect(() => contentAccessAnnotations({ ...valid, acceptedCredentials: ["None"] })).toThrow();
       expect(() => contentAccessAnnotations({ ...valid, principalKinds: ["Anonymous"] })).toThrow();
-      expect(() => contentAccessAnnotations({ ...valid, decisionTime: time === "Transaction" ? "SnapshotRead" : "Transaction" })).toThrow();
-      expect(() => contentAccessAnnotations({ ...valid, requirements: [{ id: "content.revisable" }, { id: "content.publishable" }] })).toThrow();
-      expect(() => contentAccessAnnotations({ ...valid, requirements: [{ id: "content.unpublishable", parameters: { department: "1" } }] })).toThrow();
+      expect(() =>
+        contentAccessAnnotations({
+          ...valid,
+          decisionTime: time === "Transaction" ? "SnapshotRead" : "Transaction",
+        }),
+      ).toThrow();
+      expect(() =>
+        contentAccessAnnotations({
+          ...valid,
+          requirements: [{ id: "content.revisable" }, { id: "content.publishable" }],
+        }),
+      ).toThrow();
+      expect(() =>
+        contentAccessAnnotations({
+          ...valid,
+          requirements: [{ id: "content.unpublishable", parameters: { department: "1" } }],
+        }),
+      ).toThrow();
       expect(() => contentAccessAnnotations({ ...valid, capabilities: Capability.none })).toThrow();
       expect(() => contentAccessAnnotations({ ...valid, exposure: "Internal" })).toThrow();
-      expect(() => contentAccessAnnotations({ ...valid, concealment: Concealment.notFound("Requirement") })).toThrow();
+      expect(() =>
+        contentAccessAnnotations({ ...valid, concealment: Concealment.notFound("Requirement") }),
+      ).toThrow();
     }
 
-    const publish = staffAccess("content.publish-article", ContentArticleByIdResolver, ["content.publishable"], "Transaction");
+    const publish = staffAccess(
+      "content.publish-article",
+      ContentArticleByIdResolver,
+      ["content.publishable"],
+      "Transaction",
+    );
+
     expect(() => contentAccessAnnotations({ ...publish, requirements: [] })).toThrow();
-    expect(() => contentAccessAnnotations({ ...publish, requirements: [{ id: "content.revisable" }] })).toThrow();
-    const unpublish = staffAccess("content.publish-article", ContentArticleByIdResolver, ["content.unpublishable"], "Transaction");
+    expect(() =>
+      contentAccessAnnotations({ ...publish, requirements: [{ id: "content.revisable" }] }),
+    ).toThrow();
+
+    const unpublish = staffAccess(
+      "content.publish-article",
+      ContentArticleByIdResolver,
+      ["content.unpublishable"],
+      "Transaction",
+    );
+
     expect(() => contentAccessAnnotations({ ...unpublish, requirements: [] })).toThrow();
   });
 
@@ -292,16 +438,31 @@ describe("generated Content contract", () => {
       const valid = publicAccess(resolver);
 
       for (const staff of staffCases) {
-        expect(() => contentAccessAnnotations({ ...valid, canonicalScopeResolver: staff.resolver })).toThrow();
-        expect(() => contentAccessAnnotations({ ...valid, capabilities: Capability.one(staff.capability) })).toThrow();
+        expect(() =>
+          contentAccessAnnotations({ ...valid, canonicalScopeResolver: staff.resolver }),
+        ).toThrow();
+        expect(() =>
+          contentAccessAnnotations({ ...valid, capabilities: Capability.one(staff.capability) }),
+        ).toThrow();
       }
 
-      expect(() => contentAccessAnnotations({ ...valid, canonicalScopeResolver: { id: resolver.id } })).toThrow();
-      expect(() => contentAccessAnnotations({ ...valid, acceptedCredentials: ["BetterAuthCookie", "OAuthUserBearer"] })).toThrow();
+      expect(() =>
+        contentAccessAnnotations({ ...valid, canonicalScopeResolver: { id: resolver.id } }),
+      ).toThrow();
+      expect(() =>
+        contentAccessAnnotations({
+          ...valid,
+          acceptedCredentials: ["BetterAuthCookie", "OAuthUserBearer"],
+        }),
+      ).toThrow();
       expect(() => contentAccessAnnotations({ ...valid, principalKinds: ["Person"] })).toThrow();
-      expect(() => contentAccessAnnotations({ ...valid, requirements: [{ id: "content.publishable" }] })).toThrow();
+      expect(() =>
+        contentAccessAnnotations({ ...valid, requirements: [{ id: "content.publishable" }] }),
+      ).toThrow();
       expect(() => contentAccessAnnotations({ ...valid, decisionTime: "Transaction" })).toThrow();
-      expect(() => contentAccessAnnotations({ ...valid, concealment: Concealment.notFound("Authority") })).toThrow();
+      expect(() =>
+        contentAccessAnnotations({ ...valid, concealment: Concealment.notFound("Authority") }),
+      ).toThrow();
     }
   });
 });

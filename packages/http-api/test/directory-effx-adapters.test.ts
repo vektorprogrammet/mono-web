@@ -60,7 +60,12 @@ describe("generated Directory contract adapters", () => {
       [peopleAccess, "profile.read-directory", "profile.people-directory", "SnapshotRead"],
       [schoolsReadAccess, "schools.read-directory", "schools.directory", "SnapshotRead"],
       [schoolsManagementAccess, "schools.manage", "schools.management", "SnapshotRead"],
-      [{ ...schoolsManagementAccess, decisionTime: "Transaction" }, "schools.manage", "schools.management", "Transaction"],
+      [
+        { ...schoolsManagementAccess, decisionTime: "Transaction" },
+        "schools.manage",
+        "schools.management",
+        "Transaction",
+      ],
     ] as const) {
       const spec = Context.get(directoryAccessAnnotations(input), AccessSpecAnnotation);
 
