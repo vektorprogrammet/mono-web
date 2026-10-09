@@ -19,7 +19,7 @@ import {
   makeOrganizationTestHttp,
   makeProfileTestHttp,
 } from "../test/native-http.js";
-import { nativeHttpApiMiddlewareLayer, requestSchemaErrorResponse } from "./transport.js";
+import { ContactSsrSecurityLive, requestSchemaErrorResponse } from "./transport.js";
 import { contactConfig } from "../contact/config.js";
 import { TestPlatform } from "../test/platform.js";
 
@@ -269,7 +269,7 @@ describe("Contact token verifier lifetime", () => {
     Effect.gen(function* () {
       let material: Uint8Array | undefined;
 
-      const subtle: NonNullable<Parameters<typeof nativeHttpApiMiddlewareLayer>[1]> = {
+      const subtle: Parameters<typeof ContactSsrSecurityLive>[1] = {
         importKey: (_format, keyData) => {
           if (keyData instanceof Uint8Array) material = keyData;
 
@@ -279,9 +279,7 @@ describe("Contact token verifier lifetime", () => {
         verify: globalThis.crypto.subtle.verify.bind(globalThis.crypto.subtle),
       };
 
-      const exit = yield* Layer.build(nativeHttpApiMiddlewareLayer(contact, subtle)).pipe(
-        Effect.exit,
-      );
+      const exit = yield* Layer.build(ContactSsrSecurityLive(contact, subtle)).pipe(Effect.exit);
 
       expect(Exit.isFailure(exit)).toBe(true);
       expect(material?.byteLength).toBe(32);
@@ -298,7 +296,7 @@ describe("Contact token verifier lifetime", () => {
 
       const entered = Promise.withResolvers<void>();
 
-      const subtle: NonNullable<Parameters<typeof nativeHttpApiMiddlewareLayer>[1]> = {
+      const subtle: Parameters<typeof ContactSsrSecurityLive>[1] = {
         importKey: (_format, keyData) => {
           if (keyData instanceof Uint8Array) material = keyData;
           entered.resolve();
@@ -309,7 +307,7 @@ describe("Contact token verifier lifetime", () => {
         verify: globalThis.crypto.subtle.verify.bind(globalThis.crypto.subtle),
       };
 
-      const acquisition = Layer.build(nativeHttpApiMiddlewareLayer(contact, subtle));
+      const acquisition = Layer.build(ContactSsrSecurityLive(contact, subtle));
       const fiber = yield* acquisition.pipe(Effect.forkChild);
 
       yield* Effect.promise(() => entered.promise);

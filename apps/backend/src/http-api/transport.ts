@@ -281,7 +281,7 @@ const noContactSsrSecurityLayer = Layer.succeed(
   ContactSsrSecurity.of({ contactBackend: (httpEffect) => httpEffect }),
 );
 
-const contactSsrSecurityLayer = (
+export const ContactSsrSecurityLive = (
   contact: ContactConfig | undefined,
   subtle: Pick<typeof globalThis.crypto.subtle, "importKey" | "sign" | "verify">,
 ) =>
@@ -336,7 +336,7 @@ export const nativeHttpApiMiddlewareLayer = (
       ]
 ) =>
   Layer.mergeAll(
-    args.length === 0 ? noContactSsrSecurityLayer : contactSsrSecurityLayer(...args),
+    args.length === 0 ? noContactSsrSecurityLayer : ContactSsrSecurityLive(...args),
     sessionSecurityLayer,
     personSecurityLayer,
     personOrServiceSecurityLayer,
