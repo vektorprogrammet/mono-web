@@ -584,6 +584,7 @@
           "packages/database/src/native-postgres-codecs.test.ts",
           "packages/database/src/test-support/pglite-native-parity.test.ts",
           "packages/database/src/schema-calendar-arithmetic.test.ts",
+          "packages/database/src/search-path-shadow.postgres.test.ts",
           "packages/database/src/team-application/delivery-pgbouncer.test.ts",
           "packages/database/src/team-application/queue-deadline.test.ts",
           "packages/database/src/team-application/queue-migration.test.ts",
