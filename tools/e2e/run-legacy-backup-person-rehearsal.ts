@@ -1,3 +1,7 @@
+/**
+ * EX-0028: required public native SQL APIs in exact stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import * as BunServices from "@effect/platform-bun/BunServices";
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -25,7 +29,7 @@ import {
   postgresProgram,
   startDisposablePostgres,
 } from "@monoweb/postgres";
-import { databaseHealth } from "@vektorprogrammet/database";
+import { Database } from "@vektorprogrammet/database";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
 import { databaseSchemaRevision } from "@vektorprogrammet/database/migrations";
 import {
@@ -49,15 +53,24 @@ import {
   Predicate,
   Effect,
   Layer,
+  ManagedRuntime,
   Redacted,
   Schema,
   SchemaTransformation,
 } from "effect";
-import { Pool } from "pg";
+import { SqlClient } from "effect/sql";
+import { executePostgresMigration } from "@vektorprogrammet/database/postgres-migration-statements";
 import { buildLegacyPersonSnapshot, LegacyUserJson } from "./legacy-person-snapshot";
 import { CutoverStageFailure, runLegacyServiceCutover } from "./run-legacy-service-cutover";
 
-const importPersonCohort = flow(importPersonCohortEffect, Effect.runPromise);
+const makeRuntime = (url: string, maxConnections: number) =>
+  ManagedRuntime.make(
+    DatabaseLive({
+      url: Redacted.make(url),
+      applicationName: "legacy-backup-person-rehearsal",
+      maxConnections,
+    }).pipe(Layer.provide(BunServices.layer)),
+  );
 
 const moduleFile = fileURLToPath(import.meta.url);
 
@@ -157,6 +170,32 @@ const SqlEvidenceRow = Schema.Record(
 );
 
 const decodeSqlEvidenceRows = Schema.decodeUnknownSync(Schema.Array(SqlEvidenceRow));
+
+const decodeCountRows = Schema.decodeUnknownEffect(
+  Schema.Array(Schema.Record(Schema.String, Schema.String)),
+);
+
+const decodeGapRows = Schema.decodeUnknownEffect(
+  Schema.Array(Schema.Struct({ reason: Schema.String, count: Schema.String })),
+);
+
+const decodeCredentialRows = Schema.decodeUnknownEffect(
+  Schema.Array(Schema.Struct({ source_user_id: Schema.String, password: Schema.String })),
+);
+
+const decodeRecoveryRows = Schema.decodeUnknownEffect(
+  Schema.Array(
+    Schema.Struct({
+      person_id: PersonId,
+      source_user_id: Schema.String,
+      verified: Schema.Boolean,
+      canonical_email: Schema.Boolean,
+      pending_account_id: Schema.Boolean,
+      native_users: Schema.String,
+      native_credentials: Schema.String,
+    }),
+  ),
+);
 
 interface SpawnOptions {
   readonly cwd?: string;
@@ -419,22 +458,13 @@ const legacyDeclaredMigrationIds: ReadonlyArray<string> = [
   "TimeTable",
 ];
 
-const migrateNativeDatabase = async (url: string): Promise<void> => {
-  await Effect.runPromise(
-    databaseHealth.pipe(
-      Effect.provide(
-        DatabaseLive({
-          url: Redacted.make(url),
-          applicationName: "legacy-backup-person-rehearsal",
-          maxConnections: 2,
-        }).pipe(Layer.provide(BunServices.layer)),
-      ),
-    ),
-  );
-};
-
-const nativeCounts = async (pool: Pool): Promise<Record<string, number>> => {
-  const result = await pool.query<Record<string, string>>(`
+const nativeCounts = async (
+  runtime: ReturnType<typeof makeRuntime>,
+  sql: SqlClient.SqlClient,
+): Promise<Record<string, number>> => {
+  const result = await runtime.runPromise(
+    sql
+      .unsafe<Record<string, string>>(`
     SELECT
       (SELECT count(*) FROM public.person_profiles)::text AS profiles,
       (SELECT count(*) FROM public.person_contact_profiles)::text AS contacts,
@@ -442,15 +472,19 @@ const nativeCounts = async (pool: Pool): Promise<Record<string, number>> => {
       (SELECT count(*) FROM public.person_cohort_snapshots)::text AS snapshots,
       (SELECT count(*) FROM public.person_cohort_occurrences)::text AS occurrences,
       (SELECT count(*) FROM public.person_cohort_imports)::text AS imports
-  `);
-
-  return Object.fromEntries(
-    Object.entries(result.rows[0]!).map(([key, value]) => [key, toInt(value)]),
+  `)
+      .pipe(Effect.flatMap(decodeCountRows)),
   );
+
+  return Object.fromEntries(Object.entries(result[0]!).map(([key, value]) => [key, toInt(value)]));
 };
 
-const nativeStateFingerprint = async (pool: Pool): Promise<string> => {
-  const rows = async (sql: string) => decodeSqlEvidenceRows((await pool.query(sql)).rows);
+const nativeStateFingerprint = async (
+  runtime: ReturnType<typeof makeRuntime>,
+  sql: SqlClient.SqlClient,
+): Promise<string> => {
+  const rows = async (text: string) =>
+    decodeSqlEvidenceRows(await runtime.runPromise(sql.unsafe(text)));
 
   return digest({
     profiles: await rows(
@@ -474,11 +508,14 @@ const nativeStateFingerprint = async (pool: Pool): Promise<string> => {
   });
 };
 
-const cutoverState = async (pool: Pool) => {
-  const rows = async (sql: string) => decodeSqlEvidenceRows((await pool.query(sql)).rows);
+const cutoverState = async (runtime: ReturnType<typeof makeRuntime>, sql: SqlClient.SqlClient) => {
+  const rows = async (text: string) =>
+    decodeSqlEvidenceRows(await runtime.runPromise(sql.unsafe(text)));
 
   const counts = (
-    await pool.query<Record<string, string>>(`SELECT
+    await runtime.runPromise(
+      sql
+        .unsafe<Record<string, string>>(`SELECT
       (SELECT count(*) FROM public.assistant_service_history)::text AS history,
       (SELECT count(*) FROM public.assistant_affiliation_history)::text AS affiliations,
       (SELECT count(*) FROM public.organization_volunteer_affiliations)::text AS current_affiliations,
@@ -491,14 +528,16 @@ const cutoverState = async (pool: Pool) => {
       (SELECT count(*) FROM auth.account_cohort_imports i JOIN auth."user" u ON u.id = i.person_id WHERE i.import_mode = 'RecoveryPending' AND u."emailVerified" = false AND NOT EXISTS (SELECT 1 FROM auth."account" a WHERE a."userId" = u.id))::text AS recovery_unclaimed,
       (SELECT count(*) FROM auth.credential_cohort_occurrences)::text AS credential_occurrences,
       (SELECT count(*) FROM auth.identity_security_audit)::text AS credential_audit`)
-  ).rows[0]!;
+        .pipe(Effect.flatMap(decodeCountRows)),
+    )
+  )[0]!;
 
   const historicalFingerprint = digest({
     occurrences: await rows(
       "SELECT occurrence_id, disposition, reason, raw_row_digest, source_row_digest FROM public.historical_service_occurrences ORDER BY occurrence_id",
     ),
     history: await rows(
-      "SELECT source_history_id, source_user_id, person_id, department_id, semester_id, school_id, source_digest FROM public.assistant_service_history ORDER BY source_history_id",
+      "SELECT source_history_id, source_user_id, person_id, department_id, semester_id, school_id::text AS school_id, source_digest FROM public.assistant_service_history ORDER BY source_history_id",
     ),
     references: await rows(
       "SELECT source_repository, snapshot_id, source_revision, reference_digest, source_id_mappings FROM public.historical_service_reference_provenance ORDER BY source_repository, snapshot_id",
@@ -508,7 +547,7 @@ const cutoverState = async (pool: Pool) => {
     ),
   });
 
-  const personFingerprint = await nativeStateFingerprint(pool);
+  const personFingerprint = await nativeStateFingerprint(runtime, sql);
 
   return {
     counts: {
@@ -542,9 +581,11 @@ const cutoverState = async (pool: Pool) => {
         "SELECT * FROM public.admission_period_departments ORDER BY department_id",
       ),
       semesters: await rows("SELECT * FROM public.admission_period_semesters ORDER BY semester_id"),
-      schools: await rows("SELECT * FROM public.schools_directory_schools ORDER BY school_id"),
+      schools: await rows(
+        "SELECT school_id::text AS school_id, name, contact_person, email, phone, language, active, revision FROM public.schools_directory_schools s ORDER BY s.school_id",
+      ),
       schoolDepartments: await rows(
-        "SELECT * FROM public.schools_directory_departments ORDER BY department_id, school_id",
+        "SELECT school_id::text AS school_id, department_id, revision FROM public.schools_directory_departments d ORDER BY d.department_id, d.school_id",
       ),
       historicalSnapshots: await rows(
         "SELECT * FROM public.historical_service_snapshots ORDER BY snapshot_key",
@@ -722,10 +763,10 @@ const runRehearsal = async (temporaryRoot: string) => {
   mysqlProcess.once("error", () => undefined);
 
   let postgres: DisposablePostgres | undefined;
-  let pool: Pool | undefined;
-  let restoredPool: Pool | undefined;
-  let cutoverPool: Pool | undefined;
-  let restoredCutoverPool: Pool | undefined;
+  let nativeRuntime: ReturnType<typeof makeRuntime> | undefined;
+  let restoredRuntime: ReturnType<typeof makeRuntime> | undefined;
+  let cutoverRuntime: ReturnType<typeof makeRuntime> | undefined;
+  let restoredCutoverRuntime: ReturnType<typeof makeRuntime> | undefined;
   let completedReport: RehearsalReport | undefined;
   let cleanupFailed = false;
 
@@ -938,10 +979,13 @@ const runRehearsal = async (temporaryRoot: string) => {
     const nativeDatabase = "person_cohort_rehearsal";
     const restoredDatabase = "person_cohort_restored";
     const nativeUrl = await postgres.createDatabase(nativeDatabase);
-    await migrateNativeDatabase(nativeUrl);
-    pool = new Pool({ connectionString: nativeUrl, max: 4 });
+    nativeRuntime = makeRuntime(nativeUrl, 4);
+    const nativeSql = await nativeRuntime.runPromise(Database);
+    await nativeRuntime.runPromise(nativeSql.health);
 
-    await pool.query(`
+    await nativeRuntime.runPromise(
+      nativeSql.withTransaction(
+        executePostgresMigration(`
       CREATE OR REPLACE FUNCTION public.fail_person_rehearsal_insert()
       RETURNS trigger LANGUAGE plpgsql AS $$
       BEGIN
@@ -951,9 +995,14 @@ const runRehearsal = async (temporaryRoot: string) => {
       CREATE TRIGGER fail_person_rehearsal_insert
       BEFORE INSERT ON public.person_profiles
       FOR EACH ROW EXECUTE FUNCTION public.fail_person_rehearsal_insert();
-    `);
-    await expectFailure(importPersonCohort(pool, decodedSnapshot), "PersistenceFailure");
-    assert.deepEqual(await nativeCounts(pool), {
+    `).pipe(Effect.provideService(SqlClient.SqlClient, nativeSql)),
+      ),
+    );
+    await expectFailure(
+      nativeRuntime.runPromise(importPersonCohortEffect(nativeSql, decodedSnapshot)),
+      "PersistenceFailure",
+    );
+    assert.deepEqual(await nativeCounts(nativeRuntime, nativeSql), {
       profiles: 0,
       contacts: 0,
       http_versions: 0,
@@ -961,14 +1010,18 @@ const runRehearsal = async (temporaryRoot: string) => {
       occurrences: 0,
       imports: 0,
     });
-    await pool.query(`
+    await nativeRuntime.runPromise(
+      nativeSql.withTransaction(
+        executePostgresMigration(`
       DROP TRIGGER fail_person_rehearsal_insert ON public.person_profiles;
       DROP FUNCTION public.fail_person_rehearsal_insert();
-    `);
+    `).pipe(Effect.provideService(SqlClient.SqlClient, nativeSql)),
+      ),
+    );
 
     const concurrentReports = await Promise.all([
-      importPersonCohort(pool, decodedSnapshot),
-      importPersonCohort(pool, decodedSnapshot),
+      nativeRuntime.runPromise(importPersonCohortEffect(nativeSql, decodedSnapshot)),
+      nativeRuntime.runPromise(importPersonCohortEffect(nativeSql, decodedSnapshot)),
     ]);
 
     assert.deepEqual(
@@ -998,7 +1051,10 @@ const runRehearsal = async (temporaryRoot: string) => {
       "Real Person cohort classification changed; aggregate details only",
     );
 
-    const replayReport = await importPersonCohort(pool, decodedSnapshot);
+    const replayReport = await nativeRuntime.runPromise(
+      importPersonCohortEffect(nativeSql, decodedSnapshot),
+    );
+
     assert.equal(replayReport.replay, true);
     assert.equal(
       digest(replayReport.occurrences),
@@ -1023,10 +1079,13 @@ const runRehearsal = async (temporaryRoot: string) => {
       ],
     });
 
-    await expectFailure(importPersonCohort(pool, changedSnapshot), "SourceIdentityConflict");
+    await expectFailure(
+      nativeRuntime.runPromise(importPersonCohortEffect(nativeSql, changedSnapshot)),
+      "SourceIdentityConflict",
+    );
 
-    const countsBeforeBackup = await nativeCounts(pool);
-    const stateFingerprintBeforeBackup = await nativeStateFingerprint(pool);
+    const countsBeforeBackup = await nativeCounts(nativeRuntime, nativeSql);
+    const stateFingerprintBeforeBackup = await nativeStateFingerprint(nativeRuntime, nativeSql);
     const dumpPath = join(privateRoot, "person-native.dump");
     await run(
       [
@@ -1064,15 +1123,20 @@ const runRehearsal = async (temporaryRoot: string) => {
       ],
       { redactStderr: true },
     );
-    restoredPool = new Pool({ connectionString: restoredUrl, max: 2 });
-    const countsAfterRestore = await nativeCounts(restoredPool);
+    restoredRuntime = makeRuntime(restoredUrl, 2);
+    const restoredSql = await restoredRuntime.runPromise(Database);
+    const countsAfterRestore = await nativeCounts(restoredRuntime, restoredSql);
     assert.deepEqual(countsAfterRestore, countsBeforeBackup, "Restored Person counts differ");
     assert.equal(
-      await nativeStateFingerprint(restoredPool),
+      await nativeStateFingerprint(restoredRuntime, restoredSql),
       stateFingerprintBeforeBackup,
       "Restored Person content differs",
     );
-    const restoredReplay = await importPersonCohort(restoredPool, decodedSnapshot);
+
+    const restoredReplay = await restoredRuntime.runPromise(
+      importPersonCohortEffect(restoredSql, decodedSnapshot),
+    );
+
     assert.equal(restoredReplay.replay, true, "Restored source accepted another write");
     assert.equal(
       digest({ ...restoredReplay, replay: false }),
@@ -1087,17 +1151,7 @@ const runRehearsal = async (temporaryRoot: string) => {
     const acceptedSourceId = acceptedOccurrence.occurrenceId.slice("legacy-user-row-".length);
     const acceptedPersonId = PersonId.make("legacy-person-" + acceptedSourceId);
 
-    const profile = await Effect.runPromise(
-      readOwnProfile(acceptedPersonId).pipe(
-        Effect.provide(
-          DatabaseLive({
-            url: Redacted.make(restoredUrl),
-            applicationName: "legacy-backup-person-profile-read",
-            maxConnections: 1,
-          }).pipe(Layer.provide(BunServices.layer)),
-        ),
-      ),
-    );
+    const profile = await restoredRuntime.runPromise(readOwnProfile(acceptedPersonId));
 
     assert.equal(profile.personId, acceptedPersonId);
 
@@ -1110,7 +1164,6 @@ const runRehearsal = async (temporaryRoot: string) => {
     const reasons = reasonCounts(committedReport);
     const cutoverDatabase = "legacy_service_cutover_rehearsal";
     const cutoverTargetUrl = await postgres.createDatabase(cutoverDatabase);
-    await migrateNativeDatabase(cutoverTargetUrl);
     const cutoverSourceUrl = new URL("mysql://legacy_cutover_reader@localhost/vektor");
     cutoverSourceUrl.searchParams.set("socketPath", mysqlSocket);
 
@@ -1125,15 +1178,22 @@ const runRehearsal = async (temporaryRoot: string) => {
       organization: "NotRequested" as const,
     };
 
-    cutoverPool = new Pool({ connectionString: cutoverTargetUrl, max: 2 });
-    await cutoverPool.query("CREATE TABLE public.unrelated_state (id integer PRIMARY KEY)");
-    await cutoverPool.query("INSERT INTO public.unrelated_state (id) VALUES (1)");
+    cutoverRuntime = makeRuntime(cutoverTargetUrl, 2);
+    const cutoverSql = await cutoverRuntime.runPromise(Database);
+    await cutoverRuntime.runPromise(
+      cutoverSql.unsafe("CREATE TABLE public.unrelated_state (id integer PRIMARY KEY)"),
+    );
+    await cutoverRuntime.runPromise(
+      cutoverSql.unsafe("INSERT INTO public.unrelated_state (id) VALUES (1)"),
+    );
     await assert.rejects(
       runLegacyServiceCutover(cutoverOptions),
-      (cause: unknown) => cause instanceof CutoverStageFailure && cause.stage === "ReferenceSeed",
+      (cause: unknown) => Schema.is(CutoverStageFailure)(cause) && cause.stage === "ReferenceSeed",
     );
-    await cutoverPool.query("DROP TABLE public.unrelated_state");
-    await cutoverPool.query(`
+    await cutoverRuntime.runPromise(cutoverSql.unsafe("DROP TABLE public.unrelated_state"));
+    await cutoverRuntime.runPromise(
+      cutoverSql.withTransaction(
+        executePostgresMigration(`
       CREATE OR REPLACE FUNCTION public.fail_historical_cutover_insert()
       RETURNS trigger LANGUAGE plpgsql AS $$
       BEGIN
@@ -1143,11 +1203,13 @@ const runRehearsal = async (temporaryRoot: string) => {
       CREATE TRIGGER fail_historical_cutover_insert
       BEFORE INSERT ON public.assistant_service_history
       FOR EACH ROW EXECUTE FUNCTION public.fail_historical_cutover_insert();
-    `);
+    `).pipe(Effect.provideService(SqlClient.SqlClient, cutoverSql)),
+      ),
+    );
     await assert.rejects(
       runLegacyServiceCutover(cutoverOptions),
       (cause: unknown) =>
-        cause instanceof CutoverStageFailure && cause.stage === "HistoricalImport",
+        Schema.is(CutoverStageFailure)(cause) && cause.stage === "HistoricalImport",
     );
 
     const rollbackCountsSql = `SELECT
@@ -1173,17 +1235,26 @@ const runRehearsal = async (temporaryRoot: string) => {
       (SELECT count(*) FROM auth.credential_cohort_occurrences)::text AS account_occurrences,
       (SELECT count(*) FROM auth.identity_security_audit)::text AS audit`;
 
-    const rolledBack = await cutoverPool.query<Record<string, string>>(rollbackCountsSql);
+    const rolledBack = await cutoverRuntime.runPromise(
+      cutoverSql.unsafe(rollbackCountsSql).pipe(Effect.flatMap(decodeCountRows)),
+    );
+
     assert.deepEqual(
-      Object.values(rolledBack.rows[0]!),
-      Object.keys(rolledBack.rows[0]!).map(() => "0"),
+      Object.values(rolledBack[0]!),
+      Object.keys(rolledBack[0]!).map(() => "0"),
       "Failed cutover left partial native state",
     );
-    await cutoverPool.query(`
+    await cutoverRuntime.runPromise(
+      cutoverSql.withTransaction(
+        executePostgresMigration(`
       DROP TRIGGER fail_historical_cutover_insert ON public.assistant_service_history;
       DROP FUNCTION public.fail_historical_cutover_insert();
-    `);
-    await cutoverPool.query(`
+    `).pipe(Effect.provideService(SqlClient.SqlClient, cutoverSql)),
+      ),
+    );
+    await cutoverRuntime.runPromise(
+      cutoverSql.withTransaction(
+        executePostgresMigration(`
       CREATE OR REPLACE FUNCTION auth.fail_recovery_cutover_insert()
       RETURNS trigger LANGUAGE plpgsql AS $$
       BEGIN
@@ -1194,24 +1265,34 @@ const runRehearsal = async (temporaryRoot: string) => {
       BEFORE INSERT ON auth.account_cohort_imports
       FOR EACH ROW WHEN (NEW.import_mode = 'RecoveryPending')
       EXECUTE FUNCTION auth.fail_recovery_cutover_insert();
-    `);
+    `).pipe(Effect.provideService(SqlClient.SqlClient, cutoverSql)),
+      ),
+    );
     await assert.rejects(
       runLegacyServiceCutover(cutoverOptions),
-      (cause: unknown) => cause instanceof CutoverStageFailure && cause.stage === "AccountImport",
+      (cause: unknown) => Schema.is(CutoverStageFailure)(cause) && cause.stage === "AccountImport",
     );
     assert.deepEqual(
-      (await cutoverPool.query<Record<string, string>>(rollbackCountsSql)).rows[0],
-      rolledBack.rows[0],
+      (
+        await cutoverRuntime.runPromise(
+          cutoverSql.unsafe(rollbackCountsSql).pipe(Effect.flatMap(decodeCountRows)),
+        )
+      )[0],
+      rolledBack[0],
       "Recovery failure left partial Person, reference, history, account, audit, or provenance state",
     );
-    await cutoverPool.query(`
+    await cutoverRuntime.runPromise(
+      cutoverSql.withTransaction(
+        executePostgresMigration(`
       DROP TRIGGER fail_recovery_cutover_insert ON auth.account_cohort_imports;
       DROP FUNCTION auth.fail_recovery_cutover_insert();
-    `);
+    `).pipe(Effect.provideService(SqlClient.SqlClient, cutoverSql)),
+      ),
+    );
 
     const cutoverFirst = await runLegacyServiceCutover(cutoverOptions).catch((cause: unknown) => {
       throw new Error(
-        cause instanceof CutoverStageFailure
+        Schema.is(CutoverStageFailure)(cause)
           ? cause.message
           : "Local service cutover failed; details redacted",
       );
@@ -1263,10 +1344,14 @@ const runRehearsal = async (temporaryRoot: string) => {
     );
 
     const acceptedPersonAccountGap = (
-      await cutoverPool.query<{ reason: string; count: string }>(
-        "SELECT a.reason, count(*)::text AS count FROM public.person_cohort_occurrences p JOIN auth.credential_cohort_occurrences a ON a.occurrence_id = p.occurrence_id WHERE p.disposition = 'Accepted' AND a.disposition = 'Quarantined' GROUP BY a.reason ORDER BY a.reason",
+      await cutoverRuntime.runPromise(
+        cutoverSql
+          .unsafe(
+            "SELECT a.reason, count(*)::text AS count FROM public.person_cohort_occurrences p JOIN auth.credential_cohort_occurrences a ON a.occurrence_id = p.occurrence_id WHERE p.disposition = 'Accepted' AND a.disposition = 'Quarantined' GROUP BY a.reason ORDER BY a.reason",
+          )
+          .pipe(Effect.flatMap(decodeGapRows)),
       )
-    ).rows.map(({ reason, count }) => ({ reason, count: toInt(count) }));
+    ).map(({ reason, count }) => ({ reason, count: toInt(count) }));
 
     assert.equal(
       acceptedPersonAccountGap.reduce((sum, row) => sum + row.count, 0),
@@ -1278,7 +1363,7 @@ const runRehearsal = async (temporaryRoot: string) => {
       [{ reason: "InvalidRow", count: 1 }],
       "A different accepted Person now lacks a native Account",
     );
-    const cutoverBefore = await cutoverState(cutoverPool);
+    const cutoverBefore = await cutoverState(cutoverRuntime, cutoverSql);
     assert.equal(
       cutoverBefore.historicalFingerprint,
       expectedHistoricalStateFingerprint,
@@ -1310,29 +1395,27 @@ const runRehearsal = async (temporaryRoot: string) => {
       ).map(({ id, password }) => [`legacy-user:${id}`, password]),
     );
 
-    const importedHashes = await cutoverPool.query<{ source_user_id: string; password: string }>(
-      `SELECT i.source_user_id, a.password FROM auth.account_cohort_imports i
+    const importedHashes = await cutoverRuntime.runPromise(
+      cutoverSql
+        .unsafe(
+          `SELECT i.source_user_id, a.password FROM auth.account_cohort_imports i
        JOIN auth."account" a ON a.id = i.account_id
        WHERE i.import_mode = 'CredentialImported' ORDER BY i.source_user_id`,
+        )
+        .pipe(Effect.flatMap(decodeCredentialRows)),
     );
 
-    assert.equal(importedHashes.rowCount, 1482);
+    assert.equal(importedHashes.length, 1482);
 
-    for (const { source_user_id, password } of importedHashes.rows)
+    for (const { source_user_id, password } of importedHashes)
       assert.ok(
         originalHashes.get(source_user_id) === password,
         "Imported hash differs; details redacted",
       );
 
-    const recoveryCandidate = await cutoverPool.query<{
-      person_id: string;
-      source_user_id: string;
-      verified: boolean;
-      canonical_email: boolean;
-      pending_account_id: boolean;
-      native_users: string;
-      native_credentials: string;
-    }>(`SELECT i.person_id, i.source_user_id, u."emailVerified" AS verified,
+    const recoveryCandidate = await cutoverRuntime.runPromise(
+      cutoverSql
+        .unsafe(`SELECT i.person_id, i.source_user_id, u."emailVerified" AS verified,
         lower(u.email) = lower(c.email) AS canonical_email,
         i.account_id IS NULL AS pending_account_id,
         (SELECT count(*) FROM auth."user" WHERE id = i.person_id)::text AS native_users,
@@ -1341,9 +1424,11 @@ const runRehearsal = async (temporaryRoot: string) => {
       JOIN auth."user" u ON u.id = i.person_id
       JOIN public.person_contact_profiles c ON c.person_id = i.person_id
       WHERE i.import_mode = 'RecoveryPending'
-      ORDER BY i.source_user_id LIMIT 1`);
+      ORDER BY i.source_user_id LIMIT 1`)
+        .pipe(Effect.flatMap(decodeRecoveryRows)),
+    );
 
-    const candidate = recoveryCandidate.rows[0];
+    const candidate = recoveryCandidate[0];
     assert.ok(candidate !== undefined, "No reconciled passwordless account");
     assert.equal(candidate.verified, false);
     assert.equal(candidate.canonical_email, true);
@@ -1364,10 +1449,11 @@ const runRehearsal = async (temporaryRoot: string) => {
     try {
       await assert.rejects(
         runLegacyServiceCutover(cutoverOptions),
-        (cause: unknown) => cause instanceof CutoverStageFailure && cause.stage === "AccountImport",
+        (cause: unknown) =>
+          Schema.is(CutoverStageFailure)(cause) && cause.stage === "AccountImport",
       );
       assert.deepEqual(
-        await cutoverState(cutoverPool),
+        await cutoverState(cutoverRuntime, cutoverSql),
         cutoverBefore,
         "Changed source altered target",
       );
@@ -1380,7 +1466,7 @@ const runRehearsal = async (temporaryRoot: string) => {
 
     const cutoverReplay = await runLegacyServiceCutover(cutoverOptions).catch((cause: unknown) => {
       throw new Error(
-        cause instanceof CutoverStageFailure
+        Schema.is(CutoverStageFailure)(cause)
           ? cause.message
           : "Local service cutover replay failed; details redacted",
       );
@@ -1395,22 +1481,24 @@ const runRehearsal = async (temporaryRoot: string) => {
     );
     assert.deepEqual(cutoverReplay.accounts, cutoverFirst.accounts);
     assert.deepEqual(
-      await cutoverState(cutoverPool),
+      await cutoverState(cutoverRuntime, cutoverSql),
       cutoverBefore,
       "Replay changed native Person, references, history, or account facts",
     );
     // Native reset creates the first credential later; prove the import replay cannot overwrite one.
     const claimAccountId = "rehearsal-claim-" + sha256(candidate.person_id).slice(0, 32);
 
-    const simulatedClaim = await cutoverPool.query(
-      `INSERT INTO auth."account"(id,"accountId","providerId",issuer,"userId",password,"updatedAt")
-       SELECT $1,$2,'credential',issuer,$2,password,date_trunc('milliseconds',now(),'UTC')
-         FROM auth."account" WHERE "providerId" = 'credential' ORDER BY id LIMIT 1`,
-      [claimAccountId, candidate.person_id],
+    const simulatedClaim = await cutoverRuntime.runPromise(
+      cutoverSql.unsafe(
+        `INSERT INTO auth."account"(id,"accountId","providerId",issuer,"userId",password,"updatedAt")
+     SELECT $1,$2,'credential',issuer,$2,password,date_trunc('milliseconds',now(),'UTC')
+       FROM auth."account" WHERE "providerId" = 'credential' ORDER BY id LIMIT 1 RETURNING id`,
+        [claimAccountId, candidate.person_id],
+      ),
     );
 
-    assert.equal(simulatedClaim.rowCount, 1, "No supported credential hash for replay probe");
-    const cutoverClaimed = await cutoverState(cutoverPool);
+    assert.equal(simulatedClaim.length, 1, "No supported credential hash for replay probe");
+    const cutoverClaimed = await cutoverState(cutoverRuntime, cutoverSql);
     assert.equal(cutoverClaimed.counts.credentials, cutoverBefore.counts.credentials + 1);
     assert.equal(cutoverClaimed.counts.credential_imports, cutoverBefore.counts.credential_imports);
     assert.equal(
@@ -1425,7 +1513,7 @@ const runRehearsal = async (temporaryRoot: string) => {
     const claimedReplay = await runLegacyServiceCutover(cutoverOptions);
     assert.deepEqual(claimedReplay.accounts, cutoverFirst.accounts);
     assert.deepEqual(
-      await cutoverState(cutoverPool),
+      await cutoverState(cutoverRuntime, cutoverSql),
       cutoverClaimed,
       "Claimed credential was clobbered by replay",
     );
@@ -1467,9 +1555,10 @@ const runRehearsal = async (temporaryRoot: string) => {
       ],
       { redactStderr: true },
     );
-    restoredCutoverPool = new Pool({ connectionString: restoredCutoverUrl, max: 2 });
+    restoredCutoverRuntime = makeRuntime(restoredCutoverUrl, 2);
+    const restoredCutoverSql = await restoredCutoverRuntime.runPromise(Database);
     assert.deepEqual(
-      await cutoverState(restoredCutoverPool),
+      await cutoverState(restoredCutoverRuntime, restoredCutoverSql),
       cutoverClaimed,
       "Restored Person, service, account, or post-claim credential content differs",
     );
@@ -1484,7 +1573,7 @@ const runRehearsal = async (temporaryRoot: string) => {
     assert.equal(restoredCutoverReplay.person.stage, "ExactReplay");
     assert.deepEqual(restoredCutoverReplay.accounts, cutoverFirst.accounts);
     assert.deepEqual(
-      await cutoverState(restoredCutoverPool),
+      await cutoverState(restoredCutoverRuntime, restoredCutoverSql),
       cutoverClaimed,
       "Restored replay changed claimed credential or native content",
     );
@@ -1569,14 +1658,14 @@ const runRehearsal = async (temporaryRoot: string) => {
       processCleanupFailed = true;
     };
 
-    if (restoredPool !== undefined) await restoredPool.end().catch(recordCleanupFailure);
+    if (restoredRuntime !== undefined) await restoredRuntime.dispose().catch(recordCleanupFailure);
 
-    if (restoredCutoverPool !== undefined)
-      await restoredCutoverPool.end().catch(recordCleanupFailure);
+    if (restoredCutoverRuntime !== undefined)
+      await restoredCutoverRuntime.dispose().catch(recordCleanupFailure);
 
-    if (cutoverPool !== undefined) await cutoverPool.end().catch(recordCleanupFailure);
+    if (cutoverRuntime !== undefined) await cutoverRuntime.dispose().catch(recordCleanupFailure);
 
-    if (pool !== undefined) await pool.end().catch(recordCleanupFailure);
+    if (nativeRuntime !== undefined) await nativeRuntime.dispose().catch(recordCleanupFailure);
 
     if (postgres !== undefined) await postgres.stop().catch(recordProcessCleanupFailure);
 

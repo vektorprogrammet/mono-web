@@ -1,0 +1,46 @@
+diff --git a/dist/PgClient.d.ts b/dist/PgClient.d.ts
+index 7fb7deff01dd84f56e94b472e6333d1b17986122..8b0b98749b67e508edcbfc94513e641afb47eb14 100644
+--- a/dist/PgClient.d.ts
++++ b/dist/PgClient.d.ts
+@@ -122,6 +122,8 @@ export interface PgClientConfig {
+     readonly preparedStatementCacheSize?: number | undefined;
+     /** Maximum backend message size in bytes. Defaults to 16 MiB. */
+     readonly maxMessageSize?: number | undefined;
++  /** Transaction admission opt-in; omitted or false preserves the caller mask. */
++  readonly acquisitionInterruptible?: boolean | undefined
+ }
+ /**
+  * PostgreSQL client settings with connection pool limits and timeouts.
+diff --git a/dist/PgClient.js b/dist/PgClient.js
+index 69086dea397ba44c2ba726c913a2b5dbf1cac136..84f5c94a992642424f407c8f54be807b8532bdc8 100644
+--- a/dist/PgClient.js
++++ b/dist/PgClient.js
+@@ -59,6 +59,7 @@ const makeImpl = /*#__PURE__*/Effect.fnUntraced(function* (options) {
+   const transformRows = config.transformResultNames ? Statement.defaultTransforms(config.transformResultNames, config.transformJson).array : undefined;
+   const listen = channel => Effect.flatMap(options.listenAcquirer, connection => connection.listen(channel));
+   return Object.assign(yield* Client.make({
++        acquisitionInterruptible: config.acquisitionInterruptible,
+     acquirer: options.acquirer,
+     borrower: options.borrower,
+     // Postgres prepares transaction control like anything else, and a client
+diff --git a/src/PgClient.ts b/src/PgClient.ts
+index 458df7fb428d6851d307da883dca050df145f92b..1f405cc2764a09a8bfc409bd7d928d1f4be4607c 100644
+--- a/src/PgClient.ts
++++ b/src/PgClient.ts
+@@ -144,6 +144,8 @@ export interface PgClientConfig {
+   readonly preparedStatementCacheSize?: number | undefined
+   /** Maximum backend message size in bytes. Defaults to 16 MiB. */
+   readonly maxMessageSize?: number | undefined
++  /** Transaction admission opt-in; omitted or false preserves the caller mask. */
++  readonly acquisitionInterruptible?: boolean | undefined
+ }
+ 
+ /**
+@@ -232,6 +234,7 @@ const makeImpl = Effect.fnUntraced(function*(
+ 
+   return Object.assign(
+     yield* Client.make({
++          acquisitionInterruptible: config.acquisitionInterruptible,
+       acquirer: options.acquirer,
+       borrower: options.borrower,
+       // Postgres prepares transaction control like anything else, and a client

@@ -52,6 +52,8 @@ const decodeNativePgPoolLimit = Schema.decodeEffect(NativePgPoolLimit);
  * so this limit bounds connections, not admitted work. Prepared statements require an explicit
  * choice for a compatible pooler. An absent connectionTTL preserves unlimited connection reuse.
  * Building the layer performs no work. Its scope closes its native pool on every exit.
+ * EX-0034: native admission policy is patched at the upstream boundary. Omitted or false preserves
+ * the caller mask; explicit acquisitionInterruptible true interrupts only top-level admission.
  *
  * @param config Native connection configuration with the host limit.
  * @returns The native PgClient and SqlClient layer, with configuration or SQL failures.

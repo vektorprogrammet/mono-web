@@ -279,7 +279,12 @@ const appendAcceptedPersonMapping = Effect.fnUntraced(function* (
   if (!existing.length) return yield* new PersonCohortFailure({ code: "SourceIdentityConflict" });
 });
 
-/** Commits Person/profile facts and source evidence atomically; nesting uses the caller client savepoint. */
+/**
+ * Writes Person/profile facts, occurrence dispositions, and source evidence atomically.
+ * A standalone report follows commit; a nested report remains pending until the caller commits.
+ * The same native client owns the transaction/savepoint and releases its lock on every exit.
+ * No credentials, notifications, or external effects are created.
+ */
 export const importPersonCohort = Effect.fn("importPersonCohort")(function* (
   sql: SqlClient.SqlClient,
   input: typeof PersonCohortSnapshot.Encoded,

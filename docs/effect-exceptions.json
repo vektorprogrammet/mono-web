@@ -612,6 +612,7 @@
           "packages/database/runtime/oauth-dashboard-fixture-main.ts",
           "packages/database/runtime/oauth-postgres-tracer-main.ts",
           "packages/database/runtime/person-cohort-rehearsal.ts",
+          "packages/database/runtime/rehearsal-platform.ts",
           "packages/database/runtime/service-principal-grants-postgres-tracer-main.ts",
           "packages/database/src/advisory-lock.ts",
           "packages/database/src/auth-engine.ts",
@@ -644,13 +645,22 @@
           "packages/database/src/test-support/pglite-layer.ts",
           "packages/database/src/test-support/postgres.ts"
         ],
-        "symbols": ["PgClient", "SqlClient", "SqlError", "Statement", "Migrator", "SqlSchema"]
+        "symbols": [
+          "PgClient",
+          "SqlClient",
+          "SqlError",
+          "Statement",
+          "Migrator",
+          "SqlSchema",
+          "ChildProcess"
+        ]
       },
       "reason": "This module uses the operator-required public native APIs from the exact stable Effect4 application cohort. Their upstream declarations retain unstable annotations. A file-local acknowledgement covers only unstableApiUsage; all other diagnostics remain errors.",
       "missingCapability": "The required native families are exported by stable Effect4.0.0 but still annotated @stability unstable. No unannotated native equivalent preserves this module contract. This record accepts declared API evolution risk, not an RC package or an erased error/lifetime requirement.",
       "nativeAlternatives": [
         "Inspected exact installed stable effect/sql/SqlClient, SqlError, Statement, Migrator and SqlSchema declarations: required native public SQL APIs retain upstream unstable annotations.",
         "Inspected exact @effect/sql-pg/PgClient stable source and native layer ownership. No unannotated alternative preserves the scoped native SQL contract.",
+        "Inspected exact installed effect/process/ChildProcess command construction, output and scoped execution used by the shared rehearsal platform; native declarations retain unstable annotations.",
         "A local file-head unstableApiUsage directive accepts only declared evolution risk; all other diagnostics stay errors."
       ],
       "verification": [
@@ -717,6 +727,32 @@
         "better-auth": "1.7.1"
       },
       "retirementTrigger": "A compatible public Effect Crypto API supplies HMAC, timing-safe comparison, and ECDSA JWK verification. Run the signed-cookie, persisted revocation, OAuth signature/replay and cancellation regressions against it, replace these three local functions, and remove the two import-site suppressions and this record."
+    },
+    {
+      "id": "EX-0034",
+      "rules": ["FX001", "FX006", "FX009", "FX012"],
+      "scope": {
+        "files": ["packages/database/src/pg-pool.ts"],
+        "symbols": ["nativePgLayer"]
+      },
+      "reason": "The local native lifetime patch exposes an explicit transaction admission policy through SqlClient and public PgClient configuration. It changes only top-level connection admission; nested transactions and BEGIN/COMMIT/rollback/release retain native ownership. App hosts must opt in explicitly inside masked requests.",
+      "missingCapability": "Public stable Effect4.0.0 makeWithTransaction acquires a top-level connection inside an unconditional uninterruptible mask. Public PgClient4.0.0 has no acquisition policy option, so a saturated masked request cannot preserve the approved cancellation contract.",
+      "nativeAlternatives": [
+        "Inspected installed SqlClient.makeWithTransaction and Scope.provide transaction acquisition: restoring caller interruptibility preserves unmasked callers; explicit true is required to override a masked caller only during admission.",
+        "Wrapping the whole transaction in Effect.interruptible changes the caller body and finalization contract. A private transaction wrapper duplicates native control/lease ownership.",
+        "Changing a SQL deadline or pool capacity does not make the admission wait interruptible and cannot substitute for physical cleanup observation."
+      ],
+      "verification": [
+        "Required native real PostgreSQL acquisition matrix: unmasked/masked callers with omitted,false,true; body interruption, rollback and release, plus failed transaction controls.",
+        "Normal-hook native patch publication and actual anonymous Bun installation are source/graph evidence only, not behavioral acceptance. Final frozen source must run native PostgreSQL and application journeys."
+      ],
+      "owner": "packages/database",
+      "examinedWith": {
+        "effect": "4.0.0",
+        "@effect/sql-pg": "4.0.0",
+        "@effect/tsgo": "0.48.0"
+      },
+      "retirementTrigger": "When compatible public native SqlClient/PgClient provide the same explicit top-level admission policy, run the full mask/default/rollback/release matrix, remove only the acquisition patch hunks and this scope after source cutover. Retain independently needed HTTP and queue patches. Reopen on examined-version drift."
     }
   ]
 }
