@@ -15,6 +15,7 @@ import process from "node:process";
 import { type DisposablePostgres, startDisposablePostgres } from "@monoweb/postgres";
 import { Database, type DatabaseOperations } from "@vektorprogrammet/database";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
+import { NativeDatabaseStartupOptions } from "@vektorprogrammet/database/search-path";
 import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import { Context, Effect, Exit, flow, Layer, Predicate, Redacted, Schema, Scope } from "effect";
 import type { SqlClient } from "effect/sql";
@@ -205,6 +206,7 @@ export const withOrganizationDatabases = async <A>(
           url: Redacted.make(url),
           applicationName: "synthetic-organization-rehearsal",
           maxConnections: 3,
+          startupOptions: NativeDatabaseStartupOptions,
         }).pipe(Layer.provide(BunServices.layer)),
         scope,
       ),

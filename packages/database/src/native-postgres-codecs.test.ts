@@ -21,6 +21,7 @@ import {
 } from "effect";
 import { Migrator, SqlClient } from "effect/sql";
 import { nativePgLayer } from "./pg-pool.js";
+import { NativeDatabaseStartupOptions } from "./search-path.js";
 import { executePostgresMigration } from "./postgres-migration-statements.js";
 import { TestPlatform } from "./test-support/platform.js";
 import { postgresTestClient } from "./test-support/postgres.js";
@@ -44,6 +45,7 @@ const native = Layer.unwrap(
       maxConnections: 2,
       applicationName: "native-codecs-law",
       prepare: false,
+      startupOptions: NativeDatabaseStartupOptions,
     }),
   ),
 ).pipe(Layer.provideMerge(cluster), Layer.provideMerge(TestPlatform));
@@ -249,6 +251,7 @@ layer(native, { excludeTestServices: true, timeout: "120 seconds" })(
             maxConnections: 1,
             types: registry,
             applicationName: "native-codec-registry",
+            startupOptions: NativeDatabaseStartupOptions,
           });
 
           const array = yield* Effect.fromResult(PgTypes.array(["α", "β"], mood.oid, registry));
@@ -313,6 +316,7 @@ layer(native, { excludeTestServices: true, timeout: "120 seconds" })(
             url: Redacted.make(postgres.url),
             maxConnections: 1,
             applicationName: "native-codec-observer",
+            startupOptions: NativeDatabaseStartupOptions,
           });
 
           const began = yield* Deferred.make<void>();

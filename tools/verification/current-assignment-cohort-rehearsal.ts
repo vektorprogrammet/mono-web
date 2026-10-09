@@ -33,6 +33,7 @@ import {
 import { currentAssignmentForbiddenAmbientConfigurationKeys } from "./current-assignment-cohort-cli.js";
 import { journeyClock } from "../e2e/journey-clock.js";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
+import { NativeDatabaseStartupOptions } from "@vektorprogrammet/database/search-path";
 import { importPersonCohort as importPersonCohortEffect } from "@vektorprogrammet/database/person-cohort";
 import { executePostgresMigration } from "@vektorprogrammet/database/postgres-migration-statements";
 
@@ -118,9 +119,11 @@ let postgres: DisposablePostgres | undefined;
 
 const makeRuntime = (url: string, maxConnections: number) =>
   ManagedRuntime.make(
-    DatabaseLive({ url: Redacted.make(url), maxConnections }).pipe(
-      Layer.provide(BunServices.layer),
-    ),
+    DatabaseLive({
+      url: Redacted.make(url),
+      maxConnections,
+      startupOptions: NativeDatabaseStartupOptions,
+    }).pipe(Layer.provide(BunServices.layer)),
   );
 
 let runtime: ReturnType<typeof makeRuntime> | undefined;
@@ -864,9 +867,11 @@ try {
   command(postgresProgram("pg_restore"), ["--dbname", restoredUrl, backup]);
 
   const restoredRuntime = ManagedRuntime.make(
-    DatabaseLive({ url: Redacted.make(restoredUrl), maxConnections: 1 }).pipe(
-      Layer.provide(BunServices.layer),
-    ),
+    DatabaseLive({
+      url: Redacted.make(restoredUrl),
+      maxConnections: 1,
+      startupOptions: NativeDatabaseStartupOptions,
+    }).pipe(Layer.provide(BunServices.layer)),
   );
 
   try {

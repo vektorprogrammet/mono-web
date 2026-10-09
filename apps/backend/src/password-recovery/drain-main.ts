@@ -8,6 +8,7 @@ import { Config, Effect, Layer, Redacted } from "effect";
 import { FetchHttpClient } from "effect/http";
 import { Mail } from "@vektorprogrammet/domain/mail";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
+import { NativeDatabaseStartupOptions } from "@vektorprogrammet/database/search-path";
 import { SqlClient } from "effect/sql";
 import { drainPasswordResetMail } from "@vektorprogrammet/database/password-recovery";
 import { decodeBackendConfig } from "../config.js";
@@ -33,9 +34,11 @@ try {
     }).pipe(
       Effect.provide(
         Layer.mergeAll(
-          DatabaseLive({ url: Redacted.make(config.auth.postgresUrl), maxConnections: 2 }).pipe(
-            Layer.provide(BunServices.layer),
-          ),
+          DatabaseLive({
+            url: Redacted.make(config.auth.postgresUrl),
+            maxConnections: 2,
+            startupOptions: NativeDatabaseStartupOptions,
+          }).pipe(Layer.provide(BunServices.layer)),
           HttpMailLive(mailDeliveryConfig(process.env)).pipe(Layer.provide(FetchHttpClient.layer)),
         ),
       ),

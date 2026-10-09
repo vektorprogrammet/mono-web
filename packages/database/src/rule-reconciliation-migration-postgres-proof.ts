@@ -17,6 +17,7 @@ import {
 } from "effect";
 import { isSqlError } from "effect/sql/SqlError";
 import { DatabaseLive } from "./layers.js";
+import { NativeDatabaseStartupOptions } from "./search-path.js";
 import { type DatabaseMigrationDefinition, selectDatabaseMigration } from "./migrations.js";
 
 const expectedFailures = [
@@ -178,6 +179,7 @@ export const proveRuleReconciliationMigration = (databaseUrl: Redacted.Redacted<
     url: Redacted.make(Redacted.value(databaseUrl)),
     applicationName: "rule-reconciliation-migration-proof-0056-2",
     maxConnections: 1,
+    startupOptions: NativeDatabaseStartupOptions,
   });
 
   return Effect.gen(function* () {

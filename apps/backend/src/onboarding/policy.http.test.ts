@@ -7,6 +7,7 @@ import { Database, IdentitySnapshot } from "@vektorprogrammet/database";
 import { OrganizationLive } from "@vektorprogrammet/database/organization";
 import { commandOnboarding } from "@vektorprogrammet/database/onboarding";
 import { DatabaseRuntimeLive } from "@vektorprogrammet/database/runtime";
+import { NativeDatabaseStartupOptions } from "@vektorprogrammet/database/search-path";
 import {
   observePostgresStatements,
   type PostgresStatementObserver,
@@ -208,7 +209,11 @@ const fixture = Effect.fnUntraced(function* (
     // cannot exercise a PostgreSQL wait or read while dispatch is held.
 
     const context = yield* Layer.build(
-      DatabaseRuntimeLive({ ...target, maxConnections: 3 }).pipe(Layer.orDie),
+      DatabaseRuntimeLive({
+        ...target,
+        maxConnections: 3,
+        startupOptions: NativeDatabaseStartupOptions,
+      }).pipe(Layer.orDie),
     );
 
     sql = Context.get(context, Database);

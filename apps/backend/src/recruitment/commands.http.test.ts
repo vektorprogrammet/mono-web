@@ -4,6 +4,7 @@ import { OrganizationLive } from "@vektorprogrammet/database/organization";
 import { ProfileLive } from "@vektorprogrammet/database/profile";
 import { RecruitmentLive } from "@vektorprogrammet/database/recruitment";
 import { DatabaseRuntimeLive } from "@vektorprogrammet/database/runtime";
+import { NativeDatabaseStartupOptions } from "@vektorprogrammet/database/search-path";
 import { commandOnboarding } from "@vektorprogrammet/database/onboarding";
 import { PlacementsLive } from "@vektorprogrammet/database/placements";
 import { canonicalJson } from "@vektorprogrammet/domain/shared-kernel";
@@ -289,7 +290,11 @@ const fixture = <E = never>(
 
     if (target === undefined) throw new Error("Missing PostgreSQL connection configuration");
 
-    return DatabaseRuntimeLive({ ...target, maxConnections }).pipe(Layer.orDie);
+    return DatabaseRuntimeLive({
+      ...target,
+      maxConnections,
+      startupOptions: NativeDatabaseStartupOptions,
+    }).pipe(Layer.orDie);
   });
 
   return {

@@ -9,6 +9,7 @@ import { type DatabaseMigrationDefinition, selectDatabaseMigration } from "../mi
 import { executePostgresMigration } from "../postgres-migration-statements.js";
 import { TestPlatform } from "../test-support/platform.js";
 import { postgresTestClient, withPostgresTestDatabase } from "../test-support/postgres.js";
+import { NativeDatabaseStartupOptions } from "../search-path.js";
 
 /**
  * Migrations 78 and 79 move the team application claim outbox onto its PersistedQueue: an
@@ -392,6 +393,7 @@ const clusterDatabase = (name: string, migrations: ReadonlyArray<DatabaseMigrati
         username: cluster.user,
         database,
         maxConnections: 1,
+        startupOptions: NativeDatabaseStartupOptions,
       });
 
     const admin = yield* connect(cluster.database);

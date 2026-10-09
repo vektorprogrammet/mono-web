@@ -91,6 +91,7 @@ import { spec0055OrganizationAuthorityFixtures } from "@vektorprogrammet/domain/
 import { resolveOrganizationPersonAuthorityForRead } from "../src/organization/authority-postgres.js";
 import { executeReceiptCommand } from "../src/receipt/postgres.js";
 import { DatabaseLive } from "../src/layers.js";
+import { NativeDatabaseStartupOptions } from "../src/search-path.js";
 import { TestPlatform } from "../src/test-support/platform.js";
 import { databaseMigrationDefinitions, databaseSchemaRevision } from "../src/migrations.js";
 import { proveRuleReconciliationMigration } from "../src/rule-reconciliation-migration-postgres-proof.js";
@@ -291,6 +292,7 @@ const makeProofLayer = (url: Redacted.Redacted<string>, applicationName: string)
     url: Redacted.make(Redacted.value(url)),
     applicationName,
     maxConnections: 1,
+    startupOptions: NativeDatabaseStartupOptions,
   });
 
 const makeZeroRuleProofLayer = (url: Redacted.Redacted<string>, applicationName: string) => {

@@ -10,6 +10,7 @@ import { type DatabaseMigrationDefinition, selectDatabaseMigration } from "../mi
 import { executePostgresMigration } from "../postgres-migration-statements.js";
 import { TestPlatform } from "../test-support/platform.js";
 import { postgresTestClient, withPostgresTestDatabase } from "../test-support/postgres.js";
+import { NativeDatabaseStartupOptions } from "../search-path.js";
 
 /**
  * R7 upgrade proof. Seed the registered 82 schema, including one linked applicant shared by
@@ -387,7 +388,11 @@ layer(Layer.merge(cluster, TestPlatform), { excludeTestServices: true, timeout: 
               postgres.createDatabase(`ownership_upgrade_${predecessor}`),
             );
 
-            const pool = yield* postgresTestClient({ url: Redacted.make(url), maxConnections: 1 });
+            const pool = yield* postgresTestClient({
+              url: Redacted.make(url),
+              maxConnections: 1,
+              startupOptions: NativeDatabaseStartupOptions,
+            });
 
             const baseline = selectDatabaseMigration("82_admission-outcome-mail");
 

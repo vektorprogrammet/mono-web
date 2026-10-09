@@ -15,6 +15,7 @@ import { Predicate, Effect, Redacted } from "effect";
 import { resolveOrganizationPersonAuthorityForRead } from "./organization/authority-postgres.js";
 import { executeReceiptCommand } from "./receipt/postgres.js";
 import { DatabaseLive } from "./layers.js";
+import { NativeDatabaseStartupOptions } from "./search-path.js";
 import { proveRuleReconciliationMigration } from "./rule-reconciliation-migration-postgres-proof.js";
 
 const authorizationInstant = "2037-06-15T12:00:00.000Z";
@@ -296,6 +297,7 @@ export const ruleReconciliationTracerProgram = (databaseUrl: Redacted.Redacted<s
       url: Redacted.make(Redacted.value(databaseUrl)),
       applicationName: "rule-reconciliation-tracer-0056-2",
       maxConnections: 1,
+      startupOptions: NativeDatabaseStartupOptions,
     });
 
     const receipts = yield* trace.pipe(

@@ -21,6 +21,7 @@ import { DatabaseLive } from "../layers.js";
 import { postgresTestClient } from "../test-support/postgres.js";
 import { Database } from "../service.js";
 import { TestPlatform } from "../test-support/platform.js";
+import { NativeDatabaseStartupOptions } from "../search-path.js";
 import { TeamApplicationsLive } from "./index.js";
 
 class PgBouncerConsoleError extends Schema.TaggedError<PgBouncerConsoleError>()(
@@ -56,7 +57,12 @@ const pooler = Layer.effect(
       (started) => Effect.promise(() => started.stop()),
     );
 
-    const admin = yield* postgresTestClient({ url: Redacted.make(cluster.url), maxConnections: 1 });
+    const admin = yield* postgresTestClient({
+      url: Redacted.make(cluster.url),
+      maxConnections: 1,
+      startupOptions: NativeDatabaseStartupOptions,
+    });
+
     yield* admin.unsafe("ALTER DATABASE pilot SET search_path = auth, public").pipe(Effect.orDie);
 
     return yield* Effect.acquireRelease(
@@ -74,6 +80,7 @@ const database = Layer.unwrap(
       applicationName: "team-application-pgbouncer-test",
       maxConnections: 4,
       prepare: false,
+      startupOptions: NativeDatabaseStartupOptions,
     }).pipe(Layer.provide(TestPlatform)),
   ),
 );
@@ -206,6 +213,7 @@ layer(pooledLayer, { excludeTestServices: true, timeout: "120 seconds" })(
             maxConnections: 1,
             prepare: true,
             applicationName: "native-prepared-pooler",
+            startupOptions: NativeDatabaseStartupOptions,
           });
 
           for (let value = 0; value < 5; value++)

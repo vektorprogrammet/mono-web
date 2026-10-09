@@ -4,6 +4,7 @@
  */
 import { AuthPoolLive } from "../src/pg-pool.js";
 import { DatabaseLive } from "../src/layers.js";
+import { BetterAuthStartupOptions, NativeDatabaseStartupOptions } from "../src/search-path.js";
 import { Database } from "../src/service.js";
 import { Redacted } from "effect";
 import { PersonId } from "@vektorprogrammet/domain/organization";
@@ -558,12 +559,13 @@ const program = Effect.gen(function* () {
               maxConnections: 4,
               applicationName: "stable-auth-proof",
               pipeline: true,
-              startupOptions: "-c search_path=auth",
+              startupOptions: BetterAuthStartupOptions,
             }),
             DatabaseLive({
               url: Redacted.make(config.postgresUrl),
               maxConnections: 4,
               applicationName: "stable-auth-proof-sql",
+              startupOptions: NativeDatabaseStartupOptions,
             }),
           ),
         ),

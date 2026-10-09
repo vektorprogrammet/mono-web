@@ -4,6 +4,7 @@
  */
 import * as SqlClient from "effect/sql/SqlClient";
 import { nativePgLayer } from "./pg-pool.js";
+import { NativeDatabaseStartupOptions } from "./search-path.js";
 import { executePostgresMigration } from "./postgres-migration-statements.js";
 import { expect, layer } from "@effect/vitest";
 import { type DisposablePostgres, startDisposablePostgres } from "@monoweb/postgres";
@@ -61,6 +62,7 @@ const osloDatabase = (name: string, migrations: ReadonlyArray<DatabaseMigrationD
             database,
             maxConnections: 1,
             applicationName: "oauth-window-native",
+            startupOptions: NativeDatabaseStartupOptions,
           }),
         ),
         Context.get(SqlClient.SqlClient),

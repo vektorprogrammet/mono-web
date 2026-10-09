@@ -21,6 +21,7 @@ import { createLocalAccountIssuer } from "better-auth";
 import { Cause, Config, Context, Effect, Exit, Layer, Predicate, Redacted } from "effect";
 import { type AuthEngine, type AuthEngineConfig } from "../src/auth-engine.js";
 import { DatabaseLive } from "../src/layers.js";
+import { BetterAuthStartupOptions, NativeDatabaseStartupOptions } from "../src/search-path.js";
 import { TestPlatform } from "../src/test-support/platform.js";
 import { SecretEqualityLive } from "../src/web-crypto.js";
 import { databaseSchemaRevision } from "../src/migrations.js";
@@ -100,6 +101,7 @@ const applyIdentityMigration = (postgresUrl: string) => {
     url: Redacted.make(postgresUrl),
     applicationName: "identity-postgres-proof-migration",
     maxConnections: 1,
+    startupOptions: NativeDatabaseStartupOptions,
   });
 
   return Effect.scoped(
@@ -496,7 +498,7 @@ const runIdentityPostgresProof = (postgresUrl: string) =>
       Layer.build(
         nativePgLayer({
           url: Redacted.make(postgresUrl),
-          startupOptions: "-c search_path=public",
+          startupOptions: NativeDatabaseStartupOptions,
           maxConnections: 1,
           applicationName: "identity-postgres-proof-observer",
         }),
@@ -529,12 +531,12 @@ const runIdentityPostgresProof = (postgresUrl: string) =>
             maxConnections: 4,
             applicationName: "stable-auth-proof",
             pipeline: true,
-            startupOptions: "-c search_path=auth",
+            startupOptions: BetterAuthStartupOptions,
           }),
           DatabaseRuntimeLive({
             url: Redacted.make(postgresUrl),
             maxConnections: 1,
-            startupOptions: "-c search_path=auth,public",
+            startupOptions: NativeDatabaseStartupOptions,
             applicationName: "identity-proof-sql",
           }),
         ),

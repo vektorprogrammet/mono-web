@@ -12,6 +12,7 @@ import {
   RecruitmentLive,
 } from "@vektorprogrammet/database/recruitment";
 import { DatabaseRuntimeLive } from "@vektorprogrammet/database/runtime";
+import { NativeDatabaseStartupOptions } from "@vektorprogrammet/database/search-path";
 import {
   observePostgresStatements,
   type PostgresStatementObserver,
@@ -298,7 +299,13 @@ const fixture = () => {
     return domain.pipe(
       Layer.provideMerge(
         diagnosticDatabase.pipe(
-          Layer.provide(DatabaseRuntimeLive({ ...connection, maxConnections: 1 })),
+          Layer.provide(
+            DatabaseRuntimeLive({
+              ...connection,
+              maxConnections: 1,
+              startupOptions: NativeDatabaseStartupOptions,
+            }),
+          ),
           Layer.orDie,
         ),
       ),

@@ -19,6 +19,7 @@ import { runReceiptFileProof } from "../src/receipt/file-proof.js";
 import { runReceiptPostgresProof } from "../src/receipt/postgres-proof.js";
 import { DatabaseLive } from "../src/layers.js";
 import { TestPlatform } from "../src/test-support/platform.js";
+import { NativeDatabaseStartupOptions } from "../src/search-path.js";
 
 /** Creates a database for one proof and drops it, with its sessions, when the scope closes. */
 const disposableDatabase = (maintenanceUrl: Redacted.Redacted, name: string) =>
@@ -34,6 +35,7 @@ const disposableDatabase = (maintenanceUrl: Redacted.Redacted, name: string) =>
       url: Redacted.make(url.toString()),
       applicationName: "receipt-authority-proof",
       maxConnections: 4,
+      startupOptions: NativeDatabaseStartupOptions,
     };
   });
 

@@ -15,6 +15,7 @@ import process from "node:process";
 import { type DisposablePostgres, startDisposablePostgres } from "@monoweb/postgres";
 import { databaseHealth, Database } from "@vektorprogrammet/database";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
+import { NativeDatabaseStartupOptions } from "@vektorprogrammet/database/search-path";
 import { databaseSchemaRevision } from "@vektorprogrammet/database/migrations";
 import {
   decodePersonCohort,
@@ -426,6 +427,7 @@ const runRehearsal = async (temporaryRoot: string) => {
         url: Redacted.make(url),
         applicationName: "synthetic-current-assignment-rehearsal",
         maxConnections: 3,
+        startupOptions: NativeDatabaseStartupOptions,
       }).pipe(Layer.provide(BunServices.layer)),
     );
 

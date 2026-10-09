@@ -24,6 +24,7 @@ import { postgresProgram } from "@monoweb/postgres";
 import { databaseSchemaRevision } from "@vektorprogrammet/database/migrations";
 import { storeReceiptImportResult } from "@vektorprogrammet/database/receipt/postgres";
 import { DatabaseRuntimeLive } from "@vektorprogrammet/database/runtime";
+import { NativeDatabaseStartupOptions } from "@vektorprogrammet/database/search-path";
 import {
   importLegacyReceipt,
   receiptOutboxRequest,
@@ -1146,6 +1147,7 @@ const rehearse = async () =>
             host: new URL(nativeOwnership.url).searchParams.get("host") ?? undefined,
             applicationName: "receipt-native-ownership-proof",
             maxConnections: 2,
+            startupOptions: NativeDatabaseStartupOptions,
           }),
         ),
       ),
@@ -1213,6 +1215,7 @@ const rehearse = async () =>
             host: new URL(primary.url).searchParams.get("host") ?? undefined,
             applicationName: "receipt-native-ownership-proof",
             maxConnections: 2,
+            startupOptions: NativeDatabaseStartupOptions,
           }),
         ),
       ),

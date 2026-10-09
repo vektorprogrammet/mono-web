@@ -9,6 +9,10 @@ import * as BunHttpPlatform from "@effect/platform-bun/BunHttpPlatform";
 import * as BunServices from "@effect/platform-bun/BunServices";
 import { AuthEngine, AuthLive, OAUTH_NATIVE_API_RESOURCE } from "@vektorprogrammet/database";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
+import {
+  BetterAuthStartupOptions,
+  NativeDatabaseStartupOptions,
+} from "@vektorprogrammet/database/search-path";
 import { AuthPoolLive } from "@vektorprogrammet/database/pg-pool";
 import { AdmissionsLive } from "@vektorprogrammet/database/admissions";
 import { ReturningAssistantsLive } from "@vektorprogrammet/database/application";
@@ -102,6 +106,7 @@ export const observeLegacyCandidateNativeJourney = async (
     url: Redacted.make(input.target.url),
     applicationName: "candidate-native-journey",
     maxConnections: 4,
+    startupOptions: NativeDatabaseStartupOptions,
   }).pipe(Layer.provide(BunServices.layer));
 
   const platform = Layer.merge(BunServices.layer, FetchHttpClient.layer);
@@ -133,6 +138,7 @@ export const observeLegacyCandidateNativeJourney = async (
           maxConnections: 4,
           applicationName: "candidate-native-journey-auth",
           pipeline: false,
+          startupOptions: BetterAuthStartupOptions,
         }),
       ),
     ),

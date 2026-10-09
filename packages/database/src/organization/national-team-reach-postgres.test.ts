@@ -14,6 +14,7 @@ import {
   TeamId,
 } from "@vektorprogrammet/domain/organization";
 import { DatabaseLive } from "../layers.js";
+import { NativeDatabaseStartupOptions } from "../search-path.js";
 import { Database } from "../service.js";
 import { TestPlatform } from "../test-support/platform.js";
 import { OrganizationLive } from "./postgres-layer.js";
@@ -36,6 +37,7 @@ const database = Layer.unwrap(
       url: Redacted.make(postgres.url),
       applicationName: "national-team-reach-postgres-test",
       maxConnections: 2,
+      startupOptions: NativeDatabaseStartupOptions,
     }).pipe(Layer.provide(TestPlatform)),
   ),
 );

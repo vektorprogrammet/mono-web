@@ -24,6 +24,7 @@ import {
 import { Schema, Predicate, Effect, Layer, Redacted } from "effect";
 import { FetchHttpClient } from "effect/http";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
+import { NativeDatabaseStartupOptions } from "@vektorprogrammet/database/search-path";
 
 interface CapturedRequest {
   readonly idempotencyKey: string;
@@ -102,6 +103,7 @@ const main = async (): Promise<void> => {
       url: Redacted.make(pgUrl),
       applicationName: "interview-completion-receipt-0108",
       maxConnections: 1,
+      startupOptions: NativeDatabaseStartupOptions,
     }).pipe(Layer.provide(BunServices.layer));
 
     const admissionsLayer = AdmissionsLive.pipe(Layer.provide(databaseLayer));

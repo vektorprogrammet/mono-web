@@ -14,6 +14,7 @@ import {
   PersonId,
 } from "@vektorprogrammet/domain/organization";
 import { DatabaseLive } from "../layers.js";
+import { NativeDatabaseStartupOptions } from "../search-path.js";
 import { OrganizationLive } from "../organization/postgres-layer.js";
 import { ProfileLive } from "../profile/postgres-layer.js";
 import { Database } from "../service.js";
@@ -53,6 +54,7 @@ const databaseLayer = Layer.unwrap(
       url: Redacted.make(cluster.url),
       maxConnections: 4,
       applicationName: "content-workspace-visibility-test",
+      startupOptions: NativeDatabaseStartupOptions,
     }).pipe(Layer.provide(TestPlatform)),
   ),
 ).pipe(Layer.provideMerge(clusterLayer));

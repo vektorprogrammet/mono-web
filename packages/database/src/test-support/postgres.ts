@@ -23,6 +23,7 @@ import { type DatabaseMigrationDefinition, databaseMigrationDefinitions } from "
 import { executePostgresMigration } from "../postgres-migration-statements.js";
 import { nativePgLayer, type NativePgPoolConfig } from "../pg-pool.js";
 import { DatabaseLive } from "../layers.js";
+import { NativeDatabaseStartupOptions } from "../search-path.js";
 import { Database } from "../service.js";
 
 /** A scoped native test client; the caller's Scope owns physical pool shutdown. */
@@ -60,6 +61,7 @@ export const withRealPostgres = Effect.fnUntraced(function* <A, E, R>(
       url: Redacted.make(cluster.url),
       maxConnections: 2,
       applicationName,
+      startupOptions: NativeDatabaseStartupOptions,
     }),
   );
 
@@ -217,6 +219,7 @@ export const withPostgresTestDatabase = Effect.fnUntraced(function* <A, E, R>(
           idleTimeout: "30 seconds",
           connectionTTL: undefined,
           prepare: false,
+          startupOptions: NativeDatabaseStartupOptions,
         }),
       ),
     ),

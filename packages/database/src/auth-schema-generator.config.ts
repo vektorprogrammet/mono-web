@@ -5,6 +5,7 @@ import type { AuthEngineConfig } from "./auth-engine.js";
 import { Config, ConfigProvider, Effect, ManagedRuntime, Layer, Redacted } from "effect";
 import { NativeAuthEngine, AuthSchemaGeneratorLive } from "./auth-engine.js";
 import { AuthPoolLive, nativePgLayer } from "./pg-pool.js";
+import { BetterAuthStartupOptions, NativeDatabaseStartupOptions } from "./search-path.js";
 import { SecretEqualityLive } from "./web-crypto.js";
 import * as BunServices from "@effect/platform-bun/BunServices";
 import process from "node:process";
@@ -52,11 +53,12 @@ const runtime = ManagedRuntime.make(
           maxConnections: 1,
           applicationName: "auth-schema-generator-auth",
           pipeline: false,
+          startupOptions: BetterAuthStartupOptions,
         }),
         nativePgLayer({
           url: Redacted.make(config.postgresUrl),
           maxConnections: 1,
-          startupOptions: "-c search_path=auth,public",
+          startupOptions: NativeDatabaseStartupOptions,
           applicationName: "auth-schema-generator-sql",
         }),
         SecretEqualityLive(globalThis.crypto.subtle),

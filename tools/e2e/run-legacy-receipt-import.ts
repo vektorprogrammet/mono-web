@@ -7,6 +7,7 @@ import { Database } from "@vektorprogrammet/database";
 import { readPrivateCohortJson } from "@vektorprogrammet/database/cohort-cli";
 import { databaseSchemaRevision } from "@vektorprogrammet/database/migrations";
 import { DatabaseRuntimeLive } from "@vektorprogrammet/database/runtime";
+import { NativeDatabaseStartupOptions } from "@vektorprogrammet/database/search-path";
 import { ReceiptCohortFailure, ReceiptReview } from "@vektorprogrammet/domain/receipt";
 import { Console, Effect, Layer, Predicate, Redacted, Schema } from "effect";
 import {
@@ -243,6 +244,7 @@ export const runLegacyReceiptImport = async (input: LegacyReceiptImportOptions) 
                 caEnv === null ? undefined : { ca: process.env[caEnv], rejectUnauthorized: true },
               applicationName: "reviewed-legacy-receipt-import",
               maxConnections: 2,
+              startupOptions: NativeDatabaseStartupOptions,
             }),
           ),
         ),

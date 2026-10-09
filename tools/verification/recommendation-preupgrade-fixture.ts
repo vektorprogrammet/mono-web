@@ -13,6 +13,7 @@ import { Pool } from "pg";
 import { databaseMigrationDefinitions } from "@vektorprogrammet/database/migrations";
 import * as BunServices from "@effect/platform-bun/BunServices";
 import { nativePgLayer } from "@vektorprogrammet/database/pg-pool";
+import { NativeDatabaseStartupOptions } from "@vektorprogrammet/database/search-path";
 import { executePostgresMigration } from "@vektorprogrammet/database/postgres-migration-statements";
 
 const url = process.env.JOURNEY_SEED_PG_URL!;
@@ -38,9 +39,12 @@ const applyMigrations = async (definitions: ReadonlyArray<MigrationDefinition>):
       ),
     }).pipe(
       Effect.provide(
-        nativePgLayer({ url: Redacted.make(url), maxConnections: 1, prepare: false }).pipe(
-          Layer.provide(BunServices.layer),
-        ),
+        nativePgLayer({
+          url: Redacted.make(url),
+          maxConnections: 1,
+          prepare: false,
+          startupOptions: NativeDatabaseStartupOptions,
+        }).pipe(Layer.provide(BunServices.layer)),
       ),
     ),
   );

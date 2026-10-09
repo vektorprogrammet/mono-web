@@ -10,6 +10,7 @@ import {
   postgresTestClient,
   refusingRejectedStatements,
 } from "./test-support/postgres.js";
+import { NativeDatabaseStartupOptions } from "./search-path.js";
 
 const digest = flow(canonicalJsonBytes, sha256Hex);
 
@@ -122,6 +123,7 @@ layer(TestPlatform, { excludeTestServices: true })((it) => {
               idleTimeout: "10 seconds",
               connectionTTL: undefined,
               prepare: false,
+              startupOptions: NativeDatabaseStartupOptions,
             });
 
             expect(

@@ -42,6 +42,7 @@ import {
 } from "@vektorprogrammet/database/organization";
 import { withTypedTransactionFailures } from "@vektorprogrammet/database";
 import { nativePgLayer } from "@vektorprogrammet/database/pg-pool";
+import { NativeDatabaseStartupOptions } from "@vektorprogrammet/database/search-path";
 import { SqlClient } from "effect/sql";
 import { Console, Effect, flow, Redacted, Result, Schema } from "effect";
 import {
@@ -654,6 +655,7 @@ export const runLegacyServiceCutover = async (options: CutoverOptions) => {
           ssl:
             socketPath === null ? { ca: process.env[caEnv!], rejectUnauthorized: true } : undefined,
           applicationName: "legacy-service-cohort-cutover",
+          startupOptions: NativeDatabaseStartupOptions,
         }),
       ),
       Effect.catchTag(["SqlError", "SchemaError"], () =>

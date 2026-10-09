@@ -15,6 +15,7 @@ import {
 import { OrganizationLive } from "@vektorprogrammet/database/organization";
 import { Predicate, Config, Deferred, Effect, Fiber, Layer, Redacted } from "effect";
 import { DatabaseLive } from "../src/layers.js";
+import { NativeDatabaseStartupOptions } from "../src/search-path.js";
 import { TestPlatform } from "../src/test-support/platform.js";
 import { databaseSchemaRevision } from "../src/migrations.js";
 
@@ -69,6 +70,7 @@ const makeProofLayer = (url: Redacted.Redacted<string>, applicationName: string)
     url: Redacted.make(Redacted.value(url)),
     applicationName,
     maxConnections: 1,
+    startupOptions: NativeDatabaseStartupOptions,
   });
 
   const organizationLayer = OrganizationLive.pipe(Layer.provide(databaseLayer));

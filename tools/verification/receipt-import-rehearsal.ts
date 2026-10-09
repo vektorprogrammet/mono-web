@@ -34,6 +34,7 @@ import {
 import * as BunServices from "@effect/platform-bun/BunServices";
 import { Console, Schema, Cause, Predicate, Effect, Layer, Redacted, Struct } from "effect";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
+import { NativeDatabaseStartupOptions } from "@vektorprogrammet/database/search-path";
 import { Database, databaseHealth } from "@vektorprogrammet/database";
 import {
   storeReceiptImportResult,
@@ -169,9 +170,11 @@ try {
   const pgUrl = postgres.url;
   pool = new Pool({ connectionString: pgUrl });
 
-  const databaseLayer = DatabaseLive({ url: Redacted.make(pgUrl), maxConnections: 2 }).pipe(
-    Layer.provide(BunServices.layer),
-  );
+  const databaseLayer = DatabaseLive({
+    url: Redacted.make(pgUrl),
+    maxConnections: 2,
+    startupOptions: NativeDatabaseStartupOptions,
+  }).pipe(Layer.provide(BunServices.layer));
 
   const run = <A, E>(program: Effect.Effect<A, E, Database>) =>
     Effect.runPromise(program.pipe(Effect.provide(databaseLayer)));

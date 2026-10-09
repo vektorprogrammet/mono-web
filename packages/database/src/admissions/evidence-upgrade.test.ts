@@ -9,6 +9,7 @@ import { Effect, FileSystem, Path, Schema } from "effect";
 import { selectDatabaseMigration } from "../migrations.js";
 import { executePostgresMigration } from "../postgres-migration-statements.js";
 import { postgresTestClient, withPostgresTestDatabase } from "../test-support/postgres.js";
+import { NativeDatabaseStartupOptions } from "../search-path.js";
 import { TestPlatform } from "../test-support/platform.js";
 
 const baseline = selectDatabaseMigration("82_admission-outcome-mail");
@@ -146,6 +147,7 @@ describe("R2 migration83 historical citation", () => {
           const pool = yield* postgresTestClient({
             url: Redacted.make(postgres.url),
             maxConnections: 2,
+            startupOptions: NativeDatabaseStartupOptions,
           });
 
           for (const step of preceding)

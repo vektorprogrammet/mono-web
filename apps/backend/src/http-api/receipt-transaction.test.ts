@@ -3,6 +3,7 @@ import { Cause, Deferred, Exit, Fiber, Result, Predicate, Data, Effect } from "e
 import { Database } from "@vektorprogrammet/database";
 import { AdvisoryLockKey, lockAdvisory } from "@vektorprogrammet/database/advisory-lock";
 import { DatabaseRuntimeLive } from "@vektorprogrammet/database/runtime";
+import { NativeDatabaseStartupOptions } from "@vektorprogrammet/database/search-path";
 import { backendPostgres } from "../../test/postgres.js";
 import {
   executeNativeHttpCommandPostgres,
@@ -27,7 +28,14 @@ const runWithExternalSchema = <A, E>(effect: Effect.Effect<A, E, Database>) =>
         if (config === undefined)
           return yield* Effect.die("Missing PostgreSQL connection configuration");
 
-        return yield* Effect.provide(effect, DatabaseRuntimeLive({ ...config, maxConnections: 1 }));
+        return yield* Effect.provide(
+          effect,
+          DatabaseRuntimeLive({
+            ...config,
+            maxConnections: 1,
+            startupOptions: NativeDatabaseStartupOptions,
+          }),
+        );
       }),
     ),
   );

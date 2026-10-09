@@ -25,6 +25,7 @@ import {
   importHistoricalServiceCohort as importHistoricalServiceCohortEffect,
 } from "../src/historical-service-cohort.js";
 import { DatabaseLive } from "../src/layers.js";
+import { NativeDatabaseStartupOptions } from "../src/search-path.js";
 import { importPersonCohort as importPersonCohortEffect } from "../src/person-cohort.js";
 
 import {
@@ -85,9 +86,11 @@ try {
 
   const databaseContext = await Effect.runPromise(
     Layer.buildWithScope(
-      DatabaseLive({ url: Redacted.make(databaseUrl), maxConnections: 4 }).pipe(
-        Layer.provide(BunServices.layer),
-      ),
+      DatabaseLive({
+        url: Redacted.make(databaseUrl),
+        maxConnections: 4,
+        startupOptions: NativeDatabaseStartupOptions,
+      }).pipe(Layer.provide(BunServices.layer)),
       databaseScope,
     ),
   );
@@ -598,9 +601,11 @@ try {
   try {
     const restoredContext = await Effect.runPromise(
       Layer.buildWithScope(
-        DatabaseLive({ url: Redacted.make(restoredUrl), maxConnections: 4 }).pipe(
-          Layer.provide(BunServices.layer),
-        ),
+        DatabaseLive({
+          url: Redacted.make(restoredUrl),
+          maxConnections: 4,
+          startupOptions: NativeDatabaseStartupOptions,
+        }).pipe(Layer.provide(BunServices.layer)),
         restoredScope,
       ),
     );

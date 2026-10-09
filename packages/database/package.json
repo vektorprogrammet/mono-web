@@ -40,6 +40,7 @@
     "./onboarding-account": "./src/onboarding-account.ts",
     "./password-codec": "./src/password-codec.ts",
     "./pg-pool": "./src/pg-pool.ts",
+    "./search-path": "./src/search-path.ts",
     "./test-support/observe-postgres": "./src/test-support/observe-postgres.ts",
     "./test-support/platform": "./src/test-support/platform.ts"
   },

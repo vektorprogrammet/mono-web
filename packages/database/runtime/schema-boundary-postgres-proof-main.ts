@@ -10,6 +10,7 @@ import { selectDatabaseMigration, runDatabaseMigrations } from "../src/migration
 import { DatabaseLive } from "../src/layers.js";
 import { nativePgLayer, type NativePgPoolConfig } from "../src/pg-pool.js";
 import { executePostgresMigration } from "../src/postgres-migration-statements.js";
+import { NativeDatabaseStartupOptions } from "../src/search-path.js";
 import { TestPlatform } from "../src/test-support/platform.js";
 
 const inventory = [
@@ -65,16 +66,27 @@ const databaseUrl = (name: string) =>
   });
 
 /**
- * One native connection on `url` with the search path of the live Database layer. The layer
- * scope that owns it closes its pool and observes the physical close of its transport, within
- * the explicit shutdown timeout.
+ * The earlier schema order that this proof reproduces on purpose: the historical loader, the
+ * registered loader and the catalog sessions run with auth ahead of public. The ordinary Database
+ * read after the move declares the public-only production path instead.
  */
-const poolConfig = (url: string, applicationName: string): NativePgPoolConfig => ({
+const historicalStartupOptions = "-c search_path=auth,public";
+
+/**
+ * One native connection on `url` with the declared `startupOptions`. The layer scope that owns it
+ * closes its pool and observes the physical close of its transport, within the explicit shutdown
+ * timeout.
+ */
+const poolConfig = (
+  url: string,
+  applicationName: string,
+  startupOptions: string,
+): NativePgPoolConfig => ({
   url: Redacted.make(url),
   applicationName,
   maxConnections: 1,
   shutdownTimeout: "30 seconds",
-  startupOptions: "-c search_path=auth,public",
+  startupOptions,
 });
 
 /** The connection that a native client reserves, so that session state stays on it. */
@@ -97,7 +109,10 @@ const withSession = <A, E, R>(
     const session = yield* sql.reserve;
 
     return yield* use(session);
-  }).pipe(Effect.scoped, Effect.provide(nativePgLayer(poolConfig(url, applicationName))));
+  }).pipe(
+    Effect.scoped,
+    Effect.provide(nativePgLayer(poolConfig(url, applicationName, historicalStartupOptions))),
+  );
 
 /** The bytes that `JSON.stringify` writes for `value`. */
 const jsonText = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
@@ -110,7 +125,9 @@ const query = <T extends object = Row>(
 
 const runRegisteredMigrations = (url: string) =>
   runDatabaseMigrations(executePostgresMigration).pipe(
-    Effect.provide(nativePgLayer(poolConfig(url, "schema-boundary-registered-loader"))),
+    Effect.provide(
+      nativePgLayer(poolConfig(url, "schema-boundary-registered-loader", historicalStartupOptions)),
+    ),
   );
 
 const runHistoricalSources = (postgresUrl: string) =>
@@ -146,7 +163,11 @@ const runHistoricalSources = (postgresUrl: string) =>
       }),
     );
   }).pipe(
-    Effect.provide(nativePgLayer(poolConfig(postgresUrl, "schema-boundary-historical-loader"))),
+    Effect.provide(
+      nativePgLayer(
+        poolConfig(postgresUrl, "schema-boundary-historical-loader", historicalStartupOptions),
+      ),
+    ),
   );
 
 const relationName = (schema: "auth" | "public", table: string) => `"${schema}"."${table}"`;
@@ -824,7 +845,11 @@ const runNormalDatabaseRead = (url: string) =>
           schemaQuestionWrite,
         ],
       };
-    }).pipe(Effect.provide(DatabaseLive(poolConfig(url, "schema-boundary-proof")))),
+    }).pipe(
+      Effect.provide(
+        DatabaseLive(poolConfig(url, "schema-boundary-proof", NativeDatabaseStartupOptions)),
+      ),
+    ),
   );
 
 const program = Effect.gen(function* () {

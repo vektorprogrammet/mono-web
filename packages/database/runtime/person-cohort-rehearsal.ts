@@ -11,6 +11,7 @@ import * as BunServices from "@effect/platform-bun/BunServices";
 import { type DisposablePostgres, startDisposablePostgres } from "@monoweb/postgres";
 import { Database } from "@vektorprogrammet/database";
 import { DatabaseLive } from "../src/layers.js";
+import { NativeDatabaseStartupOptions } from "../src/search-path.js";
 import { executePostgresMigration } from "../src/postgres-migration-statements.js";
 import { SqlClient } from "effect/sql";
 import {
@@ -29,9 +30,11 @@ import {
 
 const makeRuntime = (url: string) =>
   ManagedRuntime.make(
-    DatabaseLive({ url: Redacted.make(url), maxConnections: 4 }).pipe(
-      Layer.provide(BunServices.layer),
-    ),
+    DatabaseLive({
+      url: Redacted.make(url),
+      maxConnections: 4,
+      startupOptions: NativeDatabaseStartupOptions,
+    }).pipe(Layer.provide(BunServices.layer)),
   );
 
 const digest = flow(canonicalJsonBytes, sha256Hex);

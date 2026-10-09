@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 import { Config, ConfigProvider, Effect, Layer, Redacted, Schema } from "effect";
 import { Database } from "../src/service.js";
 import { DatabaseLive } from "../src/layers.js";
+import { NativeDatabaseStartupOptions } from "../src/search-path.js";
 import { TestPlatform } from "../src/test-support/platform.js";
 
 const personId = "journey-0065-admin";
@@ -142,6 +143,7 @@ const runMigrations = (url: string) =>
           url: Redacted.make(url),
           applicationName: "identity-browser-0065-proof-migration",
           maxConnections: 1,
+          startupOptions: NativeDatabaseStartupOptions,
         }),
       ),
     ),
@@ -170,7 +172,7 @@ const program = Effect.scoped(
       Layer.build(
         nativePgLayer({
           url: Redacted.make(url),
-          startupOptions: "-c search_path=public",
+          startupOptions: NativeDatabaseStartupOptions,
           maxConnections: 1,
           applicationName: "identity-browser-0056-proof-observer",
         }),

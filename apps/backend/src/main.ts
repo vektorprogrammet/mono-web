@@ -16,6 +16,10 @@ import * as BunHttpPlatform from "@effect/platform-bun/BunHttpPlatform";
 import * as BunServices from "@effect/platform-bun/BunServices";
 import { AuthEngine, AuthLive, databaseHealth } from "@vektorprogrammet/database";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
+import {
+  BetterAuthStartupOptions,
+  NativeDatabaseStartupOptions,
+} from "@vektorprogrammet/database/search-path";
 import { AuthPoolLive } from "@vektorprogrammet/database/pg-pool";
 import { AdmissionsLive } from "@vektorprogrammet/database/admissions";
 import { ReturningAssistantsLive } from "@vektorprogrammet/database/application";
@@ -89,6 +93,7 @@ const databaseLayer = DatabaseLive({
   url: Redacted.make(config.postgresUrl),
   applicationName: "vektorprogrammet-backend",
   maxConnections: 8,
+  startupOptions: NativeDatabaseStartupOptions,
 }).pipe(Layer.provide(BunServices.layer));
 
 const admissionsLayer = AdmissionsLive.pipe(Layer.provide(databaseLayer));
@@ -149,6 +154,7 @@ const authPoolLayer = AuthPoolLive(config.auth, {
   maxConnections: 4,
   applicationName: "vektorprogrammet-backend-auth",
   pipeline: false,
+  startupOptions: BetterAuthStartupOptions,
 });
 
 const authLayer = AuthLive(config.auth, globalThis.crypto.subtle).pipe(

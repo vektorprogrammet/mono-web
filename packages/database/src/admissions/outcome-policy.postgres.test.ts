@@ -37,6 +37,7 @@ import { DepartmentId, PersonId, SemesterId } from "@vektorprogrammet/domain/org
 import { PlacementFailure, Placements } from "@vektorprogrammet/domain/placements";
 import { SchoolId } from "@vektorprogrammet/domain/schools";
 import { DatabaseLive } from "../layers.js";
+import { NativeDatabaseStartupOptions } from "../search-path.js";
 import { type DatabaseMigrationDefinition, selectDatabaseMigration } from "../migrations.js";
 import { executePostgresMigration } from "../postgres-migration-statements.js";
 import { Database, type DatabaseOperations } from "../service.js";
@@ -98,6 +99,7 @@ const database = Layer.unwrap(
       url: Redacted.make(postgres.url),
       applicationName: "outcome-policy-postgres-test",
       maxConnections: 6,
+      startupOptions: NativeDatabaseStartupOptions,
     }).pipe(Layer.provide(TestPlatform)),
   ),
 );
@@ -2424,7 +2426,11 @@ layer(Layer.merge(policy, TestPlatform), { excludeTestServices: true, timeout: "
             postgres.createDatabase("outcome_policy_upgrade"),
           );
 
-          const pool = yield* postgresTestClient({ url: Redacted.make(url), maxConnections: 1 });
+          const pool = yield* postgresTestClient({
+            url: Redacted.make(url),
+            maxConnections: 1,
+            startupOptions: NativeDatabaseStartupOptions,
+          });
 
           for (const migration of baselineMigrations)
             yield* pool.withTransaction(

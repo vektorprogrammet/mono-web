@@ -7,6 +7,7 @@ import {
 } from "./cohort-cli.js";
 import { Database } from "./service.js";
 import { DatabaseLive } from "./layers.js";
+import { NativeDatabaseStartupOptions } from "./search-path.js";
 import {
   decodeIdentityCohort,
   IdentityCohortFailure,
@@ -74,5 +75,13 @@ export const runIdentityCohortCli = Effect.gen(function* () {
     yield* sql.health;
 
     yield* writeCohortReport(summarizeIdentityCohort(yield* importIdentityCohort(sql, input)));
-  }).pipe(Effect.provide(DatabaseLive({ url: Redacted.make(url), maxConnections: 2 })));
+  }).pipe(
+    Effect.provide(
+      DatabaseLive({
+        url: Redacted.make(url),
+        maxConnections: 2,
+        startupOptions: NativeDatabaseStartupOptions,
+      }),
+    ),
+  );
 }).pipe(Effect.scoped);

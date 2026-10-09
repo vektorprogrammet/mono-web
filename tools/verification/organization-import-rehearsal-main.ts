@@ -104,6 +104,7 @@ import {
   type BackendConfig,
 } from "@vektorprogrammet/backend";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
+import { NativeDatabaseStartupOptions } from "@vektorprogrammet/database/search-path";
 import { IdentitySnapshot } from "@vektorprogrammet/database/auth";
 import {
   databaseMigrationDefinitions,
@@ -1385,6 +1386,7 @@ const makeRehearsalRuntime = (
     url: Redacted.make(databaseUrl),
     applicationName: "spec-0067-organization-import-rehearsal",
     maxConnections: 6,
+    startupOptions: NativeDatabaseStartupOptions,
   }).pipe(Layer.provide(BunServices.layer));
 
   const observedDatabaseLayer = Layer.effect(

@@ -13,6 +13,7 @@ import { DatabaseTestLive, TestPlatform } from "./test-support/platform.js";
 import { type DatabaseMigrationId, selectDatabaseMigration } from "./migrations.js";
 import { executePostgresMigration } from "./postgres-migration-statements.js";
 import { postgresTestClient, withPostgresTestDatabase } from "./test-support/postgres.js";
+import { NativeDatabaseStartupOptions } from "./search-path.js";
 
 const inventory = [
   "organization_global_administrator_grants",
@@ -1875,6 +1876,7 @@ describe("decision instant precision upgrade from registered 84", () => {
         const pool = yield* postgresTestClient({
           url: Redacted.make(postgres.url),
           maxConnections: 1,
+          startupOptions: NativeDatabaseStartupOptions,
         });
 
         for (const migration of precisionPreceding)

@@ -18,6 +18,7 @@ import {
 } from "../src/auth-engine.js";
 import { Context, Layer } from "effect";
 import { DatabaseLive } from "../src/layers.js";
+import { BetterAuthStartupOptions, NativeDatabaseStartupOptions } from "../src/search-path.js";
 import { TestPlatform } from "../src/test-support/platform.js";
 import { SecretEqualityLive } from "../src/web-crypto.js";
 
@@ -78,6 +79,7 @@ const applyMigrations = (postgresUrl: string) =>
           url: Redacted.make(postgresUrl),
           applicationName: "identity-seed-migration",
           maxConnections: 1,
+          startupOptions: NativeDatabaseStartupOptions,
         }),
       ),
     ),
@@ -188,7 +190,7 @@ const program = Effect.gen(function* () {
         Layer.build(
           nativePgLayer({
             url: Redacted.make(postgresUrl),
-            startupOptions: "-c search_path=public",
+            startupOptions: NativeDatabaseStartupOptions,
             maxConnections: 1,
             applicationName: "identity-seed-observer",
           }),
@@ -209,12 +211,12 @@ const program = Effect.gen(function* () {
                     maxConnections: 4,
                     applicationName: "stable-auth-proof",
                     pipeline: true,
-                    startupOptions: "-c search_path=auth",
+                    startupOptions: BetterAuthStartupOptions,
                   }),
                   DatabaseRuntimeLive({
                     url: Redacted.make(postgresUrl),
                     maxConnections: 1,
-                    startupOptions: "-c search_path=auth,public",
+                    startupOptions: NativeDatabaseStartupOptions,
                     applicationName: "identity-seed-sql",
                   }),
                 ),

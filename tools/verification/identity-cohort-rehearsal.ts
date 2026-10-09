@@ -26,6 +26,10 @@ import { Console, Schema, flow, Predicate, Effect, Redacted } from "effect";
 import { Database, databaseHealth, SecretEqualityLive } from "@vektorprogrammet/database";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
 import {
+  BetterAuthStartupOptions,
+  NativeDatabaseStartupOptions,
+} from "@vektorprogrammet/database/search-path";
+import {
   NativeAuthEngine,
   NativeAuthEngineLive,
   type AuthEngineConfig,
@@ -153,9 +157,11 @@ try {
 
   const databaseContext = await Effect.runPromise(
     Layer.buildWithScope(
-      DatabaseLive({ url: Redacted.make(databaseUrl), maxConnections: 4 }).pipe(
-        Layer.provide(BunServices.layer),
-      ),
+      DatabaseLive({
+        url: Redacted.make(databaseUrl),
+        maxConnections: 4,
+        startupOptions: NativeDatabaseStartupOptions,
+      }).pipe(Layer.provide(BunServices.layer)),
       databaseScope,
     ),
   );
@@ -926,13 +932,17 @@ try {
             maxConnections: 4,
             applicationName: "identity-cohort-auth",
             pipeline: false,
-            startupOptions: "-c search_path=auth",
+            startupOptions: BetterAuthStartupOptions,
           }),
         ),
         Layer.provideMerge(
           selected.postgresUrl === databaseUrl
             ? Layer.succeed(Database, pool)
-            : DatabaseRuntimeLive({ url: Redacted.make(selected.postgresUrl), maxConnections: 4 }),
+            : DatabaseRuntimeLive({
+                url: Redacted.make(selected.postgresUrl),
+                maxConnections: 4,
+                startupOptions: NativeDatabaseStartupOptions,
+              }),
         ),
         Layer.provide(PasswordCheckLive),
         Layer.provideMerge(BunServices.layer),
@@ -1465,9 +1475,11 @@ try {
   try {
     const restoredContext = await Effect.runPromise(
       Layer.buildWithScope(
-        DatabaseLive({ url: Redacted.make(restoredUrl), maxConnections: 4 }).pipe(
-          Layer.provide(BunServices.layer),
-        ),
+        DatabaseLive({
+          url: Redacted.make(restoredUrl),
+          maxConnections: 4,
+          startupOptions: NativeDatabaseStartupOptions,
+        }).pipe(Layer.provide(BunServices.layer)),
         restoredScope,
       ),
     );

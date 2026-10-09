@@ -8,6 +8,7 @@ import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import { OnboardingBoard } from "@vektorprogrammet/domain/onboarding";
 import { Recruitment } from "@vektorprogrammet/domain/recruitment";
 import { DatabaseRuntimeLive } from "@vektorprogrammet/database/runtime";
+import { NativeDatabaseStartupOptions } from "@vektorprogrammet/database/search-path";
 import { Admissions } from "@vektorprogrammet/domain/admissions";
 import { PublicApplicationSubmitInputSchema } from "@vektorprogrammet/domain/application";
 import {
@@ -132,7 +133,11 @@ const fixture = () => {
 
       if (target === undefined) throw new Error("Missing PostgreSQL connection configuration");
 
-      return DatabaseRuntimeLive({ ...target, maxConnections: 1 }).pipe(Layer.orDie);
+      return DatabaseRuntimeLive({
+        ...target,
+        maxConnections: 1,
+        startupOptions: NativeDatabaseStartupOptions,
+      }).pipe(Layer.orDie);
     });
 
   return { database, submit, read, count, competitor };

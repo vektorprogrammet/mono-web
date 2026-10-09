@@ -29,6 +29,7 @@ import type { NativePgPoolConfig } from "../pg-pool.js";
 import { DatabaseLive } from "../layers.js";
 import { Database } from "../service.js";
 import { nativePgLayer } from "../pg-pool.js";
+import { NativeDatabaseStartupOptions } from "../search-path.js";
 import { TestPlatform } from "../test-support/platform.js";
 import {
   TeamApplicationDeliveryQueue,
@@ -105,6 +106,7 @@ const database = (
       maxConnections: 2,
       connectTimeout: "200 millis",
       stream,
+      startupOptions: NativeDatabaseStartupOptions,
     },
     observer,
   ).pipe(Layer.provide(TestPlatform));
@@ -273,6 +275,7 @@ const verifyFreshStore = Effect.fnUntraced(function* (applicationName: string) {
         stream: transport.stream,
         maxConnections: 1,
         connectTimeout: "200 millis",
+        startupOptions: NativeDatabaseStartupOptions,
       }),
     );
 
@@ -444,6 +447,7 @@ layer(suite, { excludeTestServices: true, timeout: "120 seconds" })(
                   stream: transport.stream,
                   maxConnections: 1,
                   connectTimeout: "200 millis",
+                  startupOptions: NativeDatabaseStartupOptions,
                 }),
               ),
             ),

@@ -31,6 +31,7 @@ import {
 } from "@monoweb/postgres";
 import { Database } from "@vektorprogrammet/database";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
+import { NativeDatabaseStartupOptions } from "@vektorprogrammet/database/search-path";
 import { databaseSchemaRevision } from "@vektorprogrammet/database/migrations";
 import {
   decodePersonCohort,
@@ -69,6 +70,7 @@ const makeRuntime = (url: string, maxConnections: number) =>
       url: Redacted.make(url),
       applicationName: "legacy-backup-person-rehearsal",
       maxConnections,
+      startupOptions: NativeDatabaseStartupOptions,
     }).pipe(Layer.provide(BunServices.layer)),
   );
 

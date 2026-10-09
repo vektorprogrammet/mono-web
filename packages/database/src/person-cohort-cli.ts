@@ -5,6 +5,7 @@ import {
   writeCohortReport,
 } from "./cohort-cli.js";
 import { DatabaseLive } from "./layers.js";
+import { NativeDatabaseStartupOptions } from "./search-path.js";
 import { decodePersonCohort, PersonCohortFailure, importPersonCohort } from "./person-cohort.js";
 import { Database } from "./service.js";
 
@@ -40,5 +41,13 @@ export const runPersonCohortCli = Effect.gen(function* () {
     const sql = yield* Database;
     yield* sql.health;
     yield* writeCohortReport(yield* importPersonCohort(sql, input));
-  }).pipe(Effect.provide(DatabaseLive({ url: Redacted.make(url), maxConnections: 2 })));
+  }).pipe(
+    Effect.provide(
+      DatabaseLive({
+        url: Redacted.make(url),
+        maxConnections: 2,
+        startupOptions: NativeDatabaseStartupOptions,
+      }),
+    ),
+  );
 }).pipe(Effect.scoped);

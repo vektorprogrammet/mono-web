@@ -3,6 +3,7 @@ import { PersonId, DepartmentId } from "@vektorprogrammet/domain/organization";
 import assert from "node:assert/strict";
 import { Config, Console, DateTime, Effect, Layer, Redacted, Schema } from "effect";
 import { DatabaseLive } from "../src/layers.js";
+import { NativeDatabaseStartupOptions } from "../src/search-path.js";
 import { TestPlatform } from "../src/test-support/platform.js";
 import { Database } from "../src/service.js";
 import { OrganizationLive } from "../src/organization/postgres-layer.js";
@@ -23,6 +24,7 @@ const program = Effect.gen(function* () {
         url: Redacted.make(url),
         applicationName: "recommendation-domain-replay",
         maxConnections: 1,
+        startupOptions: NativeDatabaseStartupOptions,
       }),
     ),
   );

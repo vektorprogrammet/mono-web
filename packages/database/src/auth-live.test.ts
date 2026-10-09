@@ -52,6 +52,7 @@ import {
   withNativeAuthProvisioning,
 } from "./auth-engine.js";
 import { DatabaseLive } from "./layers.js";
+import { BetterAuthStartupOptions, NativeDatabaseStartupOptions } from "./search-path.js";
 import { DatabaseTestLive, TestPlatform } from "./test-support/platform.js";
 import { HmacTagVerifierLive, SecretEqualityLive } from "./web-crypto.js";
 
@@ -163,6 +164,7 @@ const databaseLayer = DatabaseLive({
   url: Redacted.make(config.postgresUrl),
   applicationName: "auth-live-focused-test",
   maxConnections: 4,
+  startupOptions: NativeDatabaseStartupOptions,
 }).pipe(Layer.provide(TestPlatform));
 
 /** The suite migrates and truncates its cluster, so it checks that the cluster is disposable first. */
@@ -185,7 +187,7 @@ const authLayer = AuthLive(config, subtle).pipe(
         maxConnections: 4,
         applicationName: "auth-live-test-adapter",
         pipeline: true,
-        startupOptions: "-c search_path=auth",
+        startupOptions: BetterAuthStartupOptions,
       }),
     ),
   ),

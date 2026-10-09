@@ -23,6 +23,7 @@ import {
 import * as SqlClient from "effect/sql/SqlClient";
 import type { SqlError } from "effect/sql/SqlError";
 import { nativePgLayer } from "./pg-pool.js";
+import { NativeDatabaseStartupOptions } from "./search-path.js";
 import {
   CloseSilentPgDuplex,
   observeNativePgTransport,
@@ -72,6 +73,7 @@ layer(postgres, { excludeTestServices: true, timeout: "30 seconds" })(
                     applicationName: "startup-cancel-subject",
                     connectTimeout: "30 seconds",
                     prepare: false,
+                    startupOptions: NativeDatabaseStartupOptions,
                   }),
                 ),
                 ownerScope,
@@ -119,6 +121,7 @@ layer(postgres, { excludeTestServices: true, timeout: "30 seconds" })(
                 maxConnections: 1,
                 connectTimeout: "2 seconds",
                 prepare: false,
+                startupOptions: NativeDatabaseStartupOptions,
               }),
             );
 
@@ -241,6 +244,7 @@ layer(postgres, { excludeTestServices: true, timeout: "30 seconds" })(
                   prepare: false,
                   applicationName: "masked-admission",
                   ...policy.options,
+                  startupOptions: NativeDatabaseStartupOptions,
                 }),
               );
 
@@ -318,7 +322,12 @@ layer(postgres, { excludeTestServices: true, timeout: "30 seconds" })(
             const started = yield* Postgres;
 
             const context = yield* Layer.build(
-              nativePgLayer({ url: Redacted.make(started.url), maxConnections: 1, prepare: false }),
+              nativePgLayer({
+                url: Redacted.make(started.url),
+                maxConnections: 1,
+                prepare: false,
+                startupOptions: NativeDatabaseStartupOptions,
+              }),
             );
 
             const sql = Context.get(context, SqlClient.SqlClient);
@@ -369,7 +378,12 @@ layer(postgres, { excludeTestServices: true, timeout: "30 seconds" })(
             const started = yield* Postgres;
 
             const context = yield* Layer.build(
-              nativePgLayer({ url: Redacted.make(started.url), maxConnections: 1, prepare: false }),
+              nativePgLayer({
+                url: Redacted.make(started.url),
+                maxConnections: 1,
+                prepare: false,
+                startupOptions: NativeDatabaseStartupOptions,
+              }),
             );
 
             const sql = Context.get(context, SqlClient.SqlClient);
@@ -418,6 +432,7 @@ layer(postgres, { excludeTestServices: true, timeout: "30 seconds" })(
                 maxConnections: 1,
                 prepare: false,
                 applicationName: "active-cancel-subject",
+                startupOptions: NativeDatabaseStartupOptions,
               }),
             );
 
@@ -427,6 +442,7 @@ layer(postgres, { excludeTestServices: true, timeout: "30 seconds" })(
                 maxConnections: 1,
                 prepare: false,
                 applicationName: "active-cancel-observer",
+                startupOptions: NativeDatabaseStartupOptions,
               }),
             );
 
@@ -479,6 +495,7 @@ layer(postgres, { excludeTestServices: true, timeout: "30 seconds" })(
               maxConnections: 1,
               applicationName: "physical-close-observer",
               prepare: false,
+              startupOptions: NativeDatabaseStartupOptions,
             }),
           );
 
@@ -500,6 +517,7 @@ layer(postgres, { excludeTestServices: true, timeout: "30 seconds" })(
                     stream: transport.stream,
                     shutdownTimeout: "1800 millis",
                     prepare: false,
+                    startupOptions: NativeDatabaseStartupOptions,
                   }),
                 ),
                 scope,
@@ -580,6 +598,7 @@ layer(postgres, { excludeTestServices: true, timeout: "30 seconds" })(
                 applicationName: "graceful-close-subject",
                 shutdownTimeout: "30 seconds",
                 prepare: false,
+                startupOptions: NativeDatabaseStartupOptions,
               }),
             ),
             scope,
@@ -641,6 +660,7 @@ layer(postgres, { excludeTestServices: true, timeout: "30 seconds" })(
                     stream: transport.stream,
                     applicationName: "omitted-close-subject",
                     prepare: false,
+                    startupOptions: NativeDatabaseStartupOptions,
                   }),
                 ),
                 scope,
@@ -731,6 +751,7 @@ it.effect("discards native layer construction without reading the supplied confi
         inspected = true;
         throw new Error("configuration was inspected during construction");
       },
+      startupOptions: NativeDatabaseStartupOptions,
     });
     assert.isFalse(inspected);
   }),

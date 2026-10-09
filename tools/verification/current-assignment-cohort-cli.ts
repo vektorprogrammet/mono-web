@@ -11,6 +11,7 @@ import {
   importCurrentAssignmentCohort,
 } from "@vektorprogrammet/database/placements";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
+import { NativeDatabaseStartupOptions } from "@vektorprogrammet/database/search-path";
 import { Database } from "@vektorprogrammet/database";
 
 const invalidSnapshot = () => new CurrentAssignmentFailure({ code: "InvalidSnapshot" });
@@ -84,9 +85,11 @@ export const runCurrentAssignmentCohortCli = async (): Promise<void> => {
         return yield* importCurrentAssignmentCohort(sql, input);
       }).pipe(
         Effect.provide(
-          DatabaseLive({ url: Redacted.make(url), maxConnections: 1 }).pipe(
-            Layer.provide(BunServices.layer),
-          ),
+          DatabaseLive({
+            url: Redacted.make(url),
+            maxConnections: 1,
+            startupOptions: NativeDatabaseStartupOptions,
+          }).pipe(Layer.provide(BunServices.layer)),
         ),
       ),
     ),

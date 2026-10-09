@@ -3,6 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import process from "node:process";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
+import { NativeDatabaseStartupOptions } from "@vektorprogrammet/database/search-path";
 import { AdmissionsLive } from "@vektorprogrammet/database/admissions";
 import { OrganizationLive } from "@vektorprogrammet/database/organization";
 import { ProfileLive } from "@vektorprogrammet/database/profile";
@@ -34,6 +35,7 @@ const databaseLayer = DatabaseLive({
   url: Redacted.make(requiredEnvironment("BACKEND_PG_URL")),
   applicationName: "native-scheduling-recording-evidence",
   maxConnections: 1,
+  startupOptions: NativeDatabaseStartupOptions,
 }).pipe(Layer.provide(BunServices.layer));
 
 const admissionsLayer = AdmissionsLive.pipe(Layer.provide(databaseLayer));

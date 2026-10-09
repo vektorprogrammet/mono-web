@@ -6,6 +6,7 @@
 import process from "node:process";
 import * as BunServices from "@effect/platform-bun/BunServices";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
+import { NativeDatabaseStartupOptions } from "@vektorprogrammet/database/search-path";
 import { Database, databaseHealth } from "@vektorprogrammet/database";
 import {
   deliverNextReceiptOutbox,
@@ -56,6 +57,7 @@ if (!config) throw new TypeError("Receipt delivery is not configured");
 const database = DatabaseLive({
   url: Redacted.make(environment.postgresUrl),
   maxConnections: 2,
+  startupOptions: NativeDatabaseStartupOptions,
 }).pipe(Layer.provide(BunServices.layer));
 
 const services = Layer.mergeAll(

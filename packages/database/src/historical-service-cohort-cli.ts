@@ -11,6 +11,7 @@ import {
   importHistoricalServiceCohort,
 } from "./historical-service-cohort.js";
 import { DatabaseLive } from "./layers.js";
+import { NativeDatabaseStartupOptions } from "./search-path.js";
 import { Database } from "./service.js";
 
 const invalidSnapshot = () => new HistoricalServiceFailure({ code: "InvalidSnapshot" });
@@ -58,5 +59,13 @@ export const runHistoricalServiceCohortCli = Effect.gen(function* () {
     yield* sql.health;
 
     yield* writeCohortReport(yield* importHistoricalServiceCohort(sql, input));
-  }).pipe(Effect.provide(DatabaseLive({ url: Redacted.make(url), maxConnections: 2 })));
+  }).pipe(
+    Effect.provide(
+      DatabaseLive({
+        url: Redacted.make(url),
+        maxConnections: 2,
+        startupOptions: NativeDatabaseStartupOptions,
+      }),
+    ),
+  );
 }).pipe(Effect.scoped);

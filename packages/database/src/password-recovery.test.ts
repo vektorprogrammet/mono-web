@@ -7,6 +7,7 @@ import { createLocalAccountIssuer } from "better-auth";
 import { Context, Layer, Logger, Redacted } from "effect";
 import { Database } from "./service.js";
 import { DatabaseLive } from "./layers.js";
+import { BetterAuthStartupOptions, NativeDatabaseStartupOptions } from "./search-path.js";
 import { AuthPoolLive } from "./pg-pool.js";
 import {
   NativeAuthEngine,
@@ -302,12 +303,13 @@ layer(TestPlatform, { excludeTestServices: true })("owned recovery boundary", (i
                   url: Redacted.make(cluster.url),
                   maxConnections: 1,
                   applicationName: "native-recovery-proof-sql",
+                  startupOptions: NativeDatabaseStartupOptions,
                 }),
                 AuthPoolLive(liveConfig, {
                   maxConnections: 1,
                   applicationName: "native-recovery-proof-auth",
                   pipeline: true,
-                  startupOptions: "-c search_path=auth",
+                  startupOptions: BetterAuthStartupOptions,
                 }),
               ),
             ),

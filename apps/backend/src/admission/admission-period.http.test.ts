@@ -6,6 +6,7 @@ import { Database, IdentitySnapshot, type DatabaseOperations } from "@vektorprog
 import { AdmissionsLive } from "@vektorprogrammet/database/admissions";
 import { OrganizationLive } from "@vektorprogrammet/database/organization";
 import { DatabaseRuntimeLive } from "@vektorprogrammet/database/runtime";
+import { NativeDatabaseStartupOptions } from "@vektorprogrammet/database/search-path";
 import {
   Identity,
   IdentityActor,
@@ -159,7 +160,11 @@ const fixture = () =>
     if (target === undefined) throw new Error("Missing PostgreSQL connection configuration");
 
     const connection = () =>
-      DatabaseRuntimeLive({ ...target, maxConnections: 1 }).pipe(Layer.orDie);
+      DatabaseRuntimeLive({
+        ...target,
+        maxConnections: 1,
+        startupOptions: NativeDatabaseStartupOptions,
+      }).pipe(Layer.orDie);
 
     const http = makeBackendTestHttp(
       yield* decodeBackendConfig(environment),
