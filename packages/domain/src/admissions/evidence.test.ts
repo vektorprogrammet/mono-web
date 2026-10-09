@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { DateTime, Effect, Schema } from "effect";
+import { DateTime, Effect, flow, Result, Schema } from "effect";
 import { ApplicationAdmissionEvidence } from "./evidence.js";
 import { admissionStanding } from "./standing.js";
 
@@ -25,7 +25,10 @@ const decode = Schema.decodeUnknownEffect(ApplicationAdmissionEvidence);
 
 const encode = Schema.encodeEffect(ApplicationAdmissionEvidence);
 
-const encodeFixtureLabel = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
+const encodeFixtureLabel = flow(
+  Schema.encodeResult(Schema.fromJsonString(Schema.Unknown)),
+  Result.getOrThrow,
+);
 
 describe("canonical application admission evidence boundary", () => {
   it.effect("canonical encoded evidence round-trips with domain Instants", () =>

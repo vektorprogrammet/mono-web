@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Schema } from "effect";
+import { Result, Schema } from "effect";
 import {
   buildSchoolServiceProposal,
   canManagePlacements,
@@ -32,53 +32,57 @@ describe("volunteer affiliation authority and lifecycle", () => {
     expect(nextAffiliationStatus("Pending", "Withdraw")).toBe("Inactive");
   });
   it("self nomination cannot carry a third-party person selector", () => {
-    expect(() =>
-      Schema.decodeUnknownSync(OwnAffiliationCommand)(
-        { action: "Request", personId: PersonId.make("other") },
-        { onExcessProperty: "error" },
+    expect(
+      Result.isFailure(
+        Schema.decodeUnknownResult(OwnAffiliationCommand, { onExcessProperty: "error" })({
+          action: "Request",
+          personId: PersonId.make("other"),
+        }),
       ),
-    ).toThrow();
+    ).toBe(true);
   });
   it("historical leadership, a team leadership and membership in another department do not authorize placement", () => {
-    const authority = Schema.decodeSync(OrganizationPersonAuthoritySchema)({
-      personId: PersonId.make("coordinator"),
-      evaluatedAt: "2026-09-06T00:00:00.000Z",
-      globalAdministrator: "Absent",
-      memberships: [
-        {
-          membershipId: "old",
-          teamId: "old-team",
-          departmentId: DepartmentId.make("b"),
-          active: false,
-          unitLeader: true,
-          unitKind: "DepartmentBoard",
-          teamScope: "HomeDepartment",
-          departmentIndependent: true,
-        },
-        {
-          membershipId: "current",
-          teamId: "current-team",
-          departmentId: DepartmentId.make("a"),
-          active: true,
-          unitLeader: true,
-          unitKind: "DepartmentBoard",
-          teamScope: "HomeDepartment",
-          departmentIndependent: true,
-        },
-        {
-          membershipId: "team-leader",
-          teamId: "skolekoordinering-c",
-          departmentId: DepartmentId.make("c"),
-          active: true,
-          unitLeader: true,
-          unitKind: "Team",
-          teamScope: "HomeDepartment",
-          departmentIndependent: true,
-        },
-      ],
-      nationalBoardSeats: [],
-      delegations: [],
-    });
+    const authority = Result.getOrThrow(
+      Schema.decodeResult(OrganizationPersonAuthoritySchema)({
+        personId: PersonId.make("coordinator"),
+        evaluatedAt: "2026-09-06T00:00:00.000Z",
+        globalAdministrator: "Absent",
+        memberships: [
+          {
+            membershipId: "old",
+            teamId: "old-team",
+            departmentId: DepartmentId.make("b"),
+            active: false,
+            unitLeader: true,
+            unitKind: "DepartmentBoard",
+            teamScope: "HomeDepartment",
+            departmentIndependent: true,
+          },
+          {
+            membershipId: "current",
+            teamId: "current-team",
+            departmentId: DepartmentId.make("a"),
+            active: true,
+            unitLeader: true,
+            unitKind: "DepartmentBoard",
+            teamScope: "HomeDepartment",
+            departmentIndependent: true,
+          },
+          {
+            membershipId: "team-leader",
+            teamId: "skolekoordinering-c",
+            departmentId: DepartmentId.make("c"),
+            active: true,
+            unitLeader: true,
+            unitKind: "Team",
+            teamScope: "HomeDepartment",
+            departmentIndependent: true,
+          },
+        ],
+        nationalBoardSeats: [],
+        delegations: [],
+      }),
+    );
 
     expect(canManagePlacements(authority, DepartmentId.make("a"))).toBe(true);
     expect(canManagePlacements(authority, DepartmentId.make("b"))).toBe(false);
@@ -110,48 +114,55 @@ describe("placement boundaries", () => {
     { block: "3" },
     { schoolId: 0 },
   ])("rejects invalid teaching assignment %j", (change) => {
-    expect(() => Schema.decodeUnknownSync(PlacementValues)({ ...valid, ...change })).toThrow();
+    expect(
+      Result.isFailure(Schema.decodeUnknownResult(PlacementValues)({ ...valid, ...change })),
+    ).toBe(true);
   });
   it("preserves all three distinct legacy block choices", () => {
     for (const block of ["1", "2", "Both"])
-      expect(Schema.decodeUnknownSync(PlacementValues)({ ...valid, block }).block).toBe(block);
+      expect(
+        Result.getOrThrow(Schema.decodeUnknownResult(PlacementValues)({ ...valid, block })).block,
+      ).toBe(block);
   });
   it("cannot change the person or semester of an existing placement", () => {
-    expect(() =>
-      Schema.decodeUnknownSync(PlacementCommand)(
-        {
+    expect(
+      Result.isFailure(
+        Schema.decodeUnknownResult(PlacementCommand, { onExcessProperty: "error" })({
           action: "Edit",
           placementId: `placement-${"a".repeat(64)}`,
           ...valid,
           personId: PersonId.make("other"),
           semesterId: "other",
-        },
-        { onExcessProperty: "error" },
+        }),
       ),
-    ).toThrow();
+    ).toBe(true);
   });
   it("rejects persistence-overflow demand and calendar-invalid occurrence input", () => {
-    expect(() =>
-      Schema.decodeSync(PlacementCommand)({
-        action: "SetDemand",
-        schoolId: 1,
-        day: "Monday",
-        block: "1",
-        requiredVolunteers: 2_147_483_648,
-      }),
-    ).toThrow();
-    expect(() =>
-      Schema.decodeSync(PlacementCommand)({
-        action: "ScheduleService",
-        proposalId: `school-service-proposal-${"a".repeat(64)}`,
-        schoolId: 1,
-        day: "Monday",
-        block: "1",
-        serviceDate: "2026-02-30",
-        startTime: "09:00",
-        endTime: "11:00",
-      }),
-    ).toThrow();
+    expect(
+      Result.isFailure(
+        Schema.decodeResult(PlacementCommand)({
+          action: "SetDemand",
+          schoolId: 1,
+          day: "Monday",
+          block: "1",
+          requiredVolunteers: 2_147_483_648,
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      Result.isFailure(
+        Schema.decodeResult(PlacementCommand)({
+          action: "ScheduleService",
+          proposalId: `school-service-proposal-${"a".repeat(64)}`,
+          schoolId: 1,
+          day: "Monday",
+          block: "1",
+          serviceDate: "2026-02-30",
+          startTime: "09:00",
+          endTime: "11:00",
+        }),
+      ),
+    ).toBe(true);
   });
 });
 

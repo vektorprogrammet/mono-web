@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Predicate, Effect, Schema } from "effect";
+import { Predicate, Effect, flow, Result, Schema } from "effect";
 import { DepartmentId, PersonId } from "../organization/schema.js";
 import {
   AccessEvaluation,
@@ -129,18 +129,24 @@ const receiptCommandAccess = makeAccessSpec({
 
 describe("principal, credential, and access algebra", () => {
   it("decodes every deferred OAuth credential and the service principal independently", () => {
-    const servicePrincipal = Schema.decodeSync(PrincipalSchema)(
-      PrincipalSchema.cases.ServicePrincipal.make({
-        servicePrincipalId: ServicePrincipalId.make("service-sync"),
-      }),
+    const servicePrincipal = Result.getOrThrow(
+      Schema.decodeResult(PrincipalSchema)(
+        PrincipalSchema.cases.ServicePrincipal.make({
+          servicePrincipalId: ServicePrincipalId.make("service-sync"),
+        }),
+      ),
     );
 
     const mechanisms = [
-      Schema.decodeSync(CredentialMechanismSchema)(
-        CredentialMechanismSchema.cases.OAuthUserBearer.make({}),
+      Result.getOrThrow(
+        Schema.decodeResult(CredentialMechanismSchema)(
+          CredentialMechanismSchema.cases.OAuthUserBearer.make({}),
+        ),
       ),
-      Schema.decodeSync(CredentialMechanismSchema)(
-        CredentialMechanismSchema.cases.OAuthServiceBearer.make({}),
+      Result.getOrThrow(
+        Schema.decodeResult(CredentialMechanismSchema)(
+          CredentialMechanismSchema.cases.OAuthServiceBearer.make({}),
+        ),
       ),
     ];
 
@@ -270,18 +276,18 @@ describe("principal, credential, and access algebra", () => {
         canonicalScopeResolver: "unknown.resolver",
       }),
     ).toThrow();
-    expect(() =>
-      Schema.decodeUnknownSync(ScopeSchema)(
-        Schema.decodeSync(Schema.fromJsonString(Schema.Json))(
-          '{"_tag":"Tenant","tenantId":"tenant-one"}',
-        ),
-      ),
-    ).toThrow();
-    expect(() =>
-      Schema.decodeUnknownSync(ScopeSchema)(
-        Schema.decodeSync(Schema.fromJsonString(Schema.Json))('{"_tag":"Receipt"}'),
-      ),
-    ).toThrow();
+
+    const decodeJson = flow(
+      Schema.decodeResult(Schema.fromJsonString(Schema.Json)),
+      Result.getOrThrow,
+    );
+
+    const decodeScope = Schema.decodeUnknownResult(ScopeSchema);
+
+    expect(
+      Result.isFailure(decodeScope(decodeJson('{"_tag":"Tenant","tenantId":"tenant-one"}'))),
+    ).toBe(true);
+    expect(Result.isFailure(decodeScope(decodeJson('{"_tag":"Receipt"}')))).toBe(true);
     expect(() =>
       makeAccessSpec({
         ...publicAccess,
@@ -308,7 +314,7 @@ describe("principal, credential, and access algebra", () => {
       tooDeep = Scope.And({ left: Scope.Global(), right: tooDeep });
     }
 
-    expect(() => Schema.decodeSync(ScopeSchema)(tooDeep)).toThrow();
+    expect(Result.isFailure(Schema.decodeResult(ScopeSchema)(tooDeep))).toBe(true);
   });
 
   it("rejects resolver and requirement context-schema mismatches at registration", () => {

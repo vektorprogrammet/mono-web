@@ -1,6 +1,6 @@
 import { deny, allow } from "./decision.js";
 import { describe, expect, it } from "@effect/vitest";
-import { Schema, Match, Predicate, Effect } from "effect";
+import { Schema, Match, Predicate, Effect, flow, Result } from "effect";
 import { DepartmentId, PersonId } from "../organization/schema.js";
 import {
   DomainId,
@@ -56,6 +56,14 @@ const tagId = AuthzTagId.make("authz-tag");
 
 const otherTagId = AuthzTagId.make("authz-other-tag");
 
+// A fixture that does not decode is a defect of the test, so it throws its schema error.
+const decodeRuleFixture = flow(Schema.decodeUnknownResult(AuthzRuleSchema), Result.getOrThrow);
+
+const decodeStrictRuleFixture = flow(
+  Schema.decodeUnknownResult(AuthzRuleSchema, { onExcessProperty: "error" }),
+  Result.getOrThrow,
+);
+
 const approvalRule = (options: {
   readonly ruleId: string;
   readonly subject?: AuthzRule["subject"];
@@ -66,7 +74,7 @@ const approvalRule = (options: {
 }): AuthzRule => {
   const slot = options.slot ?? "EconomyGlobalReceiptApprovalGrant";
 
-  return Schema.decodeUnknownSync(AuthzRuleSchema)({
+  return decodeRuleFixture({
     ruleId: AuthzRuleId.make(options.ruleId),
     capabilityId: "approveReceipt",
     effectKind: "delegate",
@@ -106,7 +114,7 @@ const requirementRule = (
   ruleId: string,
   requirementId: "receipts.pending" | "receipts.approver-relationship",
 ): AuthzRule =>
-  Schema.decodeUnknownSync(AuthzRuleSchema)({
+  decodeRuleFixture({
     ruleId: AuthzRuleId.make(ruleId),
     capabilityId: "approveReceipt",
     effectKind: "requirement",
@@ -503,20 +511,17 @@ const makeTruthTableRule = (row: CapabilityTruthTableRow): AuthzRule => {
         }
       : { slot: row.declaredSlotMatch.slot };
 
-  return Schema.decodeUnknownSync(AuthzRuleSchema)(
-    {
-      ruleId: AuthzRuleId.make(row.ruleId),
-      capabilityId: row.ruleCapabilityId,
-      effectKind: row.effectKind.value,
-      subject,
-      scope,
-      params,
-      startAt: row.activity.startAt,
-      endAt: row.activity.endAt,
-      revision: 0,
-    },
-    { onExcessProperty: "error" },
-  );
+  return decodeStrictRuleFixture({
+    ruleId: AuthzRuleId.make(row.ruleId),
+    capabilityId: row.ruleCapabilityId,
+    effectKind: row.effectKind.value,
+    subject,
+    scope,
+    params,
+    startAt: row.activity.startAt,
+    endAt: row.activity.endAt,
+    revision: 0,
+  });
 };
 
 const makeTruthTableFacts = (row: CapabilityTruthTableRow): AuthzApplicabilityFacts =>
@@ -881,7 +886,10 @@ describe("authorization rule decoding", () => {
       { ...encodedRule, effectKind: "parameter" },
       {
         ...encodedRule,
-        scope: Schema.decodeSync(Schema.fromJsonString(Schema.Json))('{"_tag":"UnknownScope"}'),
+        scope: flow(
+          Schema.decodeResult(Schema.fromJsonString(Schema.Json)),
+          Result.getOrThrow,
+        )('{"_tag":"UnknownScope"}'),
       },
       { ...encodedRule, capabilityId: "reviewApplicants" },
       { ...encodedRule, params: { slot: "UnknownSlot" } },

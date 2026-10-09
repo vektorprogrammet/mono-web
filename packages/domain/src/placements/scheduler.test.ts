@@ -1,6 +1,9 @@
+/**
+ * EX-0020: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { describe, expect, it } from "@effect/vitest";
-import { Effect, Random, Schema } from "effect";
-import { Arbitrary } from "effect/unstable/arbitrary";
+import { Arbitrary, Effect, Order, Random, Schema } from "effect";
 import { DepartmentId, PersonId, SemesterId } from "../organization/index.js";
 import { SchoolId } from "../schools/index.js";
 import {
@@ -110,8 +113,10 @@ describe("placement drafting", () => {
       }
 
       expect(
-        [...plan.assignments.map((assignment) => assignment.personId), ...plan.unplaced].sort(),
-      ).toEqual([...byPerson.keys()].sort());
+        [...plan.assignments.map((assignment) => assignment.personId), ...plan.unplaced].sort(
+          Order.String,
+        ),
+      ).toEqual([...byPerson.keys()].sort(Order.String));
     },
     propertyOptions,
   );

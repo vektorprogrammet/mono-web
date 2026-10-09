@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Schema } from "effect";
+import { Result, Schema } from "effect";
 import {
   AdmissionOutcome,
   AdmissionOutcomeCommand,
@@ -50,15 +50,17 @@ const authorityOf = (
     readonly delegations?: ReadonlyArray<unknown>;
   } = {},
 ) =>
-  Schema.decodeUnknownSync(OrganizationPersonAuthoritySchema)({
-    personId: PersonId.make("person"),
-    evaluatedAt,
-    globalAdministrator: "Absent",
-    memberships: [],
-    nationalBoardSeats: [],
-    delegations: [],
-    ...parts,
-  });
+  Result.getOrThrow(
+    Schema.decodeUnknownResult(OrganizationPersonAuthoritySchema)({
+      personId: PersonId.make("person"),
+      evaluatedAt,
+      globalAdministrator: "Absent",
+      memberships: [],
+      nationalBoardSeats: [],
+      delegations: [],
+      ...parts,
+    }),
+  );
 
 const delegation = (capability: DelegatedCapability, overrides: DelegationOverrides = {}) => ({
   delegationId: `delegation-${"c".repeat(64)}`,

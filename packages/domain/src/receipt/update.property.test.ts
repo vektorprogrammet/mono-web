@@ -1,8 +1,12 @@
+/**
+ * EX-0020: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { Scope } from "../authz/access.js";
 import { expect, it } from "@effect/vitest";
 import { DepartmentId, PersonId } from "../organization/schema.js";
 import { Effect, Schema } from "effect";
-import type { CheckOptions } from "effect/unstable/arbitrary/Arbitrary";
+import type { CheckOptions } from "effect/Arbitrary";
 import { ReceiptId, type ReceiptActor, type ReceiptFile, ApprovalScopeSchema } from "./schema.js";
 import { AuthorizedReceiptCommandSchema, decideReceipt } from "./update.js";
 

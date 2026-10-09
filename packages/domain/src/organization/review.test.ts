@@ -127,17 +127,19 @@ it("preserves reviewed titles and suspension while boards cannot grant leadershi
     sourceRowDigest: organizationEvidenceDigest(suspendedRow),
   };
 
-  const reviewed = Schema.decodeUnknownSync(OrganizationReview)({
-    ...review,
-    memberships: [
-      { ...review.memberships[0], sourceRowDigest: teamOccurrence.sourceRowDigest },
-      {
-        ...review.memberships[0],
-        sourceKind: "BoardMembership",
-        sourceRowDigest: boardOccurrence.sourceRowDigest,
-      },
-    ],
-  });
+  const reviewed = Result.getOrThrow(
+    Schema.decodeUnknownResult(OrganizationReview)({
+      ...review,
+      memberships: [
+        { ...review.memberships[0], sourceRowDigest: teamOccurrence.sourceRowDigest },
+        {
+          ...review.memberships[0],
+          sourceKind: "BoardMembership",
+          sourceRowDigest: boardOccurrence.sourceRowDigest,
+        },
+      ],
+    }),
+  );
 
   const snapshot: ReviewedOrganizationSnapshot = {
     sourceRepository: "repo",
