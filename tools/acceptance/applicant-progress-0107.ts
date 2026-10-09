@@ -13,13 +13,13 @@ import { writeFile } from "node:fs/promises";
 import { inspect } from "node:util";
 import { createPromiseClient } from "../../packages/sdk/src/promise.js";
 import {
-  decodeApplicantProgressResponse,
+  ApplicantProgressResponseSchema,
   PublicApplicationEmailSchema,
 } from "../../packages/domain/src/application/schema.js";
 import type { Page } from "playwright";
 import { join } from "node:path";
 import type { Pool, PoolClient } from "pg";
-import {Array as Arr,  Match, Predicate, Schema } from "effect";
+import { Array as Arr, Match, Predicate, Result, Schema } from "effect";
 import { admissionJourneyClock } from "../e2e/journey-clock.ts";
 
 export const applicantProgressUnlinkedIdentity = {
@@ -403,7 +403,7 @@ export const runApplicantProgress0107 = async (input: {
   assert.ok(unlinkedCookie);
   const unlinkedResponse = await request("/api/applicant-progress", unlinkedCookie);
   assert.equal(unlinkedResponse.status, 200);
-  assert.deepEqual(decodeApplicantProgressResponse(await unlinkedResponse.json()).applications, []);
+  assert.deepEqual(Result.getOrThrow(Schema.decodeUnknownResult(ApplicantProgressResponseSchema)(await unlinkedResponse.json())).applications, []);
 
   const expiredSessions = await input.pool.query(
     `UPDATE auth.session SET "expiresAt"=date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC')-interval '1 minute' WHERE "userId"=$1`,
@@ -412,14 +412,14 @@ export const runApplicantProgress0107 = async (input: {
 
   assert.ok((expiredSessions.rowCount ?? 0) >= 1);
   assert.equal((await request("/api/applicant-progress", unlinkedCookie)).status, 401);
-  const body = decodeApplicantProgressResponse(await response.json());
+  const body = Result.getOrThrow(Schema.decodeUnknownResult(ApplicantProgressResponseSchema)(await response.json()));
   const tags = body.applications.map((application) => application.progress._tag);
   const observedStates = new Set(tags);
 
   const readCompletedApplicationState = async () => {
-    const current = decodeApplicantProgressResponse(
+    const current = Result.getOrThrow(Schema.decodeUnknownResult(ApplicantProgressResponseSchema)(
       await (await request("/api/applicant-progress")).json(),
-    );
+    ));
 
     const application = current.applications.find(
       (candidate) => candidate.applicationId === "application-progress-completed-0107",
@@ -442,7 +442,7 @@ export const runApplicantProgress0107 = async (input: {
   };
 
   const sdkResponse = await readSdk();
-  const sdkBody = decodeApplicantProgressResponse(sdkResponse.body);
+  const sdkBody = Result.getOrThrow(Schema.decodeResult(ApplicantProgressResponseSchema)(sdkResponse.body));
   assert.equal(sdkBody.personId, body.personId);
   assert.deepEqual(sdkBody.applications, body.applications);
 
@@ -466,8 +466,8 @@ export const runApplicantProgress0107 = async (input: {
     assert.ok(current);
     assert.ok(
       previous.submittedAt > current.submittedAt ||
-        (previous.submittedAt === current.submittedAt &&
-          previous.applicationId.localeCompare(current.applicationId) <= 0),
+      (previous.submittedAt === current.submittedAt &&
+        previous.applicationId.localeCompare(current.applicationId) <= 0),
       "applicant progress is not in deterministic newest-first order",
     );
   }

@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Schema, flow, Result } from "effect";
 
 const MAX_REQUEST_BODY_BYTES = 1_048_576;
 
@@ -20,7 +20,7 @@ const parseMaxBodyBytes = (raw: string | undefined): number => {
   const parsed = Number(value);
 
   try {
-    return Schema.decodeSync(BoundedBodyBytesSchema)(parsed);
+    return flow(Schema.decodeResult(BoundedBodyBytesSchema), Result.getOrThrow)(parsed);
   } catch {
     throw new Error("ORGANIZATION_MAX_BODY_BYTES must be a positive safe integer");
   }

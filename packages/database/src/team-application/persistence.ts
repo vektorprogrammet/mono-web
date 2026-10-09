@@ -1,5 +1,9 @@
+/**
+ * EX-0021: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { Predicate } from "effect";
-import { isSqlError } from "effect/unstable/sql/SqlError";
+import { isSqlError } from "effect/sql/SqlError";
 import { TeamApplicationPersistenceError } from "@vektorprogrammet/domain/team-application";
 
 const serializationConflict = (cause: unknown, depth: number): boolean =>

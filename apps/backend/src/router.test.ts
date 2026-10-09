@@ -40,7 +40,7 @@ import {
 } from "@vektorprogrammet/domain/authz";
 import { Economy } from "@vektorprogrammet/domain/receipt";
 import { NativeProblem, SocialEventsReadScopeProblem } from "@vektorprogrammet/http-api";
-import { DateTime, Effect, Layer, Schema } from "effect";
+import { DateTime, Effect, Layer, Schema, flow, Result } from "effect";
 import { describe, expect, it } from "@effect/vitest";
 import { decodeBackendConfig } from "./config.js";
 import { contactConfig } from "./contact/config.js";
@@ -577,7 +577,10 @@ describe("unified backend router", () => {
   describe("classifies absent and rejected credentials at ingress", () => {
     const personChallenge = 'VektorSession realm="native-api", Bearer realm="native-api"';
 
-    const decodeProblemCode = Schema.decodeUnknownSync(Schema.Struct({ code: Schema.String }));
+    const decodeProblemCode = flow(
+      Schema.decodeUnknownResult(Schema.Struct({ code: Schema.String })),
+      Result.getOrThrow,
+    );
 
     const classifyingBackend = backendHttpHandler(
       config,

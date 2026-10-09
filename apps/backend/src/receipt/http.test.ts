@@ -69,7 +69,7 @@ import {
   type ReceiptStatus,
   type ReceiptSubmissionAllocation,
 } from "@vektorprogrammet/domain/receipt";
-import { Predicate, DateTime, Effect, Layer, Schema, Struct } from "effect";
+import { Predicate, DateTime, Effect, Layer, Schema, Struct, flow, Result } from "effect";
 import { describe, expect, it } from "@effect/vitest";
 import { jsonText } from "../http-api/problem.js";
 import { deriveHttpIdentity, deriveStrongETag } from "../http-semantics.js";
@@ -137,7 +137,10 @@ const pendingReceipt = (overrides: Partial<ProjectionRow> = {}): ProjectionRow =
 const settlementEvidence = (
   overrides: Partial<ReceiptSettlementEvidence> = {},
 ): ReceiptSettlementEvidence =>
-  Schema.decodeSync(ReceiptSettlementEvidenceSchema)({
+  flow(
+    Schema.decodeResult(ReceiptSettlementEvidenceSchema),
+    Result.getOrThrow,
+  )({
     settlementId: "settlement-one",
     receiptId,
     amountOre: 1200,
@@ -1636,8 +1639,14 @@ describe("receipt v0.2 HTTP contract", () => {
           grant: currentGrant,
           receipt: {
             ...row,
-            receiptId: Schema.decodeSync(ReceiptResource.fields.receiptId)(row.receiptId),
-            visualId: Schema.decodeSync(ReceiptResource.fields.visualId)(row.visualId),
+            receiptId: flow(
+              Schema.decodeResult(ReceiptResource.fields.receiptId),
+              Result.getOrThrow,
+            )(row.receiptId),
+            visualId: flow(
+              Schema.decodeResult(ReceiptResource.fields.visualId),
+              Result.getOrThrow,
+            )(row.visualId),
             ownerPersonId: personId,
           },
         });

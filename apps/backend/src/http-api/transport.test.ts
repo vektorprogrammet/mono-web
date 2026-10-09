@@ -1,3 +1,7 @@
+/**
+ * EX-0024: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { backendTestConfig } from "../../test/config.js";
 import { OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import { Identity, IdentityEngineError } from "@vektorprogrammet/domain/identity";
@@ -7,20 +11,17 @@ import {
   NativeProblem,
   Problem,
 } from "@vektorprogrammet/http-api";
-import { Effect, Layer, Schema, SchemaAST, SchemaIssue } from "effect";
-import {
-  HttpApi,
-  HttpApiError,
-  type HttpApiEndpoint,
-  type HttpApiGroup,
-} from "effect/unstable/httpapi";
+import { Effect, Exit, Fiber, Layer, Schema, SchemaAST, SchemaIssue } from "effect";
+import { HttpApi, HttpApiError, type HttpApiEndpoint, type HttpApiGroup } from "effect/http-api";
 import { describe, expect, it, vi } from "@effect/vitest";
 import {
   makeContentManagementTestHttp,
   makeOrganizationTestHttp,
   makeProfileTestHttp,
 } from "../test/native-http.js";
-import { requestSchemaErrorResponse } from "./transport.js";
+import { nativeHttpApiMiddlewareLayer, requestSchemaErrorResponse } from "./transport.js";
+import { contactConfig } from "../contact/config.js";
+import { TestPlatform } from "../test/platform.js";
 
 const expectProblem = (response: Response, status: number, code: string) =>
   Effect.gen(function* () {
@@ -252,5 +253,70 @@ describe("request schema error coverage", () => {
       ]);
       expect(gaps).toEqual([]);
     }),
+  );
+});
+
+describe("Contact token verifier lifetime", () => {
+  const contact = contactConfig({
+    CONTACT_BACKEND_TOKEN: "backend-test-credential-0000000000000000",
+    CONTACT_DELIVERY_TOKEN: "delivery-test",
+    CONTACT_SENDER: "contact@example.invalid",
+    CONTACT_DELIVERY_URL: "http://127.0.0.1:9999",
+    CONTACT_DELIVERY_TIMEOUT_MS: "100",
+  })!;
+
+  it.live("fails closed on key import failure and clears the temporary key bytes", () =>
+    Effect.gen(function* () {
+      let material: Uint8Array | undefined;
+
+      const subtle: NonNullable<Parameters<typeof nativeHttpApiMiddlewareLayer>[1]> = {
+        importKey: (_format, keyData) => {
+          if (keyData instanceof Uint8Array) material = keyData;
+
+          return Promise.reject(new Error("synthetic key import failure"));
+        },
+        sign: globalThis.crypto.subtle.sign.bind(globalThis.crypto.subtle),
+        verify: globalThis.crypto.subtle.verify.bind(globalThis.crypto.subtle),
+      };
+
+      const exit = yield* Layer.build(nativeHttpApiMiddlewareLayer(contact, subtle)).pipe(
+        Effect.exit,
+      );
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(material?.byteLength).toBe(32);
+      expect(material?.every((byte) => byte === 0)).toBe(true);
+    }).pipe(Effect.scoped, Effect.provide(TestPlatform)),
+  );
+
+  it.live("interrupts pending key acquisition and clears its temporary bytes", () =>
+    Effect.gen(function* () {
+      let material: Uint8Array | undefined;
+
+      const pending =
+        Promise.withResolvers<Awaited<ReturnType<typeof globalThis.crypto.subtle.importKey>>>();
+
+      const entered = Promise.withResolvers<void>();
+
+      const subtle: NonNullable<Parameters<typeof nativeHttpApiMiddlewareLayer>[1]> = {
+        importKey: (_format, keyData) => {
+          if (keyData instanceof Uint8Array) material = keyData;
+          entered.resolve();
+
+          return pending.promise;
+        },
+        sign: globalThis.crypto.subtle.sign.bind(globalThis.crypto.subtle),
+        verify: globalThis.crypto.subtle.verify.bind(globalThis.crypto.subtle),
+      };
+
+      const acquisition = Layer.build(nativeHttpApiMiddlewareLayer(contact, subtle));
+      const fiber = yield* acquisition.pipe(Effect.forkChild);
+
+      yield* Effect.promise(() => entered.promise);
+      expect(material?.byteLength).toBe(32);
+      yield* Fiber.interrupt(fiber);
+      expect(material?.every((byte) => byte === 0)).toBe(true);
+      pending.reject(new Error("synthetic interrupted import"));
+    }).pipe(Effect.scoped, Effect.provide(TestPlatform)),
   );
 });

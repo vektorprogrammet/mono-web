@@ -1,3 +1,7 @@
+/**
+ * EX-0024: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import {
   AdmissionOutcomeCommand,
   AdmissionOutcomeScope,
@@ -25,7 +29,7 @@ import {
 } from "@vektorprogrammet/http-api";
 import { Problem, type StrongETag } from "@vektorprogrammet/http-api/http-semantics";
 import { Effect, Match } from "effect";
-import type { HttpApiGroup } from "effect/unstable/httpapi";
+import type { HttpApiGroup } from "effect/http-api";
 import {
   type AdmissionOutcomesGuards,
   type AdmissionOutcomesRawHandlers,

@@ -50,10 +50,10 @@ interface Coordination {
  * handle(request).pipe(withIdentityRequestCancellation(request));
  * ```
  * @avoid Running a runtime inside the operation or recovering interruption as an HTTP response.
- * @construct runtime-bridge
+ * @construct http-transport
  */
 export const withIdentityRequestCancellation =
-  (request: Request) =>
+  (request: Request): (<A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>) =>
   <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
     Effect.suspend(() =>
       request.signal.aborted

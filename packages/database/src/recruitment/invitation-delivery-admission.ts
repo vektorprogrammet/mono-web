@@ -1,5 +1,9 @@
+/**
+ * EX-0021: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { Brand, Effect, Schema } from "effect";
-import type { SqlError } from "effect/unstable/sql/SqlError";
+import type { SqlError } from "effect/sql/SqlError";
 import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import {
   OutboxClaimLost,

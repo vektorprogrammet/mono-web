@@ -1,3 +1,7 @@
+/**
+ * EX-0028: required public native SQL APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import assert from "node:assert/strict";
 import { createHash, randomBytes, webcrypto } from "node:crypto";
 import {
@@ -30,7 +34,9 @@ import {
 } from "@vektorprogrammet/domain/receipt";
 import * as BunServices from "@effect/platform-bun/BunServices";
 import { Console, Effect, Match, Redacted, Schema } from "effect";
-import type { Pool } from "pg";
+import type { DatabaseOperations } from "@vektorprogrammet/database";
+import { executePostgresMigration } from "@vektorprogrammet/database/postgres-migration-statements";
+import { SqlClient } from "effect/sql";
 import * as PaymentCustody from "@vektorprogrammet/backend/receipt/payment-account";
 import * as FileCustody from "@vektorprogrammet/backend/receipt/filesystem";
 import {
@@ -197,23 +203,23 @@ type Summary = typeof Summary.Type;
 
 type Roots = { archive: string; staging: string; committed: string };
 
-type StoredReceipt = {
-  receipt_id: string;
-  visual_id: string;
-  owner_person_id: string;
-  department_id: string;
-  amount_ore: string;
-  status: string;
-  approved_at: string | null;
-  description: string;
-  payment_account_ciphertext: string;
-  file_ref: string;
-  file_object_key: string;
-  file_content_type: "application/pdf" | "image/png" | "image/jpeg";
-  file_byte_length: number;
-  file_sha256: string;
-  revision: number;
-};
+const StoredReceipt = Schema.Struct({
+  receipt_id: Schema.String,
+  visual_id: Schema.String,
+  owner_person_id: Schema.String,
+  department_id: Schema.String,
+  amount_ore: Schema.String,
+  status: Schema.String,
+  approved_at: Schema.NullOr(Schema.String),
+  description: Schema.String,
+  payment_account_ciphertext: Schema.String,
+  file_ref: Schema.String,
+  file_object_key: Schema.String,
+  file_content_type: Schema.Literals(["application/pdf", "image/png", "image/jpeg"]),
+  file_byte_length: Schema.Finite,
+  file_sha256: Schema.String,
+  revision: Schema.Finite,
+});
 
 const privateJson = async (path: string, value: Schema.Json): Promise<void> => {
   await writeFile(path, JSON.stringify(value) + "\n", { mode: 0o600 });
@@ -245,32 +251,43 @@ const tree = async (root: string): Promise<Record<string, string>> => {
   return entries;
 };
 
-const receipts = async (pool: Pool): Promise<StoredReceipt[]> =>
-  (
-    await pool.query<StoredReceipt>(`
- SELECT receipt_id,visual_id,owner_person_id,department_id,amount_ore::text AS amount_ore,status,
- to_char(approved_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS approved_at,
- description,payment_account_ciphertext,file_ref,file_object_key,file_content_type,file_byte_length,file_sha256,revision
- FROM public.economy_receipts ORDER BY visual_id
+const receipts = (sql: DatabaseOperations) =>
+  Effect.runPromise(
+    sql
+      .unsafe(`
+SELECT receipt_id,visual_id,owner_person_id,department_id,amount_ore::text AS amount_ore,status,
+to_char(approved_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS approved_at,
+description,payment_account_ciphertext,file_ref,file_object_key,file_content_type,file_byte_length,file_sha256,revision
+FROM public.economy_receipts ORDER BY visual_id
 `)
-  ).rows;
+      .pipe(Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(StoredReceipt)))),
+  );
 
-const noInventedEffects = async (pool: Pool): Promise<Record<string, number>> => {
-  const tables = (
-    await pool.query<{ name: string }>(`
+const noInventedEffects = async (sql: DatabaseOperations): Promise<Record<string, number>> => {
+  const tables = await Effect.runPromise(
+    sql
+      .unsafe(`
     SELECT format('%I.%I',schemaname,tablename) AS name FROM pg_tables
     WHERE schemaname='public' AND (tablename LIKE '%audit%' OR tablename LIKE '%outbox%'
       OR tablename LIKE '%grant%' OR tablename LIKE '%settlement%' OR tablename LIKE '%transfer%'
       OR tablename LIKE '%command_receipt%' OR tablename LIKE 'economy_%authorities') ORDER BY 1
   `)
-  ).rows;
+      .pipe(
+        Effect.flatMap(
+          Schema.decodeUnknownEffect(Schema.Array(Schema.Struct({ name: Schema.String }))),
+        ),
+      ),
+  );
 
   const result: Record<string, number> = {};
 
   for (const { name } of tables) {
     result[name] = Number(
-      (await pool.query<{ count: string }>(`SELECT count(*)::text AS count FROM ${name}`)).rows[0]!
-        .count,
+      (
+        await Effect.runPromise(
+          sql.unsafe<{ count: string }>(`SELECT count(*)::text AS count FROM ${name}`),
+        )
+      )[0]!.count,
     );
     assert.equal(result[name], 0, "Receipt import fabricated native authority or effects");
   }
@@ -278,13 +295,19 @@ const noInventedEffects = async (pool: Pool): Promise<Record<string, number>> =>
   return result;
 };
 
-const assertNoAccountPersistence = async (pool: Pool): Promise<void> => {
-  const tables = (
-    await pool.query<{ name: string }>(`
+const assertNoAccountPersistence = async (sql: DatabaseOperations): Promise<void> => {
+  const tables = await Effect.runPromise(
+    sql
+      .unsafe(`
     SELECT format('%I.%I',schemaname,tablename) AS name FROM pg_tables
     WHERE schemaname IN ('public','auth') ORDER BY 1
   `)
-  ).rows;
+      .pipe(
+        Effect.flatMap(
+          Schema.decodeUnknownEffect(Schema.Array(Schema.Struct({ name: Schema.String }))),
+        ),
+      ),
+  );
 
   const forbidden = [
     account,
@@ -295,9 +318,15 @@ const assertNoAccountPersistence = async (pool: Pool): Promise<void> => {
   ];
 
   for (const { name } of tables) {
-    const rows = (
-      await pool.query<{ row: unknown }>(`SELECT to_jsonb(value) AS row FROM ${name} value`)
-    ).rows;
+    const rows = await Effect.runPromise(
+      sql
+        .unsafe(`SELECT to_jsonb(value) AS row FROM ${name} value`)
+        .pipe(
+          Effect.flatMap(
+            Schema.decodeUnknownEffect(Schema.Array(Schema.Struct({ row: Schema.Json }))),
+          ),
+        ),
+    );
 
     for (const row of rows) {
       const text = JSON.stringify(row);
@@ -449,12 +478,20 @@ const rehearse = async () =>
     const primary = await freshTarget("receipt_reviewed");
     const personSnapshotKey = digest([repository, personSnapshotId]);
 
-    const acceptedPeople = (
-      await primary.pool.query<{ source_user_id: string }>(
-        "SELECT source_user_id FROM person_cohort_accepted_mappings WHERE snapshot_key=$1 ORDER BY source_user_id",
-        [personSnapshotKey],
-      )
-    ).rows;
+    const acceptedPeople = await Effect.runPromise(
+      primary.sql
+        .unsafe(
+          "SELECT source_user_id FROM person_cohort_accepted_mappings WHERE snapshot_key=$1 ORDER BY source_user_id",
+          [personSnapshotKey],
+        )
+        .pipe(
+          Effect.flatMap(
+            Schema.decodeUnknownEffect(
+              Schema.Array(Schema.Struct({ source_user_id: Schema.String })),
+            ),
+          ),
+        ),
+    );
 
     assert.deepEqual(
       acceptedPeople.map((row) => row.source_user_id),
@@ -681,7 +718,7 @@ const rehearse = async () =>
     };
 
     stage = "ReviewFailuresBeforeTargetAndFileIO";
-    const pristine = await targetFingerprint(primary.pool);
+    const pristine = await targetFingerprint(primary.sql);
     const pristineFiles = await tree(roots.staging);
 
     const refusal = async (name: string, value: Schema.Json, code?: string) => {
@@ -689,7 +726,7 @@ const rehearse = async () =>
       const candidatePath = join(temporaryRoot, `${name}.json`);
       await privateJson(candidatePath, value);
       safeFailure(await invoke(primary, roots, candidatePath), code);
-      assert.equal(await targetFingerprint(primary.pool), pristine);
+      assert.equal(await targetFingerprint(primary.sql), pristine);
       assert.deepEqual(await tree(roots.staging), pristineFiles);
       assert.deepEqual(await tree(roots.committed), {});
       checked(name);
@@ -745,7 +782,7 @@ const rehearse = async () =>
 
     for (const path of Object.values(unavailable))
       await assert.rejects(lstat(path), { code: "ENOENT" });
-    assert.equal(await targetFingerprint(primary.pool), pristine);
+    assert.equal(await targetFingerprint(primary.sql), pristine);
     checked("malformed review wins over unreachable connections and absent file roots");
 
     stage = "PrivateFilesAndTransportSelections";
@@ -784,7 +821,7 @@ const rehearse = async () =>
 
     noLeaks(malformedOptions.stdout + malformedOptions.stderr);
     safeFailure(malformedOptions);
-    assert.equal(await targetFingerprint(primary.pool), pristine);
+    assert.equal(await targetFingerprint(primary.sql), pristine);
     assert.deepEqual(await tree(roots.staging), pristineFiles);
     checked(
       "owner-only JSON and key files, symlink rejection, explicit selections, insecure remote transport refused",
@@ -797,7 +834,7 @@ const rehearse = async () =>
     assert.equal(first.reconciled, 3);
     assert.equal(first.pending, 0);
     assert.equal(first.complete, true);
-    const initialReceipts = await receipts(primary.pool);
+    const initialReceipts = await receipts(primary.sql);
     assert.deepEqual(
       initialReceipts.map((row) => [row.visual_id, row.status, row.approved_at, row.amount_ore]),
       [
@@ -816,8 +853,8 @@ const rehearse = async () =>
       );
     }
 
-    await noInventedEffects(primary.pool);
-    await assertNoAccountPersistence(primary.pool);
+    await noInventedEffects(primary.sql);
+    await assertNoAccountPersistence(primary.sql);
     checked(
       "all occurrences accounted for; pending/rejected stale refunds ignored only by review; refunded means approval not payment",
     );
@@ -878,31 +915,31 @@ const rehearse = async () =>
     );
 
     stage = "ExactReplay";
-    const acceptedFingerprint = await targetFingerprint(primary.pool);
+    const acceptedFingerprint = await targetFingerprint(primary.sql);
     const replay = await success(primary, roots);
     assertSummary(replay);
     assert.equal(replay.replay, true);
     assert.equal(replay.complete, true);
-    assert.equal(await targetFingerprint(primary.pool), acceptedFingerprint);
-    assert.deepEqual(await receipts(primary.pool), initialReceipts);
+    assert.equal(await targetFingerprint(primary.sql), acceptedFingerprint);
+    assert.deepEqual(await receipts(primary.sql), initialReceipts);
     checked(
       "actual process restart exact replay preserves ciphertext, identities, dispositions and facts",
     );
 
     stage = "UnchangedAcceptedSourceAcrossSnapshots";
 
-    const bindingsBeforeReuse = (
-      await primary.pool.query(
+    const bindingsBeforeReuse = await Effect.runPromise(
+      primary.sql.unsafe(
         "SELECT * FROM receipt_cohort_source_bindings ORDER BY source_primary_key",
-      )
-    ).rows;
+      ),
+    );
 
-    const acceptedBeforeReuse = (
-      await primary.pool.query(
+    const acceptedBeforeReuse = await Effect.runPromise(
+      primary.sql.unsafe(
         "SELECT accepted_result_json FROM receipt_cohort_occurrences WHERE snapshot_key=$1 AND disposition='Accepted' ORDER BY source_primary_key",
         [first.snapshotKey],
-      )
-    ).rows;
+      ),
+    );
 
     const committedBeforeReuse = await tree(roots.committed);
     const laterReviewPath = join(temporaryRoot, "unchanged-source-later-snapshot.json");
@@ -918,34 +955,34 @@ const rehearse = async () =>
     assert.equal(reused.replay, false);
     assert.equal(reused.complete, true);
     assert.notEqual(reused.snapshotKey, first.snapshotKey);
-    assert.deepEqual(await receipts(primary.pool), initialReceipts);
+    assert.deepEqual(await receipts(primary.sql), initialReceipts);
     assert.deepEqual(
-      (
-        await primary.pool.query(
+      await Effect.runPromise(
+        primary.sql.unsafe(
           "SELECT * FROM receipt_cohort_source_bindings ORDER BY source_primary_key",
-        )
-      ).rows,
+        ),
+      ),
       bindingsBeforeReuse,
     );
     assert.deepEqual(
-      (
-        await primary.pool.query(
+      await Effect.runPromise(
+        primary.sql.unsafe(
           "SELECT accepted_result_json FROM receipt_cohort_occurrences WHERE snapshot_key=$1 AND disposition='Accepted' ORDER BY source_primary_key",
           [reused.snapshotKey],
-        )
-      ).rows,
+        ),
+      ),
       acceptedBeforeReuse,
     );
     assert.deepEqual(
-      (
-        await primary.pool.query(
+      await Effect.runPromise(
+        primary.sql.unsafe(
           "SELECT count(*)::int AS count FROM economy_receipt_import_ledger WHERE result='Accepted'",
-        )
-      ).rows,
+        ),
+      ),
       [{ count: 3 }],
     );
     assert.deepEqual(await tree(roots.committed), committedBeforeReuse);
-    await noInventedEffects(primary.pool);
+    await noInventedEffects(primary.sql);
     checked(
       "unchanged accepted source crosses snapshots with original facts, ciphertext, file identities and exactly one durable source binding",
     );
@@ -957,7 +994,7 @@ const rehearse = async () =>
     const corruptReplay = await success(primary, roots);
     assert.equal(corruptReplay.complete, false);
     assert.equal(corruptReplay.pending, 1);
-    assert.equal((await receipts(primary.pool))[0]!.payment_account_ciphertext, ciphertext);
+    assert.equal((await receipts(primary.sql))[0]!.payment_account_ciphertext, ciphertext);
     await rm(committedPath);
     const archivePath = join(roots.archive, "pending.pdf");
     await rm(archivePath);
@@ -968,22 +1005,24 @@ const rehearse = async () =>
     const recoveredReplay = await success(primary, roots);
     assert.equal(recoveredReplay.complete, true);
     assert.equal(sha256(await readFile(committedPath)), encrypted.file_sha256);
-    assert.deepEqual(await receipts(primary.pool), initialReceipts);
+    assert.deepEqual(await receipts(primary.sql), initialReceipts);
     checked(
       "fresh replay detects corrupt/deleted custody and restores original bytes from authorized archive",
     );
 
     stage = "NativeEditPreservation";
-    await primary.pool.query(
-      "UPDATE economy_receipts SET description='native edited receipt',amount_ore=4321,revision=revision+1 WHERE receipt_id=$1",
-      [encrypted.receipt_id],
+    await Effect.runPromise(
+      primary.sql.unsafe(
+        "UPDATE economy_receipts SET description='native edited receipt',amount_ore=4321,revision=revision+1 WHERE receipt_id=$1",
+        [encrypted.receipt_id],
+      ),
     );
-    const edited = await receipts(primary.pool);
+    const edited = await receipts(primary.sql);
     const editedReplay = await success(primary, roots);
     assert.equal(editedReplay.replay, true);
     assert.equal(editedReplay.complete, false);
     assert.equal(editedReplay.pending, 1);
-    assert.deepEqual(await receipts(primary.pool), edited);
+    assert.deepEqual(await receipts(primary.sql), edited);
     assert.deepEqual(
       edited.map((row) => row.payment_account_ciphertext),
       ciphertexts,
@@ -993,7 +1032,7 @@ const rehearse = async () =>
     );
 
     stage = "ImmutableSourceAndReviewConflicts";
-    const conflictFingerprint = await targetFingerprint(primary.pool);
+    const conflictFingerprint = await targetFingerprint(primary.sql);
     const conflictFiles = await tree(roots.committed);
 
     const conflict = async (name: string, candidate: Schema.Json, code?: string) => {
@@ -1001,7 +1040,7 @@ const rehearse = async () =>
       const path = join(temporaryRoot, `${name}.json`);
       await privateJson(path, candidate);
       safeFailure(await invoke(primary, roots, path), code);
-      assert.equal(await targetFingerprint(primary.pool), conflictFingerprint);
+      assert.equal(await targetFingerprint(primary.sql), conflictFingerprint);
       assert.deepEqual(await tree(roots.committed), conflictFiles);
       checked(name);
     };
@@ -1043,7 +1082,7 @@ const rehearse = async () =>
     await mysql(`UPDATE vektor.receipt SET description='${description}-1' WHERE id=1`);
     await mysql(`UPDATE vektor.user SET accountNumber='${alternateAccount}' WHERE id=1`);
     safeFailure(await invoke(primary, roots));
-    assert.equal(await targetFingerprint(primary.pool), conflictFingerprint);
+    assert.equal(await targetFingerprint(primary.sql), conflictFingerprint);
     await mysql(`UPDATE vektor.user SET accountNumber='${account}' WHERE id=1`);
     checked("changed source account invalidates reviewed commitment without target/file mutation");
 
@@ -1121,19 +1160,19 @@ const rehearse = async () =>
         ),
       ),
     );
-    assert.equal((await receipts(nativeOwnership.pool))[0]?.receipt_id, nativeIdentity);
+    assert.equal((await receipts(nativeOwnership.sql))[0]?.receipt_id, nativeIdentity);
     assert.deepEqual(
-      (
-        await nativeOwnership.pool.query(
+      await Effect.runPromise(
+        nativeOwnership.sql.unsafe(
           "SELECT count(*)::int AS count FROM receipt_cohort_source_bindings",
-        )
-      ).rows,
+        ),
+      ),
       [{ count: 0 }],
     );
-    const nativeBeforeReviewed = await targetFingerprint(nativeOwnership.pool);
+    const nativeBeforeReviewed = await targetFingerprint(nativeOwnership.sql);
     const nativeBytesBeforeReviewed = await tree(nativeRoots.committed);
     safeFailure(await invoke(nativeOwnership, nativeRoots), "SourceConflict");
-    assert.equal(await targetFingerprint(nativeOwnership.pool), nativeBeforeReviewed);
+    assert.equal(await targetFingerprint(nativeOwnership.sql), nativeBeforeReviewed);
     assert.deepEqual(await tree(nativeRoots.committed), nativeBytesBeforeReviewed);
     assert.deepEqual(await tree(nativeRoots.staging), {});
     checked(
@@ -1158,13 +1197,13 @@ const rehearse = async () =>
     );
 
     assert.equal(reverseImport._tag, "AcceptedReceiptImport");
-    const receiptsBeforeNativeAttempt = await receipts(primary.pool);
+    const receiptsBeforeNativeAttempt = await receipts(primary.sql);
 
-    const reviewedBindingsBeforeNativeAttempt = (
-      await primary.pool.query(
+    const reviewedBindingsBeforeNativeAttempt = await Effect.runPromise(
+      primary.sql.unsafe(
         "SELECT * FROM receipt_cohort_source_bindings ORDER BY source_primary_key",
-      )
-    ).rows;
+      ),
+    );
 
     await Effect.runPromise(
       storeReceiptImportResult(reverseImport).pipe(
@@ -1178,25 +1217,25 @@ const rehearse = async () =>
         ),
       ),
     );
-    assert.deepEqual(await receipts(primary.pool), receiptsBeforeNativeAttempt);
+    assert.deepEqual(await receipts(primary.sql), receiptsBeforeNativeAttempt);
     assert.deepEqual(
-      (
-        await primary.pool.query(
+      await Effect.runPromise(
+        primary.sql.unsafe(
           "SELECT * FROM receipt_cohort_source_bindings ORDER BY source_primary_key",
-        )
-      ).rows,
+        ),
+      ),
       reviewedBindingsBeforeNativeAttempt,
     );
     assert.deepEqual(
-      (
-        await primary.pool.query(
+      await Effect.runPromise(
+        primary.sql.unsafe(
           "SELECT result,reasons_json FROM economy_receipt_import_ledger WHERE snapshot_id='reverse-native-snapshot'",
-        )
-      ).rows,
+        ),
+      ),
       [{ result: "Quarantined", reasons_json: { reasons: ["SourceIdentityCollision"] } }],
     );
     assert.deepEqual(await tree(roots.committed), conflictFiles);
-    await noInventedEffects(primary.pool);
+    await noInventedEffects(primary.sql);
     checked(
       "alternate native importer cannot acquire an already reviewed source: persisted quarantine, no second receipt or file change",
     );
@@ -1217,17 +1256,15 @@ const rehearse = async () =>
     );
     const concurrencyReplay = await success(concurrent, concurrentRoots);
     assert.equal(concurrencyReplay.complete, true);
-    const concurrentReceipts = await receipts(concurrent.pool);
+    const concurrentReceipts = await receipts(concurrent.sql);
     assert.equal(concurrentReceipts.length, 3);
     assert.deepEqual(
-      (
-        await concurrent.pool.query(
-          "SELECT count(*)::int AS count FROM receipt_cohort_source_bindings",
-        )
-      ).rows,
+      await Effect.runPromise(
+        concurrent.sql.unsafe("SELECT count(*)::int AS count FROM receipt_cohort_source_bindings"),
+      ),
       [{ count: 3 }],
     );
-    await noInventedEffects(concurrent.pool);
+    await noInventedEffects(concurrent.sql);
     checked(
       "concurrent real CLI imports serialize source ownership; one cohort, no duplicate receipt or effects",
     );
@@ -1238,19 +1275,21 @@ const rehearse = async () =>
     const nativePath = join(collisionRoots.committed, "native", "unrelated.pdf");
     await mkdir(join(collisionRoots.committed, "native"), { mode: 0o700 });
     await writeFile(nativePath, pdf, { mode: 0o600 });
-    await collision.pool.query(
-      `INSERT INTO economy_receipts(
-    receipt_id,visual_id,owner_person_id,department_id,amount_ore,currency,description,receipt_date,
-    submitted_at,status,approved_at,payment_account_ciphertext,file_ref,file_object_key,file_content_type,file_byte_length,file_sha256,revision
-  ) VALUES('unrelated-native-receipt','RECEIPT-1','legacy-person-1','legacy-department:1',999,'NOK','Native receipt','2026-08-20',
-    '2026-08-21T12:00:00Z','Pending',NULL,$1,'native-stage/unrelated.pdf','native/unrelated.pdf','application/pdf',$2,$3,4)`,
-      [
-        await Effect.runPromise(cipher.encrypt(account, "unrelated-native-receipt")),
-        pdf.byteLength,
-        sha256(pdf),
-      ],
+    await Effect.runPromise(
+      collision.sql.unsafe(
+        `INSERT INTO economy_receipts(
+        receipt_id,visual_id,owner_person_id,department_id,amount_ore,currency,description,receipt_date,
+        submitted_at,status,approved_at,payment_account_ciphertext,file_ref,file_object_key,file_content_type,file_byte_length,file_sha256,revision
+      ) VALUES('unrelated-native-receipt','RECEIPT-1','legacy-person-1','legacy-department:1',999,'NOK','Native receipt','2026-08-20',
+        '2026-08-21T12:00:00Z','Pending',NULL,$1,'native-stage/unrelated.pdf','native/unrelated.pdf','application/pdf',$2,$3,4)`,
+        [
+          await Effect.runPromise(cipher.encrypt(account, "unrelated-native-receipt")),
+          pdf.byteLength,
+          sha256(pdf),
+        ],
+      ),
     );
-    const nativeBefore = (await receipts(collision.pool))[0]!;
+    const nativeBefore = (await receipts(collision.sql))[0]!;
     const collisionReport = await success(collision, collisionRoots);
     assertSummary(collisionReport, 2);
     assert.ok(
@@ -1259,7 +1298,7 @@ const rehearse = async () =>
         ?.reasons.includes("DuplicateVisualId"),
     );
     assert.deepEqual(
-      (await receipts(collision.pool)).find((row) => row.receipt_id === "unrelated-native-receipt"),
+      (await receipts(collision.sql)).find((row) => row.receipt_id === "unrelated-native-receipt"),
       nativeBefore,
     );
     assert.equal(sha256(await readFile(nativePath)), sha256(pdf));
@@ -1277,25 +1316,30 @@ const rehearse = async () =>
     await mkdir(join(rollbackRoots.committed, "native"), { mode: 0o700 });
     const unrelated = join(rollbackRoots.committed, "native", "retained.pdf");
     await writeFile(unrelated, pdf, { mode: 0o600 });
-    await rollback.pool
-      .query(`CREATE FUNCTION fail_receipt_proof_insert() RETURNS trigger LANGUAGE plpgsql AS $$
-    BEGIN RAISE EXCEPTION 'private-sql-parameter-must-not-leak'; END $$;
-    CREATE TRIGGER fail_receipt_proof_insert BEFORE INSERT ON receipt_cohort_occurrences
-    FOR EACH ROW EXECUTE FUNCTION fail_receipt_proof_insert()`);
+    await Effect.runPromise(
+      executePostgresMigration(`CREATE FUNCTION fail_receipt_proof_insert() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN RAISE EXCEPTION 'private-sql-parameter-must-not-leak'; END $$;
+        CREATE TRIGGER fail_receipt_proof_insert BEFORE INSERT ON receipt_cohort_occurrences
+        FOR EACH ROW EXECUTE FUNCTION fail_receipt_proof_insert()`).pipe(
+        Effect.provideService(SqlClient.SqlClient, rollback.sql),
+      ),
+    );
     // A previous accepted import owns these bytes; this failed attempt must not remove them.
     await mkdir(join(rollbackRoots.staging, "staging"), { mode: 0o700 });
     await writeFile(join(rollbackRoots.staging, encrypted.file_ref), pdf, { mode: 0o600 });
     const preexistingStage = await tree(rollbackRoots.staging);
-    const beforeRollback = await targetFingerprint(rollback.pool);
+    const beforeRollback = await targetFingerprint(rollback.sql);
     safeFailure(await invoke(rollback, rollbackRoots), "PersistenceFailure");
-    assert.equal(await targetFingerprint(rollback.pool), beforeRollback);
+    assert.equal(await targetFingerprint(rollback.sql), beforeRollback);
     assert.deepEqual(await tree(rollbackRoots.staging), preexistingStage);
     assert.equal(sha256(await readFile(unrelated)), sha256(pdf));
     safeFailure(await invoke(rollback, roots), "PersistenceFailure");
-    assert.equal(await targetFingerprint(rollback.pool), beforeRollback);
+    assert.equal(await targetFingerprint(rollback.sql), beforeRollback);
     assert.deepEqual(await tree(roots.committed), conflictFiles);
-    await rollback.pool.query(
-      "DROP TRIGGER fail_receipt_proof_insert ON receipt_cohort_occurrences; DROP FUNCTION fail_receipt_proof_insert()",
+    await Effect.runPromise(
+      executePostgresMigration(
+        "DROP TRIGGER fail_receipt_proof_insert ON receipt_cohort_occurrences; DROP FUNCTION fail_receipt_proof_insert()",
+      ).pipe(Effect.provideService(SqlClient.SqlClient, rollback.sql)),
     );
     const afterRollback = await success(rollback, rollbackRoots);
     assertSummary(afterRollback);
@@ -1315,7 +1359,7 @@ const rehearse = async () =>
     assert.equal(pendingReport.complete, false);
     assert.equal(pendingReport.pending, 3);
     assert.equal(pendingReport.reconciled, 0);
-    const pendingReceipts = await receipts(pending.pool);
+    const pendingReceipts = await receipts(pending.sql);
 
     for (const receipt of pendingReceipts)
       assert.equal(
@@ -1323,11 +1367,11 @@ const rehearse = async () =>
         receipt.file_sha256,
       );
 
-    const durablePending = (
-      await pending.pool.query(
+    const durablePending = await Effect.runPromise(
+      pending.sql.unsafe(
         "SELECT reconciliation_result,count(*)::int AS count FROM economy_receipt_import_ledger WHERE result='Accepted' GROUP BY reconciliation_result",
-      )
-    ).rows;
+      ),
+    );
 
     assert.deepEqual(durablePending, [{ reconciliation_result: "Pending", count: 3 }]);
     checked(
@@ -1368,27 +1412,27 @@ const rehearse = async () =>
     await cp(pendingRoots.archive, restoredRoots.archive, { recursive: true, dereference: false });
     await cp(pendingRoots.staging, restoredRoots.staging, { recursive: true });
     await mkdir(restoredRoots.committed, { mode: 0o700 });
-    assert.deepEqual(await receipts(restore.pool), pendingReceipts);
+    assert.deepEqual(await receipts(restore.sql), pendingReceipts);
     // Destroy one staged object in the restored copy: durable metadata and the authorized archive must suffice.
     await rm(join(restoredRoots.staging, pendingReceipts[0]!.file_ref));
     const restoredReport = await success(restore, restoredRoots);
     assertSummary(restoredReport);
     assert.equal(restoredReport.replay, true);
     assert.equal(restoredReport.complete, true);
-    assert.deepEqual(await receipts(restore.pool), pendingReceipts);
+    assert.deepEqual(await receipts(restore.sql), pendingReceipts);
 
     for (const receipt of pendingReceipts)
       assert.equal(
         sha256(await readFile(join(restoredRoots.committed, receipt.file_object_key))),
         receipt.file_sha256,
       );
-    await noInventedEffects(restore.pool);
-    await assertNoAccountPersistence(restore.pool);
+    await noInventedEffects(restore.sql);
+    await assertNoAccountPersistence(restore.sql);
     await rm(join(pendingRoots.committed, "committed"));
     const pendingRecovery = await success(pending, pendingRoots);
     assert.equal(pendingRecovery.complete, true);
     assert.equal(pendingRecovery.replay, true);
-    assert.deepEqual(await receipts(pending.pool), pendingReceipts);
+    assert.deepEqual(await receipts(pending.sql), pendingReceipts);
     checked(
       "real pg_dump/pg_restore plus private-file restore resumes incomplete work in new CLI process; missing stage rebuilt; original ciphertext and facts retained",
     );
@@ -1486,7 +1530,7 @@ const rehearse = async () =>
         excluded: first.excluded,
       },
       checks,
-      noInventedEffects: await noInventedEffects(primary.pool),
+      noInventedEffects: await noInventedEffects(primary.sql),
       cli: {
         command:
           "bun --no-env-file tools/e2e/run-legacy-receipt-import.ts --review=<private-json> --archive-root=<private-archive> --staging-root=<private-stage> --committed-root=<private-store> --payment-key=<private-key> --source-env=RECEIPT_REHEARSAL_SOURCE --target-env=RECEIPT_REHEARSAL_TARGET --target-database=<disposable-database> --organization-source=none",

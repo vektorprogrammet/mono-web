@@ -1,5 +1,9 @@
+/**
+ * EX-0024: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { DateTime, Effect, Layer } from "effect";
-import { HttpClient } from "effect/unstable/http";
+import { HttpClient } from "effect/http";
 import { NotificationGateway } from "@vektorprogrammet/domain/notification";
 import {
   RecruitmentNotificationDeliveryError,

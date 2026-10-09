@@ -1,4 +1,8 @@
 /**
+ * EX-0022: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+/**
  * Public and internal HTTP contracts for receipt lifecycle operations.
  *
  * @since 0.1.0
@@ -21,7 +25,7 @@ import {
   ReceiptStatusSchema,
 } from "@vektorprogrammet/domain/receipt";
 import { Schema } from "effect";
-import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi";
+import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/http-api";
 import { annotateAccessSpec, personNativeAccess } from "./access.js";
 import {
   operationAnnotations,

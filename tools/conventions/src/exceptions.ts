@@ -166,28 +166,6 @@ const disableSuppression = (comment: Comment, line: number): ReadonlyArray<Found
     : [{ line, form, rules, ids: idsIn(comment.value), misplaced: [] }];
 };
 
-// The Oxlint Effect plugin reads its own allow directive anywhere in a comment: its marker, the
-// plugin rules in parentheses without the `effect/` prefix, and a `dev only:` reason. A comment
-// that spells the directive out is a directive, so this one only describes it.
-const pluginAllowDirective = /oxlint-effect-plugin\s+allow\(([^)]*)\)/u;
-
-/** An allow directive of the Oxlint Effect plugin, which suppresses the plugin rules it names. */
-const pluginAllowSuppression = (comment: Comment, line: number): ReadonlyArray<Found> => {
-  const directive = pluginAllowDirective.exec(comment.value);
-
-  if (directive === null) return [];
-
-  const rules = (directive[1] ?? "")
-    .split(",")
-    .map((rule) => rule.trim())
-    .filter((rule) => rule !== "")
-    .map((rule) => (rule.includes("/") ? rule : `effect/${rule}`));
-
-  return [
-    { line, form: "oxlint-effect-plugin allow", rules, ids: idsIn(comment.value), misplaced: [] },
-  ];
-};
-
 // The tags with which @effect/tsgo accepts a leaked requirement.
 const expectationTags = ["@effect-expect-leaking", "@effect-leakable-service"] as const;
 
@@ -256,7 +234,6 @@ export const readSites = (path: string, text: string): Sites => {
 
     return [
       ...disableSuppression(comment, line),
-      ...pluginAllowSuppression(comment, line),
       ...expectationSuppressions(comment, line),
       ...diagnosticsSuppressions(comment, line),
     ].map((found) => ({ path, ...found }));

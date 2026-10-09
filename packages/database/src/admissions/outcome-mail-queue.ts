@@ -1,4 +1,8 @@
 /**
+ * EX-0021: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+/**
  * The immutable outbox of announced admission outcome mail (spec 0027, migration 0082).
  *
  * `queueOutcomeMail` runs inside the announcing command's transaction. It selects the effective
@@ -10,8 +14,8 @@
  * the delivery columns, never the envelope or the final outcome.
  */
 import { DateTime, Data, Effect, Option, Result, Schema } from "effect";
-import { SqlSchema } from "effect/unstable/sql";
-import type { SqlError } from "effect/unstable/sql/SqlError";
+import { SqlSchema } from "effect/sql";
+import type { SqlError } from "effect/sql/SqlError";
 import { Mail } from "@vektorprogrammet/domain/mail";
 import {
   decodeOutcomeMailEnvelope,

@@ -1,3 +1,7 @@
+/**
+ * EX-0021: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import type { ReceiptActor } from "@vektorprogrammet/domain/receipt";
 import { observePostgresStatements } from "../src/test-support/observe-postgres.js";
 import assert from "node:assert/strict";
@@ -82,7 +86,7 @@ import { ProfileLive } from "@vektorprogrammet/database/profile";
 import { Recruitment } from "@vektorprogrammet/domain/recruitment";
 import { RecruitmentLive } from "@vektorprogrammet/database/recruitment";
 import { Result, Data, Predicate, Deferred, Effect, Fiber, Layer, Redacted, Schema } from "effect";
-import type { SqlError } from "effect/unstable/sql/SqlError";
+import type { SqlError } from "effect/sql/SqlError";
 import { spec0055OrganizationAuthorityFixtures } from "@vektorprogrammet/domain/organization/authority-fixtures";
 import { resolveOrganizationPersonAuthorityForRead } from "../src/organization/authority-postgres.js";
 import { executeReceiptCommand } from "../src/receipt/postgres.js";

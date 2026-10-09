@@ -1,3 +1,7 @@
+/**
+ * EX-0022: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { OnboardingApi } from "./onboarding.js";
 import { PlacementsApi } from "./placements.js";
 /**
@@ -5,7 +9,7 @@ import { PlacementsApi } from "./placements.js";
  *
  * @since 0.1.0
  */
-import { HttpApi, OpenApi } from "effect/unstable/httpapi";
+import { HttpApi, OpenApi } from "effect/http-api";
 import { ContactApi } from "../.effx/generated/contact-contract.js";
 import { AdmissionsApi } from "../.effx/generated/admissions-contract.js";
 import { AdmissionOutcomesApi } from "../.effx/generated/admissionOutcomes-contract.js";
@@ -57,7 +61,7 @@ export class ExternalNativeApi extends HttpApi.make("external-native-api")
       override: {
         "x-vektorprogrammet-provenance": {
           contract: "@vektorprogrammet/http-api/ExternalNativeApi",
-          generator: "effect/unstable/httpapi/OpenApi.fromApi",
+          generator: "effect/http-api/OpenApi.fromApi",
           schemas: "Effect.Schema",
           statuses: "HttpApiSchema.status",
           security: "HttpApiMiddleware.security",

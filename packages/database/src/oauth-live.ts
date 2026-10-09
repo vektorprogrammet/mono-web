@@ -25,6 +25,7 @@ import {
 } from "@vektorprogrammet/domain/authz";
 import { PersonId } from "@vektorprogrammet/domain/organization";
 import { Database } from "./service.js";
+import { AdvisoryLockKey, lockAdvisory } from "./advisory-lock.js";
 import type { IdentityRequestContext } from "@vektorprogrammet/domain/identity";
 import {
   NativeAccessTokenClaimsSchema,
@@ -1040,7 +1041,8 @@ export const makeOAuthClientOperatorService = (
       yield* pool.withTransaction(
         Effect.gen(function* () {
           const client = pool;
-          yield* client.unsafe("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [clientId]);
+
+          yield* lockAdvisory(client, AdvisoryLockKey.oauthClient(clientId));
 
           const updated = yield* client.unsafe(
             `UPDATE auth."oauthClient" provider
@@ -1092,7 +1094,8 @@ export const makeOAuthClientOperatorService = (
       yield* pool.withTransaction(
         Effect.gen(function* () {
           const client = pool;
-          yield* client.unsafe("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [clientId]);
+
+          yield* lockAdvisory(client, AdvisoryLockKey.oauthClient(clientId));
 
           const updated = yield* client.unsafe(
             `UPDATE auth."oauthClient" SET disabled = true, "updatedAt" = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC')
@@ -2421,11 +2424,19 @@ export const makeOAuthReleaseBarrier =
     }).pipe(
       withIdentityRequestCancellation(request),
       // The barrier answers exchange failures, never cancellation.
-      Effect.catchCauseIf(
-        (cause) => !Cause.hasInterrupts(cause),
-        () => Effect.succeed(invalidOAuthResponse(503, "temporarily_unavailable")),
-      ),
-      Effect.orElseSucceed(() => invalidOAuthResponse(503, "temporarily_unavailable")),
+      Effect.catchCause((cause) => {
+        if (Cause.hasInterrupts(cause)) {
+          // Expected exchange failures are transport-owned; never let typed recovery
+          // erase a mixed interruption/defect cause through native catch's first-failure lookup.
+          const interrupted = Cause.fromReasons<never>(
+            cause.reasons.filter(Predicate.or(Cause.isDieReason, Cause.isInterruptReason)),
+          );
+
+          return Effect.failCause(interrupted);
+        }
+
+        return Effect.succeed(invalidOAuthResponse(503, "temporarily_unavailable"));
+      }),
     );
 
 export const exactRedirectAccepted = (

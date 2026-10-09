@@ -28,7 +28,7 @@ import {
   OrganizationInvalidReference,
 } from "@vektorprogrammet/domain/organization";
 import { makeNativeValidationError } from "@vektorprogrammet/http-api/http-semantics";
-import { Predicate, DateTime, Effect, Layer, Schema } from "effect";
+import { Predicate, DateTime, Effect, Layer, Schema, flow, Result } from "effect";
 import { describe, expect, it } from "@effect/vitest";
 import { decodeOrganizationApiConfig } from "./config.js";
 import { jsonText } from "../http-api/problem.js";
@@ -42,7 +42,7 @@ const config = decodeOrganizationApiConfig({
   ORGANIZATION_MAX_BODY_BYTES: "1024",
 });
 
-const department = Schema.decodeSync(DepartmentJsonSchema)(
+const department = flow(Schema.decodeResult(DepartmentJsonSchema), Result.getOrThrow)(
   {
     departmentId: "department-created",
     name: "Vektorprogrammet Trondheim",
@@ -60,7 +60,7 @@ const department = Schema.decodeSync(DepartmentJsonSchema)(
   { onExcessProperty: "error" },
 );
 
-const team = Schema.decodeSync(TeamJsonSchema)(
+const team = flow(Schema.decodeResult(TeamJsonSchema), Result.getOrThrow)(
   {
     teamId: "team-created",
     departmentId: department.departmentId,
@@ -76,7 +76,7 @@ const team = Schema.decodeSync(TeamJsonSchema)(
   { onExcessProperty: "error" },
 );
 
-const fieldOfStudy = Schema.decodeSync(FieldOfStudyJsonSchema)(
+const fieldOfStudy = flow(Schema.decodeResult(FieldOfStudyJsonSchema), Result.getOrThrow)(
   {
     fieldOfStudyId: "field-created",
     name: "Datateknologi",
@@ -121,7 +121,7 @@ const departmentResult = (commandId: OrganizationCommandId) => ({
   committed: true as const,
   observation: {
     ...DepartmentCreatedObservationSchema.make({ commandId, department }),
-    department: Schema.decodeSync(Department)(department),
+    department: flow(Schema.decodeResult(Department), Result.getOrThrow)(department),
   },
 });
 
@@ -187,7 +187,7 @@ const organization = {
       committed: true as const,
       observation: {
         ...TeamCreatedObservationSchema.make({ commandId: command.commandId, team }),
-        team: Schema.decodeSync(Team)(team),
+        team: flow(Schema.decodeResult(Team), Result.getOrThrow)(team),
       },
     });
   },
@@ -199,7 +199,7 @@ const organization = {
           commandId: command.commandId,
           fieldOfStudy,
         }),
-        fieldOfStudy: Schema.decodeSync(FieldOfStudy)(fieldOfStudy),
+        fieldOfStudy: flow(Schema.decodeResult(FieldOfStudy), Result.getOrThrow)(fieldOfStudy),
       },
     }),
 } satisfies Partial<OrganizationOperations>;

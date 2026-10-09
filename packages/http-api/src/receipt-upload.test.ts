@@ -1,7 +1,11 @@
+/**
+ * EX-0022: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Exit, Scope } from "effect";
 import assert from "node:assert/strict";
-import { MultipartError } from "effect/unstable/http/Multipart";
+import { MultipartError } from "effect/http/Multipart";
 import { ReceiptFileTooLarge, readBoundedReceiptForm } from "./receipt-upload.js";
 
 describe("receipt transfer bounds", () => {

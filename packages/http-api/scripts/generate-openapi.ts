@@ -1,8 +1,12 @@
+/**
+ * EX-0022: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import * as BunFileSystem from "@effect/platform-bun/BunFileSystem";
 import * as BunPath from "@effect/platform-bun/BunPath";
 import { ExternalNativeApi, InternalNativeApi } from "../src/api.js";
 import { NativeApiReleaseVersion } from "../src/release.js";
-import { OpenApi } from "effect/unstable/httpapi";
+import { OpenApi } from "effect/http-api";
 import { Array as Arr, Effect, FileSystem, Layer, Path, Predicate, Schema } from "effect";
 import assert from "node:assert/strict";
 

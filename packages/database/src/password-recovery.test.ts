@@ -11,6 +11,7 @@ import { AuthPoolLive } from "./pg-pool.js";
 import { NativeAuthEngine, NativeAuthEngineLive } from "./auth-engine.js";
 import { PasswordRecovery } from "./password-recovery.js";
 import { expect, layer } from "@effect/vitest";
+import { expectTypeOf } from "vitest";
 import { Cause, Deferred, Effect, Exit, Fiber, FiberSet, Schema } from "effect";
 import { MailDeliveryError } from "@vektorprogrammet/domain/mail";
 import { IdentityRequestContext } from "@vektorprogrammet/domain/identity";
@@ -77,6 +78,41 @@ const deliveryStates = (sql: SqlClient.SqlClient) =>
     .pipe(Effect.flatMap(decodeDeliveryStates));
 
 layer(TestPlatform, { excludeTestServices: true })("owned recovery boundary", (it) => {
+  it("keeps cancellation's success, failure and Database requirement channels", () => {
+    const request = new Request("http://127.0.0.1:8790/api/auth/get-session");
+
+    const operation = Database.use((sql) =>
+      sql.unsafe("SELECT 1").pipe(
+        Effect.as("retained" as const),
+        Effect.mapError(() => new MailDeliveryError({ kind: "temporary-unavailability" })),
+      ),
+    );
+
+    const guarded = operation.pipe(withIdentityRequestCancellation(request));
+    expectTypeOf<Effect.Success<typeof guarded>>().toEqualTypeOf<"retained">();
+    expectTypeOf<Effect.Error<typeof guarded>>().toEqualTypeOf<MailDeliveryError>();
+    expectTypeOf<Effect.Services<typeof guarded>>().toEqualTypeOf<Database>();
+    expectTypeOf<Effect.Services<typeof guarded>>().not.toEqualTypeOf<never>();
+    expectTypeOf<Effect.Error<typeof guarded>>().not.toEqualTypeOf<never>();
+  });
+
+  it.effect("preserves typed failures and defects without cancelling a completed operation", () =>
+    Effect.gen(function* () {
+      const request = new Request("http://127.0.0.1:8790/api/auth/get-session");
+      const failure = new MailDeliveryError({ kind: "permanent-rejection" });
+      expect(
+        yield* Effect.flip(Effect.fail(failure).pipe(withIdentityRequestCancellation(request))),
+      ).toBe(failure);
+
+      const defect = yield* Effect.exit(
+        Effect.die("request-defect").pipe(withIdentityRequestCancellation(request)),
+      );
+
+      expect(Exit.isFailure(defect) && Cause.hasInterrupts(defect.cause)).toBe(false);
+      expect(Exit.isFailure(defect) && Cause.hasDies(defect.cause)).toBe(true);
+    }),
+  );
+
   it.effect(
     "runs supported Better Auth reset and session revocation against real native PostgreSQL",
     () =>

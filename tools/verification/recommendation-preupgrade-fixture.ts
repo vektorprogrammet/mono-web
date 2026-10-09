@@ -1,13 +1,19 @@
+/**
+ * EX-0029: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 /** A real previous-schema fixture: execute canonical migrations through0036, seed immutable history, then caller applies0037 normally. */
 import { readFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
-import * as PgClient from "@effect/sql-pg/PgClient";
-import { Schema, Effect, Redacted } from "effect";
-import * as Migrator from "effect/unstable/sql/Migrator";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import process from "node:process";
+import { Schema, Effect, Layer, Redacted } from "effect";
+import * as Migrator from "effect/sql/Migrator";
 import { Pool } from "pg";
 import { databaseMigrationDefinitions } from "@vektorprogrammet/database/migrations";
+import * as BunServices from "@effect/platform-bun/BunServices";
+import { nativePgLayer } from "@vektorprogrammet/database/pg-pool";
+import { executePostgresMigration } from "@vektorprogrammet/database/postgres-migration-statements";
 
 const url = process.env.JOURNEY_SEED_PG_URL!;
 
@@ -24,14 +30,19 @@ const applyMigrations = async (definitions: ReadonlyArray<MigrationDefinition>):
           definitions.map((d) => [
             d.id,
             Effect.gen(function* () {
-              const sql = yield* SqlClient.SqlClient;
               const source = yield* Effect.promise(() => readFile(d.url, "utf8"));
-              yield* sql.unsafe(source).raw;
+              yield* executePostgresMigration(source);
             }),
           ]),
         ),
       ),
-    }).pipe(Effect.provide(PgClient.layer({ url: Redacted.make(url) }))),
+    }).pipe(
+      Effect.provide(
+        nativePgLayer({ url: Redacted.make(url), maxConnections: 1, prepare: false }).pipe(
+          Layer.provide(BunServices.layer),
+        ),
+      ),
+    ),
   );
 };
 

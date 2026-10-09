@@ -1,3 +1,7 @@
+/**
+ * EX-0024: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { Database, IdentitySnapshot, OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import { Placements } from "@vektorprogrammet/domain/placements";
 import { TeamApplications } from "@vektorprogrammet/domain/team-application";
@@ -46,8 +50,8 @@ import {
   HttpServerResponse,
   type HttpClient,
   type HttpPlatform,
-} from "effect/unstable/http";
-import { HttpApi, HttpApiBuilder } from "effect/unstable/httpapi";
+} from "effect/http";
+import { HttpApi, HttpApiBuilder } from "effect/http-api";
 import { DirectoryApiHandlers, type DirectoryApiHttpOptions } from "../directory/http.js";
 import { ContentApiHandlers } from "../content/http.js";
 import type { ContentRequestActor } from "../content/http-context.js";
@@ -270,7 +274,15 @@ const testRouterFetch = (
 export const testFetch = (
   app: Layer.Layer<never, never, TestApplicationRequirement>,
   services: TestServiceLayer,
-) => backendHttpHandler(testRouterFetch(app, services), testAuthHandler, testSessionBoundary);
+) => {
+  const handler = backendHttpHandler(
+    testRouterFetch(app, services),
+    testAuthHandler,
+    testSessionBoundary,
+  );
+
+  return (request: Request) => handler(request).pipe(Effect.provide(TestPlatform));
+};
 
 export const makeOrganizationTestHttp = <S extends TestServiceLayer>(
   options: OrganizationApiHttpOptions,
@@ -461,7 +473,9 @@ export const makeBackendTestHttp = (
     }),
   );
 
-  return { fetch: backendHttpHandler(native, authHandler, config.sessionBoundary) };
+  const handler = backendHttpHandler(native, authHandler, config.sessionBoundary);
+
+  return { fetch: (request: Request) => handler(request).pipe(Effect.provide(TestPlatform)) };
 };
 
 export const makeBackendInternalTestHttp = (

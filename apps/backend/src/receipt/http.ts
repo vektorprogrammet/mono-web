@@ -1,7 +1,11 @@
+/**
+ * EX-0024: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 /** Native HttpApi composition for receipt endpoints. */
 import { ExternalNativeApi, InternalNativeApi } from "@vektorprogrammet/http-api";
 import { Effect } from "effect";
-import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { HttpApiBuilder } from "effect/http-api";
 import { webHandler } from "../http-api/problem.js";
 import { receiptE2ETransactionBarrierFor } from "./e2e-support.js";
 import { ReceiptFileStoreResource } from "./filesystem.js";

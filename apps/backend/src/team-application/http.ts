@@ -1,3 +1,7 @@
+/**
+ * EX-0024: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { Database } from "@vektorprogrammet/database";
 import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
 import {
@@ -45,8 +49,8 @@ import {
   Problem,
 } from "@vektorprogrammet/http-api/http-semantics";
 import { Context, Effect, Option, Predicate, Schema } from "effect";
-import { HttpServerRequest } from "effect/unstable/http";
-import type { HttpApiGroup } from "effect/unstable/httpapi";
+import { HttpServerRequest } from "effect/http";
+import type { HttpApiGroup } from "effect/http-api";
 import {
   TeamApplicationsApiHandlers as GeneratedTeamApplicationsApiHandlers,
   type TeamApplicationsGuards,

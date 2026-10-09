@@ -1,3 +1,7 @@
+/**
+ * EX-0022: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import {
   OnboardingScope,
   OnboardingCommand,
@@ -12,7 +16,7 @@ import {
   ConcealmentPolicySchema,
   RequirementId,
 } from "@vektorprogrammet/domain/authz";
-import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
+import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/http-api";
 import { command, readBoard } from "../.effx/generated/onboarding-contract.js";
 import { annotateAccessSpec } from "./access.js";
 import { operationAnnotations } from "./common.js";

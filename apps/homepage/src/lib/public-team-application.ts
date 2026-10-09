@@ -1,4 +1,8 @@
-import { HttpClientError } from "effect/unstable/http";
+/**
+ * EX-0026: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+import { HttpClientError } from "effect/http";
 import {
   IdempotencyKey,
   isProblem,
@@ -67,11 +71,11 @@ const PublicTeamApplicationErrorView = Data.taggedEnum<PublicTeamApplicationErro
 
 export type PublicTeamApplicationLoaderData =
   | {
-      readonly state: "open";
-      readonly team: TeamApplicationTeam;
-      readonly commandId: string;
-      readonly rules: TeamApplicationFormRules;
-    }
+    readonly state: "open";
+    readonly team: TeamApplicationTeam;
+    readonly commandId: string;
+    readonly rules: TeamApplicationFormRules;
+  }
   | { readonly state: "closed"; readonly team: TeamApplicationTeam }
   | { readonly state: "not-found" }
   | { readonly state: "unavailable"; readonly message: string };
@@ -297,11 +301,11 @@ export function publicTeamApplicationPage(
 
   return intake.open
     ? {
-        state: "open",
-        team,
-        commandId: newTeamApplicationCommandId(),
-        rules: teamApplicationFormRules,
-      }
+      state: "open",
+      team,
+      commandId: newTeamApplicationCommandId(),
+      rules: teamApplicationFormRules,
+    }
     : { state: "closed", team };
 }
 
@@ -314,9 +318,9 @@ export function publicTeamApplicationPageFailure(cause: unknown): PublicTeamAppl
   return Option.isSome(problem) && problem.value.code === "resource.not-found"
     ? { state: "not-found" }
     : {
-        state: "unavailable",
-        message: "Vi fikk ikke hentet søknadsskjemaet akkurat nå. Prøv igjen om litt.",
-      };
+      state: "unavailable",
+      message: "Vi fikk ikke hentet søknadsskjemaet akkurat nå. Prøv igjen om litt.",
+    };
 }
 
 /** What a submit problem means for the visitor's application. */

@@ -1,5 +1,9 @@
+/**
+ * EX-0021: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { Effect, Schema } from "effect";
-import { SqlSchema } from "effect/unstable/sql";
+import { SqlSchema } from "effect/sql";
 import { AdmissionSemester } from "@vektorprogrammet/domain/admission-period";
 import { reachedDepartments, ReachedDepartments } from "@vektorprogrammet/domain/authz";
 import {

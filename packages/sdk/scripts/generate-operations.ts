@@ -1,10 +1,14 @@
+/**
+ * EX-0023: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { readFile, writeFile } from "node:fs/promises";
 import {
   ExternalNativeApi,
   NativeApiReleaseName,
   NativeApiReleaseVersion,
 } from "@vektorprogrammet/http-api";
-import { OpenApi } from "effect/unstable/httpapi";
+import { OpenApi } from "effect/http-api";
 import { Schema } from "effect";
 import assert from "node:assert/strict";
 
@@ -47,7 +51,7 @@ const operationIndex = {
   schemaVersion: 1,
   source: {
     contract: "@vektorprogrammet/http-api/ExternalNativeApi",
-    projection: "effect/unstable/httpapi/HttpApiClient.make",
+    projection: "effect/http-api/HttpApiClient.make",
   },
 };
 

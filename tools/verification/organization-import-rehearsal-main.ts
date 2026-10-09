@@ -1,3 +1,7 @@
+/**
+ * EX-0029: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import assert from "node:assert/strict";
 import type * as GeneratedSdkModule from "../../packages/sdk/src/effect-client.js";
 import { addressesAnyRoute, legacyRoutes } from "../../apps/dashboard/e2e/request-routes.js";
@@ -90,8 +94,8 @@ import {
   Result,
   Schema,
 } from "effect";
-import { Etag, FetchHttpClient, HttpRouter } from "effect/unstable/http";
-import type { SqlError } from "effect/unstable/sql/SqlError";
+import { Etag, FetchHttpClient, HttpRouter } from "effect/http";
+import type { SqlError } from "effect/sql/SqlError";
 import {
   backendHttpHandler,
   decodeBackendConfig,
@@ -1437,6 +1441,8 @@ const makeRehearsalRuntime = (
     }),
   );
 
+  const requestPlatformLayer = Layer.merge(BunServices.layer, FetchHttpClient.layer);
+
   const servicesLayer = Layer.mergeAll(
     observedDatabaseLayer,
     admissionsLayer,
@@ -1455,9 +1461,8 @@ const makeRehearsalRuntime = (
     teamApplicationsLayer,
     receiptAuxiliaryLayer,
     servicePrincipalGrantLayer,
-  );
+  ).pipe(Layer.provide(requestPlatformLayer));
 
-  const requestPlatformLayer = Layer.merge(BunServices.layer, FetchHttpClient.layer);
   const platformLayer = Layer.mergeAll(requestPlatformLayer, BunHttpPlatform.layer, Etag.layer);
   const routerLayer = HttpRouter.layer;
   const httpLayer = Layer.merge(platformLayer, routerLayer);

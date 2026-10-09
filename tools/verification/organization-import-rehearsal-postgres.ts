@@ -1,3 +1,7 @@
+/**
+ * EX-0029: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import type { DatabaseOperations } from "@vektorprogrammet/database";
 import {
   canonicalJsonValue,
@@ -5,7 +9,7 @@ import {
   sha256Hex,
 } from "@vektorprogrammet/domain/shared-kernel";
 import { Schema, Record as EffectRecord, Effect } from "effect";
-import type { SqlError } from "effect/unstable/sql/SqlError";
+import type { SqlError } from "effect/sql/SqlError";
 
 export interface StableTableProjection {
   readonly qualifiedName: string;

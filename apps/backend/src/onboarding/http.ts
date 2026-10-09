@@ -1,3 +1,7 @@
+/**
+ * EX-0024: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import {
   credentialMatchesAccessSpec,
   reaches,
@@ -44,8 +48,8 @@ import {
 } from "@vektorprogrammet/http-api/http-semantics";
 import { Crypto, flow, Predicate, Effect, Option, Ref, Schema } from "effect";
 import { Instant } from "@vektorprogrammet/domain/time";
-import type { SqlError } from "effect/unstable/sql/SqlError";
-import type { HttpApiGroup } from "effect/unstable/httpapi";
+import type { SqlError } from "effect/sql/SqlError";
+import type { HttpApiGroup } from "effect/http-api";
 import {
   OnboardingApiHandlers as GeneratedOnboardingApiHandlers,
   type OnboardingGuards,

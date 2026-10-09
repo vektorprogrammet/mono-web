@@ -1,7 +1,11 @@
-import { randomBytes } from "node:crypto";
+/**
+ * EX-0021: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+import { Hex } from "effect/encoding";
 import * as PgClient from "@effect/sql-pg/PgClient";
-import { Config, Effect, Redacted } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { Config, Crypto, Effect, Redacted } from "effect";
+import * as SqlClient from "effect/sql/SqlClient";
 import {
   canonicalJson,
   canonicalJsonBytes,
@@ -38,7 +42,8 @@ const program = Effect.gen(function* () {
     Config.withDefault(Redacted.make("postgres://receipt:receipt@127.0.0.1:55432/receipt_proof")),
   );
 
-  const runId = yield* Effect.sync(() => randomBytes(8).toString("hex"));
+  const crypto = yield* Crypto.Crypto;
+  const runId = Hex.encode(yield* crypto.randomBytes(8));
 
   const database = (purpose: string) =>
     disposableDatabase(maintenanceUrl, `receipt_proof_${runId}_${purpose}`);

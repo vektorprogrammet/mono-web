@@ -1,8 +1,12 @@
+/**
+ * EX-0021: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import * as PgClient from "@effect/sql-pg/PgClient";
 import { Effect, Option } from "effect";
-import * as Statement from "effect/unstable/sql/Statement";
-import type * as SqlConnection from "effect/unstable/sql/SqlConnection";
-import type { SqlError } from "effect/unstable/sql/SqlError";
+import * as Statement from "effect/sql/Statement";
+import type * as SqlConnection from "effect/sql/SqlConnection";
+import type { SqlError } from "effect/sql/SqlError";
 import type { DatabaseOperations } from "../service.js";
 
 export interface PostgresStatementObserver {

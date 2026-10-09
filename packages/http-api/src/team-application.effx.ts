@@ -1,10 +1,14 @@
+/**
+ * EX-0022: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { Capability, Concealment, Http, Operation } from "@effx/runtime";
 import {
   PublicTeamApplicationIntake,
   TeamApplicationConfirmation,
   TeamApplicationInput,
 } from "@vektorprogrammet/domain/team-application";
-import { HttpApiSchema } from "effect/unstable/httpapi";
+import { HttpApiSchema } from "effect/http-api";
 import { ExternalNativeApi } from "./api.js";
 import { PersonSecurity } from "./common.js";
 import { nativeProblems } from "./endpoint-problems.js";

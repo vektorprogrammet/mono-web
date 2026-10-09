@@ -109,3 +109,36 @@ const identity = deriveHttpIdentity({ credentialSubject: `Person:${personId}`, q
 Hashing the request bytes, or building a key by hand: the body or header spelling then
 changes the identity of one command. Derive it from the tuple, and digest the semantic request
 apart from it with `semanticRequestDigest`.
+
+## `withIdentityRequestCancellation`
+
+Keeps an identity request's cancellation signal attached to its native Effect fiber.
+
+```ts
+withIdentityRequestCancellation(
+  request: Request
+): <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>
+```
+
+- Inputs: `request: Request`
+- Output: `<A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>`
+- Errors: none
+- Requirements: none
+- Side effects: Registers one abort listener only while the operation runs, removing it on exit.
+- Source: [packages/database/src/password-recovery.ts:55](../../packages/database/src/password-recovery.ts#L55)
+
+**How it works**
+
+An already-aborted request interrupts before work starts. Aborting during work
+interrupts the work and awaits its finalizers. Completion removes the abort listener.
+The success, failure, and requirement channels are unchanged; cancellation never becomes success.
+
+**Use**
+
+```ts
+handle(request).pipe(withIdentityRequestCancellation(request));
+```
+
+**Avoid**
+
+Running a runtime inside the operation or recovering interruption as an HTTP response.

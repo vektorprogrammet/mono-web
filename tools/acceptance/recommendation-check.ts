@@ -1,3 +1,7 @@
+/**
+ * EX-0027: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 /**0101: previous-schema history -> actual migration -> production browser/API/PostgreSQL. */
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
@@ -65,8 +69,8 @@ import {
 import { deliverJson } from "../../apps/backend/src/delivery/http.js";
 import { deriveHttpIdentity, normalizeTarget } from "../../apps/backend/src/http-semantics.js";
 import { NotificationGateway } from "../../packages/domain/src/notification/service.js";
-import { Array as Arr, Effect, Predicate, Schema } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { Array as Arr, Console, Effect, Predicate, Schema } from "effect";
+import { FetchHttpClient } from "effect/http";
 import { admissionJourneyClock } from "../e2e/journey-clock.ts";
 import {
   AdmissionOutcomeResource,
@@ -142,8 +146,7 @@ const applicantProgressMode = process.argv.includes("--applicant-progress-mode")
 if (process.argv.includes("--report")) validateInterviewReportFixture();
 
 if (process.argv.includes("--validate-fixture")) {
-  // oxlint-effect-plugin allow(no-ambient-console): dev only: EX-0009: local fixture validation result.
-  console.log("All recommendation fixture idempotency keys satisfy the canonical schema");
+  Effect.runSync(Console.log("All recommendation fixture idempotency keys satisfy the canonical schema"));
   process.exit(0);
 }
 
@@ -191,7 +194,7 @@ const ready = async (test: () => Promise<boolean>) => {
   for (let i = 0; i < 150; i++) {
     try {
       if (await test()) return;
-    } catch {}
+    } catch { }
 
     await new Promise((r) => setTimeout(r, 100));
   }
@@ -225,8 +228,7 @@ const gates: string[] = [];
 
 const recordGate = (...observations: string[]) => {
   gates.push(...observations);
-  // oxlint-effect-plugin allow(no-ambient-console): dev only: EX-0009: bounded synthetic rehearsal milestones.
-  console.log(JSON.stringify({ observed: observations }));
+  Effect.runSync(Console.log(JSON.stringify({ observed: observations })));
 };
 
 const secrets: string[] = [];
@@ -795,8 +797,7 @@ try {
     const stage = (name: string) => {
       currentStage = name;
       returningStages.push(name);
-      // oxlint-effect-plugin allow(no-ambient-console): dev only: EX-0009: emit bounded returning-stage evidence.
-      console.log(JSON.stringify({ returningStage: name }));
+      Effect.runSync(Console.log(JSON.stringify({ returningStage: name })));
     };
 
     const bounded = async <T>(
@@ -955,9 +956,9 @@ try {
           (rows) =>
             hasExactReturningEffects(rows) &&
             rows.filter((row) => row.ordinal === 0).length ===
-              acceptedReturningRegistrations.rows.length &&
+            acceptedReturningRegistrations.rows.length &&
             rows.filter((row) => row.ordinal !== 0).length ===
-              acceptedReturningRegistrations.rows.length * 2 &&
+            acceptedReturningRegistrations.rows.length * 2 &&
             rows
               .filter((row) => row.ordinal === 0)
               .every(
@@ -1620,7 +1621,7 @@ try {
 
       const idempotencyKey =
         "idempotency-key" in operationHeaders &&
-        Predicate.isString(operationHeaders["idempotency-key"])
+          Predicate.isString(operationHeaders["idempotency-key"])
           ? operationHeaders["idempotency-key"]
           : undefined;
 
@@ -1873,7 +1874,7 @@ try {
     const afterSecond = await (await get(correctionId)).json();
     assert.ok(
       afterSecond.history.filter((entry: any) => Predicate.isTagged(entry, "Correction")).length >=
-        2,
+      2,
     );
     const afterSecondEtag = (await get(correctionId)).headers.get("etag");
     assert.deepEqual(afterSecond.answers, [
@@ -3203,7 +3204,7 @@ try {
           (await windowPage
             .locator("html")
             .evaluate((element: HTMLElement) => element.scrollWidth)) <=
-            windowPage.viewportSize().width,
+          windowPage.viewportSize().width,
         );
         assert.deepEqual(await auditPage(windowPage, "correction-window-dialog-mobile"), []);
         await windowPage.setViewportSize({ width: 1280, height: 900 });
@@ -3362,9 +3363,9 @@ try {
 
       const openerDetailResponse = await fetch(
         api +
-          normalizeTarget(nativeOperation("recruitment.readInterviewConduct").path, {
-            interviewId: windowInterviewId,
-          }),
+        normalizeTarget(nativeOperation("recruitment.readInterviewConduct").path, {
+          interviewId: windowInterviewId,
+        }),
         {
           headers: { cookie: windowCookie, origin: ui },
         },
@@ -3648,7 +3649,7 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   assert.ok(
     (await page.locator("html").evaluate((element: HTMLElement) => element.scrollWidth)) <=
-      page.viewportSize().width,
+    page.viewportSize().width,
   );
   await page.locator(".fs-conduct").screenshot({ path: join(artifacts, "editable-mobile.png") });
   await auditPage(page, "editable-mobile");
@@ -3699,7 +3700,7 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   assert.ok(
     (await page.locator("html").evaluate((element: HTMLElement) => element.scrollWidth)) <=
-      page.viewportSize().width,
+    page.viewportSize().width,
   );
   await page
     .locator(".fs-conduct")
@@ -3744,7 +3745,7 @@ try {
           id,
           body,
           [fixtureKeys.invalid0, fixtureKeys.invalid1, fixtureKeys.invalid2, fixtureKeys.invalid3][
-            i
+          i
           ]!,
           etag,
         )
@@ -4241,21 +4242,21 @@ try {
 
   const reportEvidence = process.argv.includes("--report")
     ? await observeInterviewReport({
-        root,
-        pool,
-        browser,
-        api,
-        ui,
-        artifacts,
-        ordinaryCookie: cookie,
-        password,
-        secrets,
-        correctionMode: process.argv.includes("--correction-mode"),
-        expectedHistoricalReportRecommendation,
-        revision,
-        auditPage,
-        recordGate,
-      })
+      root,
+      pool,
+      browser,
+      api,
+      ui,
+      artifacts,
+      ordinaryCookie: cookie,
+      password,
+      secrets,
+      correctionMode: process.argv.includes("--correction-mode"),
+      expectedHistoricalReportRecommendation,
+      revision,
+      auditPage,
+      recordGate,
+    })
     : undefined;
 
   assert.ok(
@@ -4289,76 +4290,60 @@ try {
     }
   }
 
-  // oxlint-effect-plugin allow(no-ambient-console): dev only: EX-0009: sanitized local acceptance artifact location.
-  console.log(JSON.stringify({ result: "Passed", revision, artifacts, gates }));
+  Effect.runSync(Console.log(JSON.stringify({ result: "Passed", revision, artifacts, gates })));
 } catch (error) {
   if (error instanceof ReturningLoginProbeComplete) {
-    // oxlint-effect-plugin allow(no-ambient-console): dev only: EX-0009: emit the bounded local login-probe result.
-    console.log(
-      JSON.stringify({
-        result: "ReturningLoginProbe",
-        revision,
-        artifacts,
-        gates,
-        probe: error.result,
-      }),
-    );
+    Effect.runSync(Console.log(JSON.stringify({
+      result: "ReturningLoginProbe",
+      revision,
+      artifacts,
+      gates,
+      probe: error.result,
+    }),));
   } else if (error instanceof ReturningTargetedComplete) {
-    // oxlint-effect-plugin allow(no-ambient-console): dev only: EX-0009: emit the bounded returning journey result.
-    console.log(
-      JSON.stringify({
-        result: "ReturningTargeted",
-        revision,
-        artifacts,
-        gates,
-        journey: error.result,
-      }),
-    );
+    Effect.runSync(Console.log(JSON.stringify({
+      result: "ReturningTargeted",
+      revision,
+      artifacts,
+      gates,
+      journey: error.result,
+    }),));
   } else if (error instanceof ApplicantProgressTargetedComplete) {
-    // oxlint-effect-plugin allow(no-ambient-console): dev only: EX-0009: emit the bounded applicant-progress result.
-    console.log(
-      JSON.stringify({
-        result: "ApplicantProgressTargeted",
-        revision,
-        artifacts,
-        gates,
-        journey: error.result,
-      }),
-    );
+    Effect.runSync(Console.log(JSON.stringify({
+      result: "ApplicantProgressTargeted",
+      revision,
+      artifacts,
+      gates,
+      journey: error.result,
+    }),));
   } else if (error instanceof CoInterviewerTargetedComplete) {
-    // oxlint-effect-plugin allow(no-ambient-console): dev only: EX-0009: emit the bounded co-interviewer result.
-    console.log(
-      JSON.stringify({
-        result: "CoInterviewerTargeted",
-        revision,
-        artifacts,
-        gates,
-        journey: error.result,
-      }),
-    );
+    Effect.runSync(Console.log(JSON.stringify({
+      result: "CoInterviewerTargeted",
+      revision,
+      artifacts,
+      gates,
+      journey: error.result,
+    }),));
   } else if (error instanceof CorrectionTargetedComplete) {
-    // oxlint-effect-plugin allow(no-ambient-console): dev only: EX-0009: emit the bounded correction result.
-    console.log(
-      JSON.stringify({
-        result: "CorrectionTargeted",
-        revision,
-        artifacts,
-        gates,
-        journey: error.result,
-      }),
-    );
+    Effect.runSync(Console.log(JSON.stringify({
+      result: "CorrectionTargeted",
+      revision,
+      artifacts,
+      gates,
+      journey: error.result,
+    }),));
   } else {
     let detail = error instanceof Error ? (error.stack ?? error.message) : String(error);
 
     const activeQueries = pool
       ? await pool
-          .query(
-            `SELECT pid,state,wait_event_type,wait_event,left(query,240) AS query
+        .query(
+          `SELECT pid,state,wait_event_type,wait_event,left(query,240) AS query
              FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid()
              ORDER BY pid`,
-          )
-          .then((result: { rows: unknown[] }) => result.rows)
-          .catch(() => [])
+        )
+        .then((result: { rows: unknown[] }) => result.rows)
+        .catch(() => [])
       : [];
 
     detail += ` Active PostgreSQL queries: ${JSON.stringify(activeQueries)}`;
@@ -4376,14 +4361,14 @@ try {
 
     const returningOutbox = pool
       ? await pool
-          .query(
-            `SELECT effect_id,command_id,effect_type,ordinal,status,attempts,claimed_at,last_failure_tag,origin
+        .query(
+          `SELECT effect_id,command_id,effect_type,ordinal,status,attempts,claimed_at,last_failure_tag,origin
              FROM public.admission_application_outbox
              WHERE origin='ReturningAssistant'
              ORDER BY effect_id`,
-          )
-          .then((result: { rows: unknown[] }) => result.rows)
-          .catch(() => [])
+        )
+        .then((result: { rows: unknown[] }) => result.rows)
+        .catch(() => [])
       : [];
 
     const returningEffectCalls = effectCalls
@@ -4404,8 +4389,7 @@ try {
 
     await writeFile(join(artifacts, "failure.json"), JSON.stringify(failureEvidence, null, 2));
     await writeFile(join(artifacts, "runtime.log"), `${logs.map(safe).join("")}${detail}\n`);
-    // oxlint-effect-plugin allow(no-ambient-console): dev only: EX-0009: redacted local rehearsal failure evidence.
-    console.error(JSON.stringify({ ...failureEvidence, artifacts }));
+    Effect.runSync(Console.error(JSON.stringify({ ...failureEvidence, artifacts })));
     process.exitCode = 1;
   }
 } finally {

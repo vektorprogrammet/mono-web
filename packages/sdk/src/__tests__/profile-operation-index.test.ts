@@ -1,3 +1,7 @@
+/**
+ * EX-0023: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import {
   ContentApi,
   DirectoryApi,
@@ -9,7 +13,7 @@ import {
   SocialEventsApi,
 } from "@vektorprogrammet/http-api";
 import { describe, expect, it } from "@effect/vitest";
-import { HttpApi, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
+import { HttpApi, HttpApiGroup, OpenApi } from "effect/http-api";
 import operationIndex from "../../native-api-operations.json" with { type: "json" };
 import { createEffectClient } from "../effect-client.js";
 import { createPromiseClient } from "../promise.js";

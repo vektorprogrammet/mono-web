@@ -1,4 +1,8 @@
 /**
+ * EX-0021: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+/**
  * Keyset cursor pages over receipt reads.
  *
  * Use these helpers in a read that pages by the receipt cursor: select the ordering column with
@@ -11,7 +15,7 @@ import {
   type ReceiptCursorPosition,
   type ReceiptPage,
 } from "@vektorprogrammet/domain/receipt";
-import type { Statement } from "effect/unstable/sql";
+import type { Statement } from "effect/sql";
 import type { DatabaseOperations } from "../service.js";
 
 /**

@@ -374,3 +374,85 @@ recoverStaleOutboxClaims(sql, invitationOutbox, claimedBefore, { status: "Failed
 A cutoff that a live claim can still reach, such as one closer to now than the longest
 provider call: the row goes to a second claim, which delivers the effect again. Derive
 `claimedBefore` from the worker's stale-claim window, as now minus `staleClaimMilliseconds`.
+
+## `nativePgLayer`
+
+Builds the native SQL layer with an explicit host-owned connection limit.
+
+```ts
+nativePgLayer(
+  config: NativePgPoolConfig
+): Layer.Layer<PgClient.PgClient | SqlClient.SqlClient, Schema.SchemaError | SqlError>
+```
+
+- Inputs: `config: NativePgPoolConfig`
+- Output: `Layer.Layer<PgClient.PgClient | SqlClient.SqlClient, Schema.SchemaError | SqlError>`
+- Errors: `Schema.SchemaError | SqlError`
+- Requirements: none
+- Side effects: Opens native PostgreSQL sessions only after the layer runs.
+- Source: [packages/database/src/pg-pool.ts:70](../../packages/database/src/pg-pool.ts#L70)
+
+**How it works**
+
+The caller owns the layer scope. The native driver owns acquisition, transaction reservation,
+cancellation, and release. Each checkout is exclusive. The driver can queue waiting fibers,
+so this limit bounds connections, not admitted work. Prepared statements require an explicit
+choice for a compatible pooler. An absent connectionTTL preserves unlimited connection reuse.
+Building the layer performs no work. Its scope closes its native pool on every exit.
+EX-0034: native admission policy is patched at the upstream boundary. Omitted or false preserves
+the caller mask; explicit acquisitionInterruptible true interrupts only top-level admission.
+Explicit shutdownTimeout owns the graceful wait, then a 100ms real-close acknowledgement bound;
+no close event is a defect, not a successful disposal or transaction-outcome receipt.
+
+**Use**
+
+```ts
+const sql = nativePgLayer({ url, maxConnections: 2, prepare: false });
+```
+
+**Avoid**
+
+Providing a new layer for each service or enabling multiplexing on a cancellable path.
+
+## `AuthPoolLive`
+
+Builds the supported Better Auth pool with its own host-supplied capacity.
+
+```ts
+AuthPoolLive(
+  config: { readonly postgresUrl: string },
+  options: AuthPoolOptions
+): Layer.Layer<AuthPgPool, Schema.SchemaError>
+```
+
+- Inputs:
+  - `config: { readonly postgresUrl: string }`
+  - `options: AuthPoolOptions`
+- Output: `Layer.Layer<AuthPgPool, Schema.SchemaError>`
+- Errors: `Schema.SchemaError`
+- Requirements: none
+- Side effects: Opens supported pg sessions only when the auth adapter uses the layer.
+- Source: [packages/database/src/pg-pool.ts:120](../../packages/database/src/pg-pool.ts#L120)
+
+**How it works**
+
+This layer owns only the node-postgres pool. It never provides native SqlClient.
+The host provides it separately from Database. Native callback fibers close before
+the pool, and pool diagnostic fibers remain owned until the pool closes.
+A client deadline does not prove PostgreSQL cancellation or a committed outcome.
+
+**Use**
+
+```ts
+const authPool = AuthPoolLive(config, {
+  maxConnections: 2,
+  applicationName: "vektorprogrammet-worker-auth",
+  pipeline: true,
+  connectTimeoutMilliseconds: 2_000,
+  queryTimeoutMilliseconds: 1_000,
+});
+```
+
+**Avoid**
+
+Providing this layer to a delivery-only event or sharing it with native Effect SQL.

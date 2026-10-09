@@ -1,4 +1,8 @@
-import type * as Statement from "effect/unstable/sql/Statement";
+/**
+ * EX-0021: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+import type * as Statement from "effect/sql/Statement";
 import type { DatabaseOperations } from "../service.js";
 
 /** Capability openness is derived from original invitation and cancellation facts, never a flag. */

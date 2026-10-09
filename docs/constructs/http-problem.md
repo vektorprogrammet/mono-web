@@ -247,7 +247,7 @@ problemWebResponse(problem: Problem): Response
 - Errors: none
 - Requirements: none
 - Side effects: none
-- Source: [apps/backend/src/http-api/problem.ts:77](../../apps/backend/src/http-api/problem.ts#L77)
+- Source: [apps/backend/src/http-api/problem.ts:76](../../apps/backend/src/http-api/problem.ts#L76)
 
 **How it works**
 
@@ -281,7 +281,7 @@ jsonText<A>(value: A): Effect.Effect<string>
 - Errors: none
 - Requirements: none
 - Side effects: none
-- Source: [apps/backend/src/http-api/problem.ts:105](../../apps/backend/src/http-api/problem.ts#L105)
+- Source: [apps/backend/src/http-api/problem.ts:104](../../apps/backend/src/http-api/problem.ts#L104)
 
 **How it works**
 
@@ -318,7 +318,7 @@ webHandler<E, R>(
 - Errors: `E`
 - Requirements: `R`
 - Side effects: none of its own; it runs `handle`.
-- Source: [apps/backend/src/http-api/problem.ts:143](../../apps/backend/src/http-api/problem.ts#L143)
+- Source: [apps/backend/src/http-api/problem.ts:142](../../apps/backend/src/http-api/problem.ts#L142)
 
 **How it works**
 
@@ -356,7 +356,7 @@ semanticProblem<A, const Code extends PlainProblemCode>(
 - Errors: `Problem<Code>`
 - Requirements: none
 - Side effects: none of its own; it runs `parse`.
-- Source: [apps/backend/src/http-api/problem.ts:174](../../apps/backend/src/http-api/problem.ts#L174)
+- Source: [apps/backend/src/http-api/problem.ts:173](../../apps/backend/src/http-api/problem.ts#L173)
 
 **How it works**
 
@@ -389,7 +389,7 @@ problemMapper<Failure extends TaggedFailure>(): (<const Cases extends ProblemCas
 - Errors: none
 - Requirements: none
 - Side effects: none
-- Source: [apps/backend/src/http-api/problem.ts:251](../../apps/backend/src/http-api/problem.ts#L251)
+- Source: [apps/backend/src/http-api/problem.ts:250](../../apps/backend/src/http-api/problem.ts#L250)
 
 **How it works**
 
@@ -427,7 +427,7 @@ requireNoQuery(request: Request): Effect.Effect<void, Problem<"request.malformed
 - Errors: `Problem<"request.malformed">`
 - Requirements: none
 - Side effects: none
-- Source: [apps/backend/src/http-api/problem.ts:305](../../apps/backend/src/http-api/problem.ts#L305)
+- Source: [apps/backend/src/http-api/problem.ts:304](../../apps/backend/src/http-api/problem.ts#L304)
 
 **How it works**
 
@@ -466,7 +466,7 @@ readJsonBody(
 - Errors: `| Problem<"media-type.unsupported"> | Problem<"request.malformed"> | Problem<"request.too-large"> | Problem<"internal.error">`
 - Requirements: none
 - Side effects: Reads and consumes the request body.
-- Source: [apps/backend/src/http-api/problem.ts:333](../../apps/backend/src/http-api/problem.ts#L333)
+- Source: [apps/backend/src/http-api/problem.ts:332](../../apps/backend/src/http-api/problem.ts#L332)
 
 **How it works**
 
@@ -503,7 +503,7 @@ idempotencyKeyOf(
 - Errors: `Problem<"idempotency-key.invalid">`
 - Requirements: none
 - Side effects: none
-- Source: [apps/backend/src/http-api/problem.ts:368](../../apps/backend/src/http-api/problem.ts#L368)
+- Source: [apps/backend/src/http-api/problem.ts:367](../../apps/backend/src/http-api/problem.ts#L367)
 
 **How it works**
 
@@ -537,7 +537,7 @@ requiredIfMatchOf(
 - Errors: `Problem<"precondition.invalid" | "precondition.required">`
 - Requirements: none
 - Side effects: none
-- Source: [apps/backend/src/http-api/problem.ts:396](../../apps/backend/src/http-api/problem.ts#L396)
+- Source: [apps/backend/src/http-api/problem.ts:395](../../apps/backend/src/http-api/problem.ts#L395)
 
 **How it works**
 
@@ -571,7 +571,7 @@ httpIdentity(
 - Errors: `Problem<"idempotency-key.invalid" | "request.malformed">`
 - Requirements: none
 - Side effects: none
-- Source: [apps/backend/src/http-api/problem.ts:425](../../apps/backend/src/http-api/problem.ts#L425)
+- Source: [apps/backend/src/http-api/problem.ts:424](../../apps/backend/src/http-api/problem.ts#L424)
 
 **How it works**
 
@@ -609,7 +609,7 @@ requireCurrentETag(
 - Errors: `Problem<"precondition.failed">`
 - Requirements: none
 - Side effects: none
-- Source: [apps/backend/src/http-api/problem.ts:454](../../apps/backend/src/http-api/problem.ts#L454)
+- Source: [apps/backend/src/http-api/problem.ts:453](../../apps/backend/src/http-api/problem.ts#L453)
 
 **How it works**
 
@@ -644,7 +644,7 @@ conditionalJson(
 - Errors: `Problem<"precondition.failed"> | Problem<"precondition.invalid">`
 - Requirements: none
 - Side effects: none
-- Source: [apps/backend/src/http-api/problem.ts:486](../../apps/backend/src/http-api/problem.ts#L486)
+- Source: [apps/backend/src/http-api/problem.ts:485](../../apps/backend/src/http-api/problem.ts#L485)
 
 **How it works**
 
@@ -684,7 +684,7 @@ personPresentation(
 - Errors: none
 - Requirements: none
 - Side effects: none
-- Source: [apps/backend/src/http-api/problem.ts:554](../../apps/backend/src/http-api/problem.ts#L554)
+- Source: [apps/backend/src/http-api/problem.ts:553](../../apps/backend/src/http-api/problem.ts#L553)
 
 **How it works**
 
@@ -721,7 +721,7 @@ isSerializationConflict(cause: unknown, depth: number = 0): boolean
 - Errors: none
 - Requirements: none
 - Side effects: none
-- Source: [apps/backend/src/http-api/problem.ts:585](../../apps/backend/src/http-api/problem.ts#L585)
+- Source: [apps/backend/src/http-api/problem.ts:584](../../apps/backend/src/http-api/problem.ts#L584)
 
 **How it works**
 
@@ -753,7 +753,7 @@ requestInvalid(): Problem<"validation.failed">
 - Errors: none
 - Requirements: none
 - Side effects: none
-- Source: [apps/backend/src/http-api/problem.ts:614](../../apps/backend/src/http-api/problem.ts#L614)
+- Source: [apps/backend/src/http-api/problem.ts:613](../../apps/backend/src/http-api/problem.ts#L613)
 
 **How it works**
 
@@ -787,7 +787,7 @@ decodeRequest<S extends Schema.ConstraintDecoder<unknown, never>>(
 - Errors: none
 - Requirements: none
 - Side effects: none of its own; it runs the decoding services of `schema`.
-- Source: [apps/backend/src/http-api/problem.ts:637](../../apps/backend/src/http-api/problem.ts#L637)
+- Source: [apps/backend/src/http-api/problem.ts:636](../../apps/backend/src/http-api/problem.ts#L636)
 
 **How it works**
 
@@ -821,7 +821,7 @@ strictOutput<S extends Schema.ConstraintDecoder<unknown, never>>(
 - Errors: none
 - Requirements: none
 - Side effects: none of its own; it runs the decoding services of `schema`.
-- Source: [apps/backend/src/http-api/problem.ts:668](../../apps/backend/src/http-api/problem.ts#L668)
+- Source: [apps/backend/src/http-api/problem.ts:667](../../apps/backend/src/http-api/problem.ts#L667)
 
 **How it works**
 
@@ -853,7 +853,7 @@ const commandReceiptProblems: ProblemMapper<NativeHttpReceiptInvalid | NativeHtt
 - Errors: none
 - Requirements: none
 - Side effects: none
-- Source: [apps/backend/src/http-api/problem.ts:703](../../apps/backend/src/http-api/problem.ts#L703)
+- Source: [apps/backend/src/http-api/problem.ts:702](../../apps/backend/src/http-api/problem.ts#L702)
 
 **How it works**
 
@@ -887,7 +887,7 @@ commandOutcomeResponse(
 - Errors: `| Problem<"idempotency.in-flight"> | Problem<"idempotency.digest-conflict"> | Problem<"idempotency.response-expired">`
 - Requirements: none
 - Side effects: none
-- Source: [apps/backend/src/http-api/problem.ts:732](../../apps/backend/src/http-api/problem.ts#L732)
+- Source: [apps/backend/src/http-api/problem.ts:731](../../apps/backend/src/http-api/problem.ts#L731)
 
 **How it works**
 
@@ -928,7 +928,7 @@ authorizeAnonymous(
 - Errors: none
 - Requirements: none
 - Side effects: none
-- Source: [apps/backend/src/http-api/problem.ts:771](../../apps/backend/src/http-api/problem.ts#L771)
+- Source: [apps/backend/src/http-api/problem.ts:770](../../apps/backend/src/http-api/problem.ts#L770)
 
 **How it works**
 
@@ -965,7 +965,7 @@ authorizePerson(
 - Errors: `| Problem<"authority.denied"> | Problem<"credential.invalid"> | Problem<"credential.missing"> | Problem<"resource.not-found">`
 - Requirements: none
 - Side effects: none
-- Source: [apps/backend/src/http-api/problem.ts:804](../../apps/backend/src/http-api/problem.ts#L804)
+- Source: [apps/backend/src/http-api/problem.ts:803](../../apps/backend/src/http-api/problem.ts#L803)
 
 **How it works**
 
@@ -1004,7 +1004,7 @@ unreachable<const Code extends NativeProblemCode>(
 - Errors: none
 - Requirements: none
 - Side effects: none
-- Source: [apps/backend/src/http-api/problem.ts:846](../../apps/backend/src/http-api/problem.ts#L846)
+- Source: [apps/backend/src/http-api/problem.ts:845](../../apps/backend/src/http-api/problem.ts#L845)
 
 **How it works**
 
@@ -1037,7 +1037,7 @@ const ProblemBoundaryLive: Layer.Layer<never, never, HttpRouter.HttpRouter>
 - Errors: none
 - Requirements: `HttpRouter.HttpRouter`
 - Side effects: Reports each cause that it answers through `ErrorReporter`.
-- Source: [apps/backend/src/http-api/problem.ts:889](../../apps/backend/src/http-api/problem.ts#L889)
+- Source: [apps/backend/src/http-api/problem.ts:888](../../apps/backend/src/http-api/problem.ts#L888)
 
 **How it works**
 
@@ -1071,7 +1071,7 @@ const receiptProblems: ProblemMapper<ReceiptHttpFailure, typeof receiptCases>
 - Errors: none
 - Requirements: none
 - Side effects: none
-- Source: [apps/backend/src/receipt/http-problem.ts:80](../../apps/backend/src/receipt/http-problem.ts#L80)
+- Source: [apps/backend/src/receipt/http-problem.ts:84](../../apps/backend/src/receipt/http-problem.ts#L84)
 
 **How it works**
 
@@ -1107,7 +1107,7 @@ receiptCredentialProblems(
 - Errors: none
 - Requirements: none
 - Side effects: none
-- Source: [apps/backend/src/receipt/http-problem.ts:110](../../apps/backend/src/receipt/http-problem.ts#L110)
+- Source: [apps/backend/src/receipt/http-problem.ts:114](../../apps/backend/src/receipt/http-problem.ts#L114)
 
 **How it works**
 
@@ -1305,7 +1305,7 @@ problemUnion<const Codes extends readonly [NativeProblemCode, ...ReadonlyArray<N
 - Errors: none
 - Requirements: none
 - Side effects: none
-- Source: [packages/http-api/src/http-semantics.ts:1227](../../packages/http-api/src/http-semantics.ts#L1227)
+- Source: [packages/http-api/src/http-semantics.ts:1231](../../packages/http-api/src/http-semantics.ts#L1231)
 
 **How it works**
 
@@ -1361,7 +1361,7 @@ class Problem<const Code extends NativeProblemCode = NativeProblemCode> extends 
 - Errors: none
 - Requirements: none
 - Side effects: none
-- Source: [packages/http-api/src/http-semantics.ts:1346](../../packages/http-api/src/http-semantics.ts#L1346)
+- Source: [packages/http-api/src/http-semantics.ts:1350](../../packages/http-api/src/http-semantics.ts#L1350)
 
 **How it works**
 
@@ -1398,7 +1398,7 @@ isProblem(u: unknown): u is Problem
 - Errors: none
 - Requirements: none
 - Side effects: none
-- Source: [packages/http-api/src/http-semantics.ts:1449](../../packages/http-api/src/http-semantics.ts#L1449)
+- Source: [packages/http-api/src/http-semantics.ts:1453](../../packages/http-api/src/http-semantics.ts#L1453)
 
 **How it works**
 
@@ -1430,7 +1430,7 @@ problemBody(problem: Problem): ProblemWireRecord
 - Errors: none
 - Requirements: none
 - Side effects: none
-- Source: [packages/http-api/src/http-semantics.ts:1478](../../packages/http-api/src/http-semantics.ts#L1478)
+- Source: [packages/http-api/src/http-semantics.ts:1482](../../packages/http-api/src/http-semantics.ts#L1482)
 
 **How it works**
 
@@ -1470,7 +1470,7 @@ makeNativeProblem<Code extends NativeProblemCode>(
 - Throws: An `Error` when `expectedStatus` differs from the status that the registry freezes for `code`.
 - Requirements: none
 - Side effects: none
-- Source: [packages/http-api/src/http-semantics.ts:1667](../../packages/http-api/src/http-semantics.ts#L1667)
+- Source: [packages/http-api/src/http-semantics.ts:1671](../../packages/http-api/src/http-semantics.ts#L1671)
 
 **How it works**
 

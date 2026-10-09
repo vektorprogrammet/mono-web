@@ -18,7 +18,7 @@ canonicalJsonValue<A>(datum: A): Schema.Json
 - Throws: An `Error` whose cause is the schema issue, when the datum holds anything but plain data at any depth: `undefined`, a `DateTime`, a `Date`, a class instance, or bytes. Encode such a value through its owning schema first.
 - Requirements: none
 - Side effects: none
-- Source: [packages/domain/src/shared-kernel/canonical-json.ts:92](../../packages/domain/src/shared-kernel/canonical-json.ts#L92)
+- Source: [packages/domain/src/shared-kernel/canonical-json.ts:95](../../packages/domain/src/shared-kernel/canonical-json.ts#L95)
 
 **How it works**
 
@@ -53,7 +53,7 @@ canonicalJson<A>(datum: A): string
 - Throws: An `Error` whose cause is the schema issue, when the datum is not plain data, as `canonicalJsonValue` throws.
 - Requirements: none
 - Side effects: none
-- Source: [packages/domain/src/shared-kernel/canonical-json.ts:121](../../packages/domain/src/shared-kernel/canonical-json.ts#L121)
+- Source: [packages/domain/src/shared-kernel/canonical-json.ts:124](../../packages/domain/src/shared-kernel/canonical-json.ts#L124)
 
 **How it works**
 
@@ -87,7 +87,7 @@ canonicalJsonBytes<A>(datum: A): Uint8Array<ArrayBuffer>
 - Throws: An `Error` whose cause is the schema issue, when the datum is not plain data, as `canonicalJsonValue` throws.
 - Requirements: none
 - Side effects: none
-- Source: [packages/domain/src/shared-kernel/canonical-json.ts:147](../../packages/domain/src/shared-kernel/canonical-json.ts#L147)
+- Source: [packages/domain/src/shared-kernel/canonical-json.ts:150](../../packages/domain/src/shared-kernel/canonical-json.ts#L150)
 
 **How it works**
 
@@ -118,7 +118,7 @@ sha256Hex(bytes: Uint8Array): string
 - Errors: none
 - Requirements: none
 - Side effects: none
-- Source: [packages/domain/src/shared-kernel/canonical-json.ts:172](../../packages/domain/src/shared-kernel/canonical-json.ts#L172)
+- Source: [packages/domain/src/shared-kernel/canonical-json.ts:175](../../packages/domain/src/shared-kernel/canonical-json.ts#L175)
 
 **How it works**
 

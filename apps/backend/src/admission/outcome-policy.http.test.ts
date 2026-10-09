@@ -1,3 +1,7 @@
+/**
+ * EX-0024: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { Database, IdentitySnapshot } from "@vektorprogrammet/database";
 import { AdmissionsLive } from "@vektorprogrammet/database/admissions";
 import { OrganizationLive } from "@vektorprogrammet/database/organization";
@@ -16,8 +20,8 @@ import {
 } from "@vektorprogrammet/http-api";
 import { NativeProblemRegistry } from "@vektorprogrammet/http-api/http-semantics";
 import { DateTime, Effect, Layer, Schema } from "effect";
-import { SqlSchema } from "effect/unstable/sql";
-import { createHash } from "node:crypto";
+import { SqlSchema } from "effect/sql";
+import { sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import { describe, expect, it } from "@effect/vitest";
 import { backendDatabase } from "../../test/database.js";
 import { decodeBackendConfig } from "../config.js";
@@ -71,7 +75,9 @@ const semesterId = "outcome-semester";
 
 const scope = new URLSearchParams({ departmentId, semesterId }).toString();
 
-const digest = (value: string) => createHash("sha256").update(value).digest("hex");
+const digestEncoder = new TextEncoder();
+
+const digest = (value: string) => sha256Hex(digestEncoder.encode(value));
 
 /** A well-formed strong entity tag that no representation ever had. */
 const staleEtag = `"vkr2.${"A".repeat(43)}"`;

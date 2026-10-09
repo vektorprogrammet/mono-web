@@ -1,7 +1,10 @@
-import { randomUUID } from "node:crypto";
-import { DateTime, Effect, flow, Match, Option, Predicate, Schema } from "effect";
-import { SqlSchema } from "effect/unstable/sql";
-import type * as Statement from "effect/unstable/sql/Statement";
+/**
+ * EX-0021: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+import { Crypto, DateTime, Effect, flow, Match, Option, Predicate, Schema } from "effect";
+import { SqlSchema } from "effect/sql";
+import type * as Statement from "effect/sql/Statement";
 import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import { Department, Team, TeamId } from "@vektorprogrammet/domain/organization";
 import {
@@ -391,10 +394,9 @@ const authorizeIntakeRevision = (principal: TeamApplicationPrincipal, teamId: Te
 /** A deleted application keeps its submission team, so a replayed deletion is authorized against it. */
 const applicationTeam = (applicationId: TeamApplicationId, forDeletion: boolean) =>
   findApplicationTeam({ applicationId, lock: forDeletion }).pipe(
-    Effect.flatMap((current) =>
-      Option.isSome(current) || !forDeletion
-        ? Effect.succeed(current)
-        : findSubmittedApplicationTeam(applicationId),
+    Effect.filterOrElse(
+      (current) => Option.isSome(current) || !forDeletion,
+      () => findSubmittedApplicationTeam(applicationId),
     ),
     Effect.flatMap(
       Option.match({
@@ -485,8 +487,10 @@ export const submitTeamApplication = (command: SubmitTeamApplicationCommand) =>
 
     const submittedAt = DateTime.formatIso(now);
 
+    const crypto = yield* Crypto.Crypto;
+
     const application = TeamApplication.make({
-      applicationId: TeamApplicationId.make(randomUUID()),
+      applicationId: TeamApplicationId.make(yield* crypto.randomUUIDv4.pipe(Effect.orDie)),
       teamId: command.teamId,
       ...command.application,
       submittedAt,

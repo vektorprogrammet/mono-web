@@ -1,6 +1,10 @@
+/**
+ * EX-0024: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { describe, expect, it } from "@effect/vitest";
 import { Context, Effect } from "effect";
-import { FetchHttpClient, HttpClient, HttpClientResponse } from "effect/unstable/http";
+import { FetchHttpClient, HttpClient, HttpClientResponse } from "effect/http";
 import { receiptDeliveryConfig } from "./delivery.js";
 import { deliverJson } from "../delivery/http.js";
 

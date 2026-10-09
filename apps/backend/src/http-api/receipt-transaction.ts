@@ -1,5 +1,9 @@
-import { Schema, Predicate, Data, Effect } from "effect";
-import { isSqlError } from "effect/unstable/sql/SqlError";
+/**
+ * EX-0024: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+import { Schema, Predicate, Data, Effect, flow, Result } from "effect";
+import { isSqlError } from "effect/sql/SqlError";
 import { Database, type DatabaseOperations } from "@vektorprogrammet/database";
 import { AdvisoryLockKey, tryLockAdvisory } from "@vektorprogrammet/database/advisory-lock";
 
@@ -152,14 +156,17 @@ const validateCapsule = (capsule: NativeHttpResponseCapsule): void => {
   }
 };
 
-const decodeHeaders = Schema.decodeUnknownSync(
-  Schema.Record(Schema.String, Schema.String).pipe(
-    Schema.check(
-      Schema.makeFilter((headers) =>
-        Object.keys(headers).every((name) => Object.hasOwn(allowedHeaders, name)),
+const decodeHeaders = flow(
+  Schema.decodeUnknownResult(
+    Schema.Record(Schema.String, Schema.String).pipe(
+      Schema.check(
+        Schema.makeFilter((headers) =>
+          Object.keys(headers).every((name) => Object.hasOwn(allowedHeaders, name)),
+        ),
       ),
     ),
   ),
+  Result.getOrThrow,
 );
 
 const capsuleFromRow = (row: NativeHttpReceiptRow): NativeHttpResponseCapsule => {

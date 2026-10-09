@@ -1,3 +1,7 @@
+/**
+ * EX-0024: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 /** What the admission outcome handlers and the outcome template handlers share. */
 import { Database } from "@vektorprogrammet/database";
 import type { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
@@ -11,7 +15,7 @@ import type { IdentityEngineError } from "@vektorprogrammet/domain/identity";
 import type { OrganizationPersistenceError } from "@vektorprogrammet/domain/organization";
 import { type CredentialPresentation, Problem } from "@vektorprogrammet/http-api/http-semantics";
 import { Effect, Match } from "effect";
-import { isSqlError, type SqlError } from "effect/unstable/sql/SqlError";
+import { isSqlError, type SqlError } from "effect/sql/SqlError";
 import type { OrganizationResolutionError } from "../authority.js";
 import {
   isSerializationConflict,

@@ -1,4 +1,8 @@
 /**
+ * EX-0022: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+/**
  * Days served and certificates: school coordination confirms each assistant's days served per
  * department and semester, and an issuer downloads the cumulative certificate of an assistant.
  *
@@ -16,7 +20,7 @@ import {
   DaysServedTotal,
 } from "@vektorprogrammet/domain/placements";
 import { Schema } from "effect";
-import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
+import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/http-api";
 import { annotateAccessSpec, personNativeAccess } from "./access.js";
 import { operationAnnotations, PersonSecurity } from "./common.js";
 import {

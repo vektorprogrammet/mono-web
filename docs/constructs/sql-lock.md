@@ -17,7 +17,7 @@ const AdvisoryLockKey: AdvisoryLockKeys
 - Errors: none
 - Requirements: none
 - Side effects: none: it builds key text, and `lockAdvisory` takes the lock.
-- Source: [packages/database/src/advisory-lock.ts:125](../../packages/database/src/advisory-lock.ts#L125)
+- Source: [packages/database/src/advisory-lock.ts:135](../../packages/database/src/advisory-lock.ts#L135)
 
 **How it works**
 
@@ -46,21 +46,21 @@ Waits for the advisory lock on `key` until the current transaction ends.
 
 ```ts
 lockAdvisory(
-  sql: DatabaseOperations,
+  sql: SqlClient,
   key: AdvisoryLockKey,
   mode: AdvisoryLockMode = "exclusive"
 ): Effect.Effect<void, SqlError>
 ```
 
 - Inputs:
-  - `sql: DatabaseOperations`
+  - `sql: SqlClient`
   - `key: AdvisoryLockKey`
   - `mode: AdvisoryLockMode = "exclusive"`
 - Output: `Effect.Effect<void, SqlError>`
 - Errors: `SqlError`
 - Requirements: none
 - Side effects: Holds a PostgreSQL advisory lock until the transaction ends, and waits while another transaction holds a conflicting one.
-- Source: [packages/database/src/advisory-lock.ts:203](../../packages/database/src/advisory-lock.ts#L203)
+- Source: [packages/database/src/advisory-lock.ts:216](../../packages/database/src/advisory-lock.ts#L216)
 
 **How it works**
 

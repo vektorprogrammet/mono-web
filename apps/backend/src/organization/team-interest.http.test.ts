@@ -17,7 +17,7 @@ import {
   PersonId,
   type OrganizationOperations,
 } from "@vektorprogrammet/domain/organization";
-import { DateTime, Effect, Layer, Schema } from "effect";
+import { DateTime, Effect, Layer, Schema, flow, Result } from "effect";
 import { describe, expect, it } from "@effect/vitest";
 import { decodeOrganizationApiConfig } from "./config.js";
 import { makeOrganizationTestHttp as makeOrganizationApiHttp } from "../test/native-http.js";
@@ -28,7 +28,7 @@ import { PRIVATE_NO_STORE } from "../http-semantics.js";
  * authority flow: cookie -> resolveAuthority (one instant) -> leader scope.
  */
 
-const department = Schema.decodeSync(DepartmentJsonSchema)(
+const department = flow(Schema.decodeResult(DepartmentJsonSchema), Result.getOrThrow)(
   {
     departmentId: DepartmentId.make("department-1"),
     name: "Department One",
@@ -46,7 +46,7 @@ const department = Schema.decodeSync(DepartmentJsonSchema)(
   { onExcessProperty: "error" },
 );
 
-const secondDepartment = Schema.decodeSync(DepartmentJsonSchema)(
+const secondDepartment = flow(Schema.decodeResult(DepartmentJsonSchema), Result.getOrThrow)(
   {
     departmentId: DepartmentId.make("department-2"),
     name: "Department Two",

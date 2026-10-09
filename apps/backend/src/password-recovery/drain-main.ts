@@ -1,9 +1,14 @@
+/**
+ * EX-0024: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import process from "node:process";
 import * as BunServices from "@effect/platform-bun/BunServices";
 import { Config, Effect, Layer, Redacted } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import { Mail } from "@vektorprogrammet/domain/mail";
-import { DatabasePgPool, DatabaseLive } from "@vektorprogrammet/database/live";
+import { DatabaseLive } from "@vektorprogrammet/database/live";
+import { SqlClient } from "effect/sql";
 import { drainPasswordResetMail } from "@vektorprogrammet/database/password-recovery";
 import { decodeBackendConfig } from "../config.js";
 import { mailDeliveryConfig, HttpMailLive } from "../mail/http.js";
@@ -21,7 +26,7 @@ const config = Effect.runSync(decodeBackendConfig(process.env));
 try {
   const result = await Effect.runPromise(
     Effect.gen(function* () {
-      const pool = yield* DatabasePgPool;
+      const pool = yield* SqlClient.SqlClient;
       const mail = yield* Mail;
 
       return yield* drainPasswordResetMail(pool, config.auth, mail, sender);

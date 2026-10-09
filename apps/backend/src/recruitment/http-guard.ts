@@ -1,9 +1,13 @@
+/**
+ * EX-0024: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 /** Request-local authority frames evaluated only by the matching generated Recruitment guard. */
 import type { RecruitmentInvitationHttpSource } from "@vektorprogrammet/domain/recruitment";
 import { ExternalNativeApi, reflectAccessSpec } from "@vektorprogrammet/http-api";
 import type { Problem } from "@vektorprogrammet/http-api/http-semantics";
 import { Context, Effect, Option } from "effect";
-import type { HttpApiGroup } from "effect/unstable/httpapi";
+import type { HttpApiGroup } from "effect/http-api";
 import type { RecruitmentGuards } from "../../.effx/generated/recruitment-handlers.js";
 import { authorizePerson, personPresentation } from "../http-api/problem.js";
 import type { NativePersonAuthorization } from "../native-operation.js";

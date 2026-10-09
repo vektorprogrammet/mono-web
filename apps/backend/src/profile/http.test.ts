@@ -14,7 +14,7 @@ import {
   PersonId,
 } from "@vektorprogrammet/domain/organization";
 import { Profile } from "@vektorprogrammet/domain/profile";
-import { DateTime, Effect, Layer, Schema } from "effect";
+import { DateTime, Effect, Layer, Schema, flow, Result } from "effect";
 import { describe, expect, it } from "@effect/vitest";
 import { makeProfileTestHttp as makeProfileApiHttp } from "../test/native-http.js";
 
@@ -23,7 +23,10 @@ const authority = (
   globalAdministrator: "Active" | "Inactive" | "Absent",
   memberships: ReadonlyArray<{ readonly active: boolean; readonly unitLeader: boolean }>,
 ) =>
-  Schema.decodeUnknownSync(OrganizationPersonAuthoritySchema)({
+  flow(
+    Schema.decodeUnknownResult(OrganizationPersonAuthoritySchema),
+    Result.getOrThrow,
+  )({
     personId,
     evaluatedAt: "2032-04-01T12:00:00.000Z",
     globalAdministrator,
@@ -110,7 +113,7 @@ describe("Profile HTTP authority failures", () => {
       authority("profile-test-person", "Inactive", [{ active: false, unitLeader: false }]),
     ],
     ["NotInScope", authority("profile-test-person", "Absent", [])],
-  ] as const)("preserves %s as a typed scope denial", ([_, resolved]) =>
+  ] as const)("preserves %s as a typed scope denial", ([, resolved]) =>
     Effect.gen(function* () {
       const response = yield* request(Effect.succeed(resolved));
 

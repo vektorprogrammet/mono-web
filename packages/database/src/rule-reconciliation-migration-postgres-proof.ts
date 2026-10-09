@@ -1,7 +1,21 @@
+/**
+ * EX-0021: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import assert from "node:assert/strict";
 import { Database, type DatabaseOperations } from "./service.js";
-import { Schema, Predicate, Cause, Effect, FileSystem, Option, Path, Redacted } from "effect";
-import { isSqlError } from "effect/unstable/sql/SqlError";
+import {
+  Schema,
+  Predicate,
+  Cause,
+  Effect,
+  FileSystem,
+  Option,
+  Path,
+  Redacted,
+  Result,
+} from "effect";
+import { isSqlError } from "effect/sql/SqlError";
 import { DatabaseLive } from "./layers.js";
 import { type DatabaseMigrationDefinition, selectDatabaseMigration } from "./migrations.js";
 
@@ -152,8 +166,10 @@ const parseReport = (failure: string) => {
   const start = failure.indexOf(prefix);
   assert.notEqual(start, -1);
 
-  return Schema.decodeSync(Schema.fromJsonString(Schema.Array(Schema.Json)))(
-    failure.slice(start + prefix.length),
+  return Result.getOrThrow(
+    Schema.decodeResult(Schema.fromJsonString(Schema.Array(Schema.Json)))(
+      failure.slice(start + prefix.length),
+    ),
   );
 };
 

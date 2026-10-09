@@ -943,7 +943,9 @@ try {
       port: authPort,
       fetch: (request) =>
         runtime.runPromise(
-          recovery.handler(engine.handler, request, identityRequestContext(request)),
+          Effect.flatMap(identityRequestContext(request), (context) =>
+            recovery.handler(engine.handler, request, context),
+          ),
         ),
     });
 

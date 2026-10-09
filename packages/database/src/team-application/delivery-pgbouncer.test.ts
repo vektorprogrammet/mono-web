@@ -4,7 +4,7 @@ import {
   startDisposablePgBouncer,
   startDisposablePostgres,
 } from "@monoweb/postgres";
-import { Context, Duration, Effect, Layer, Redacted } from "effect";
+import { Context, Data, Duration, Effect, Layer, Redacted, Schema } from "effect";
 import { Pool } from "pg";
 import { Mail, type MailDeliveryRequest } from "@vektorprogrammet/domain/mail";
 import { TeamId } from "@vektorprogrammet/domain/organization";
@@ -15,7 +15,6 @@ import {
   type TeamApplicationInput,
 } from "@vektorprogrammet/domain/team-application";
 import { DatabaseLive } from "../layers.js";
-import { pgQuery } from "../pg-pool.js";
 import { Database } from "../service.js";
 import { TestPlatform } from "../test-support/platform.js";
 import { TeamApplicationsLive } from "./index.js";
@@ -25,6 +24,10 @@ import { TeamApplicationsLive } from "./index.js";
  * PgBouncer in transaction mode (docs/specs/infrastructure-ports.md): every statement outside a
  * transaction may run on another server connection, and a transaction holds one.
  */
+class PgBouncerAdminError extends Data.TaggedError("PgBouncerAdminError")<{
+  readonly cause: unknown;
+}> {}
+
 class Pooler extends Context.Service<Pooler, DisposablePgBouncer>()(
   "team-application/delivery-pgbouncer.test/Pooler",
 ) {}
@@ -47,7 +50,10 @@ const pooler = Layer.effect(
       (pool) => Effect.promise(() => pool.end()),
     );
 
-    yield* pgQuery(admin, "ALTER DATABASE pilot SET search_path = auth, public").pipe(Effect.orDie);
+    yield* Effect.tryPromise({
+      try: () => admin.query("ALTER DATABASE pilot SET search_path = auth, public"),
+      catch: (cause) => new PgBouncerAdminError({ cause }),
+    }).pipe(Effect.orDie);
 
     return yield* Effect.acquireRelease(
       Effect.promise(() => startDisposablePgBouncer(cluster, { poolSize: 4 })),
@@ -91,6 +97,7 @@ const pooledLayer = seedTeam.pipe(
     ),
   ),
   Layer.provideMerge(pooler),
+  Layer.provide(TestPlatform),
 );
 
 const input: TeamApplicationInput = {
@@ -128,10 +135,19 @@ const poolMode = (database: string) =>
     );
 
     // The admin console answers the simple query protocol, which a query without values uses.
-    const { rows } = yield* pgQuery<{ readonly database: string; readonly pool_mode: string }>(
-      admin,
-      "SHOW POOLS",
-    );
+    const result = yield* Effect.tryPromise({
+      try: () => admin.query("SHOW POOLS"),
+      catch: (cause) => new PgBouncerAdminError({ cause }),
+    });
+
+    const rows = yield* Schema.decodeEffect(
+      Schema.Array(
+        Schema.Struct({
+          database: Schema.String,
+          pool_mode: Schema.String,
+        }),
+      ),
+    )(result.rows);
 
     return rows.filter((row) => row.database === database).map((row) => row.pool_mode);
   }).pipe(Effect.scoped);

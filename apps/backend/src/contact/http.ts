@@ -1,3 +1,7 @@
+/**
+ * EX-0024: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import {
   ContactDelivery,
   ContactFailure,
@@ -10,8 +14,8 @@ import { ContactQuotaLive } from "@vektorprogrammet/database/contact";
 import { ExternalNativeApi } from "@vektorprogrammet/http-api";
 import { Problem } from "@vektorprogrammet/http-api/http-semantics";
 import { Effect, Layer, Match } from "effect";
-import { HttpClient } from "effect/unstable/http";
-import type { HttpApiGroup } from "effect/unstable/httpapi";
+import { HttpClient } from "effect/http";
+import type { HttpApiGroup } from "effect/http-api";
 import {
   ContactApiHandlers as GeneratedContactApiHandlers,
   type ContactGuards,

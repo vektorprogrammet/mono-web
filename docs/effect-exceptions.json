@@ -1,5 +1,5 @@
 {
-  "description": "Registered exceptions to the Effect rules of mono-web. Each suppression of an Effect rule (a disable comment of effecttsgo/*, effect/*, or anti-slop-effect/*, an oxlint-effect-plugin allow directive, @effect-expect-leaking, @effect-leakable-service, @effect-diagnostics) and each non-native substitute names its entry id in a comment at the site. `just exceptions` checks every entry against its sites, its owner, and the versions that package.json pins. .agents/skills/effect-house/references/exceptions.md describes the fields and how an entry is added and retired.",
+  "description": "Registered exceptions to the Effect rules of mono-web. Each suppression of an Effect rule (a disable comment of effecttsgo/*, effect/*, or anti-slop-effect/*, @effect-expect-leaking, @effect-leakable-service, @effect-diagnostics) and each non-native substitute names its entry id in a comment at the site. `just exceptions` checks every entry against its sites, its owner, and the versions that package.json pins. .agents/skills/effect-house/references/exceptions.md describes the fields and how an entry is added and retired.",
   "exceptions": [
     {
       "id": "EX-0001",
@@ -9,7 +9,7 @@
         "symbols": ["nativeRouterWebHandler"]
       },
       "reason": "The native web handler serves the built router through HttpEffect.toWebHandler. toWebHandler answers every failure cause with a response, so the handler never fails.",
-      "missingCapability": "HttpRouter.asHttpEffect() types the failure of the built router as unknown.",
+      "missingCapability": "Inspected stable effect/http/HttpRouter.ts: HttpRouter.asHttpEffect() still types the built router failure as unknown. Native HttpEffect.toWebHandler owns its cause-to-response boundary.",
       "nativeAlternatives": [
         "HttpRouter.toHttpEffect(appLayer) types the failure from the route layers, but it builds the router from the application layer in the caller's scope. The entry point, the legacy candidate journey, and the organization import rehearsal read the router from their ManagedRuntime, which also runs their other services, such as the workers and the identity engine of the entry point.",
         "Handling the failure before HttpEffect.toWebHandler, for example with Effect.catchCause, replaces the response that toWebHandler writes for each cause."
@@ -19,7 +19,7 @@
         "`just rehearsal organization-import` serves its native API through this handler."
       ],
       "owner": "apps/backend",
-      "examinedWith": { "effect": "4.0.0-rc.116" },
+      "examinedWith": { "effect": "4.0.0" },
       "retirementTrigger": "HttpRouter.asHttpEffect() types its failure, or the callers build their handler with HttpRouter.toHttpEffect. Then remove the suppression."
     },
     {
@@ -41,7 +41,7 @@
         "The HTTP tests of the contexts decode the answered problems with the contract schemas, for example `apps/backend/src/content/http.test.ts`."
       ],
       "owner": "apps/backend/src/http-api",
-      "examinedWith": { "effect": "4.0.0-rc.116", "typescript": "7.0.2" },
+      "examinedWith": { "effect": "4.0.0", "typescript": "7.0.2" },
       "retirementTrigger": "TypeScript infers the mapped failure union from the generic cases record. Then remove the assertion and the suppression."
     },
     {
@@ -62,7 +62,7 @@
         "No test replaces a path between the check and the open; review verifies the O_NOFOLLOW open."
       ],
       "owner": "apps/backend/src/receipt",
-      "examinedWith": { "effect": "4.0.0-rc.116", "@effect/platform-bun": "4.0.0-rc.116" },
+      "examinedWith": { "effect": "4.0.0", "@effect/platform-bun": "4.0.0" },
       "retirementTrigger": "Effect FileSystem.open can refuse a symbolic link, for example with a no-follow flag. Then open through FileSystem and remove the node:fs/promises import."
     },
     {
@@ -80,7 +80,7 @@
       ],
       "verification": ["`just e2e interview-response` runs the spec in the hosted journey matrix."],
       "owner": "apps/dashboard",
-      "examinedWith": { "@phibkro/oxlint-effect-plugin": "0.1.0" },
+      "examinedWith": { "@phibkro/oxlint-effect-plugin": "0.2.0" },
       "retirementTrigger": "The callback moves to a module that oxlint.config.ts declares platform browser, or effect/no-cross-runtime recognizes Playwright page callbacks. Then remove the suppressions."
     },
     {
@@ -100,7 +100,7 @@
         "`just e2e identity` signs in, reads, and revokes sessions through the backend."
       ],
       "owner": "packages/database",
-      "examinedWith": { "effect": "4.0.0-rc.116", "@effect/tsgo": "0.36.4" },
+      "examinedWith": { "effect": "4.0.0", "@effect/tsgo": "0.48.0" },
       "retirementTrigger": "No caller runs these operations inside its own transaction. Then resolve Database when the layer is built and remove the expectation."
     },
     {
@@ -120,7 +120,7 @@
         "`just e2e content-publication` publishes articles through the backend."
       ],
       "owner": "packages/domain/src/content",
-      "examinedWith": { "effect": "4.0.0-rc.116", "@effect/tsgo": "0.36.4" },
+      "examinedWith": { "effect": "4.0.0", "@effect/tsgo": "0.48.0" },
       "retirementTrigger": "The capability topology lets ContentManagement depend on Organization. Then provide Organization when the layer is built and remove the expectation."
     },
     {
@@ -141,7 +141,7 @@
         "`apps/backend/src/receipt/http.test.ts` sends person and service bearers through both, because the receipt group declares them."
       ],
       "owner": "packages/http-api",
-      "examinedWith": { "effect": "4.0.0-rc.116", "@effect/tsgo": "0.36.4" },
+      "examinedWith": { "effect": "4.0.0", "@effect/tsgo": "0.48.0" },
       "retirementTrigger": "Effect marks these per-request services leakable, or @effect/tsgo stops reporting the requirements of HttpApiMiddleware services. Then remove the expectations."
     },
     {
@@ -162,38 +162,8 @@
         "No test replaces the path with a symbolic link or widens its mode; review verifies the O_NOFOLLOW open and the checks of the opened file."
       ],
       "owner": "packages/database",
-      "examinedWith": { "effect": "4.0.0-rc.116", "@effect/platform-bun": "4.0.0-rc.116" },
+      "examinedWith": { "effect": "4.0.0", "@effect/platform-bun": "4.0.0" },
       "retirementTrigger": "Effect FileSystem.open can refuse a symbolic link, for example with a no-follow flag. Then open through FileSystem and remove the node:fs/promises import."
-    },
-    {
-      "id": "EX-0009",
-      "rules": ["FX011", "effect/no-ambient-console"],
-      "scope": {
-        "files": ["tools/acceptance/recommendation-check.ts"],
-        "symbols": [
-          "recordGate",
-          "stage",
-          "ReturningLoginProbeComplete",
-          "ReturningTargetedComplete",
-          "ApplicantProgressTargetedComplete",
-          "CoInterviewerTargetedComplete",
-          "CorrectionTargetedComplete",
-          "failureEvidence"
-        ]
-      },
-      "reason": "The recommendation probe reports its fixture check, its gate milestones, its returning stages, its result, and its failure evidence as lines on standard output and standard error, which the operator reads. Each line is bounded, and the failure evidence is redacted.",
-      "missingCapability": "None in Effect: Console of effect writes the same lines, but only inside an Effect program. The probe is a script of top-level Promise code with no Effect runtime at its entry point.",
-      "nativeAlternatives": [
-        "Console.log and Console.error of effect, each run with Effect.runSync at its site: that runs programs outside an owned entry point, which FX003 and effect/no-premature-execution reject.",
-        "One Effect program that the entry point of the probe runs: a rewrite of the whole probe, which is the retirement path."
-      ],
-      "verification": [
-        "The hosted journey matrix runs the probe as `just e2e recommendation-applicant-progress`, `recommendation-co-interviewer`, `recommendation-correction`, and `recommendation-returning`.",
-        "The plugin accepts a directive only when it names no-ambient-console alone with a nonempty `dev only:` reason, and it reports broad, unreasoned, and unused directives."
-      ],
-      "owner": "tools/acceptance",
-      "examinedWith": { "@phibkro/oxlint-effect-plugin": "0.1.0", "effect": "4.0.0-rc.116" },
-      "retirementTrigger": "The probe becomes an Effect program that its entry point runs, and it writes through Console of effect. Then remove the directives."
     },
     {
       "id": "EX-0010",
@@ -489,7 +459,9 @@
           "tools/e2e/golden-harness.ts",
           "tools/e2e/golden-team-application.ts",
           "tools/e2e/legacy-candidate-native-journey.ts",
-          "tools/e2e/run-legacy-backup-person-rehearsal.ts"
+          "tools/e2e/run-legacy-backup-person-rehearsal.ts",
+          "tools/e2e/run-legacy-candidate-rehearsal.ts",
+          "tools/e2e/run-legacy-receipt-rehearsal.ts"
         ],
         "symbols": [
           "ChildProcess",
@@ -646,7 +618,38 @@
           "packages/database/src/team-application/outbox.ts",
           "packages/database/src/native-postgres-deadlines.test.ts",
           "packages/database/src/test-support/native-pg-transport.ts",
-          "packages/database/src/test-support/postgres.ts"
+          "packages/database/src/test-support/postgres.ts",
+          "packages/database/runtime/authorization-rules-postgres-proof-main.ts",
+          "packages/database/runtime/receipt-postgres-proof-main.ts",
+          "packages/database/runtime/schema-boundary-postgres-proof-main.ts",
+          "packages/database/src/admissions/evidence.ts",
+          "packages/database/src/admissions/outcome-mail-queue.ts",
+          "packages/database/src/admissions/outcome-template-store.ts",
+          "packages/database/src/admissions/outcome.ts",
+          "packages/database/src/application/postgres.ts",
+          "packages/database/src/identity-access.ts",
+          "packages/database/src/onboarding/postgres.ts",
+          "packages/database/src/organization/administration-postgres.ts",
+          "packages/database/src/organization/mailing-lists-postgres.ts",
+          "packages/database/src/organization/postgres.ts",
+          "packages/database/src/outbox-lifecycle.ts",
+          "packages/database/src/placements/certificates.test.ts",
+          "packages/database/src/placements/certificates.ts",
+          "packages/database/src/placements/coverage.ts",
+          "packages/database/src/placements/draft.ts",
+          "packages/database/src/receipt/cursor.ts",
+          "packages/database/src/receipt/file-proof.ts",
+          "packages/database/src/receipt/projections.ts",
+          "packages/database/src/receipt/reviewed-cohort.ts",
+          "packages/database/src/recruitment/assessment-correction.ts",
+          "packages/database/src/recruitment/invitation-delivery-admission.ts",
+          "packages/database/src/recruitment/invitation-open.ts",
+          "packages/database/src/recruitment/maintenance-postgres.ts",
+          "packages/database/src/rule-reconciliation-migration-postgres-proof.ts",
+          "packages/database/src/schools/administration.ts",
+          "packages/database/src/team-application/persistence.ts",
+          "packages/database/src/team-application/postgres.ts",
+          "packages/database/src/test-support/observe-postgres.ts"
         ],
         "symbols": [
           "PgClient",
@@ -681,14 +684,103 @@
       "id": "EX-0024",
       "rules": ["FX001", "FX002", "FX012", "effecttsgo/unstable-api-usage"],
       "scope": {
-        "files": ["apps/backend/src/delivery/http.ts", "apps/backend/src/mail/http.ts"],
-        "symbols": ["HttpClient", "HttpClientRequest", "FetchHttpClient"]
+        "files": [
+          "apps/backend/src/admission/admission-period.http.test.ts",
+          "apps/backend/src/admission/http.ts",
+          "apps/backend/src/admission/outcome-http-support.ts",
+          "apps/backend/src/admission/outcome-http.ts",
+          "apps/backend/src/admission/outcome-policy.http.test.ts",
+          "apps/backend/src/application/effects.test.ts",
+          "apps/backend/src/application/effects.ts",
+          "apps/backend/src/contact/http.ts",
+          "apps/backend/src/content/http-command-guards.postgres.test.ts",
+          "apps/backend/src/content/http-context.ts",
+          "apps/backend/src/content/http.test.ts",
+          "apps/backend/src/content/http.ts",
+          "apps/backend/src/delivery/http.ts",
+          "apps/backend/src/directory/http.ts",
+          "apps/backend/src/http-api/problem.ts",
+          "apps/backend/src/http-api/receipt-transaction.ts",
+          "apps/backend/src/http-api/system.ts",
+          "apps/backend/src/http-api/transport.test.ts",
+          "apps/backend/src/http-api/transport.ts",
+          "apps/backend/src/mail/http.ts",
+          "apps/backend/src/main.ts",
+          "apps/backend/src/onboarding/http-completion.test.ts",
+          "apps/backend/src/onboarding/http.ts",
+          "apps/backend/src/onboarding/policy.http.test.ts",
+          "apps/backend/src/organization/http.ts",
+          "apps/backend/src/password-recovery/drain-main.ts",
+          "apps/backend/src/password-recovery/worker.ts",
+          "apps/backend/src/placements/certificates-http.ts",
+          "apps/backend/src/placements/http.ts",
+          "apps/backend/src/placements/notification.ts",
+          "apps/backend/src/profile/http.ts",
+          "apps/backend/src/receipt/delivery.test.ts",
+          "apps/backend/src/receipt/delivery.ts",
+          "apps/backend/src/receipt/drain-main.ts",
+          "apps/backend/src/receipt/http-problem.ts",
+          "apps/backend/src/receipt/http.ts",
+          "apps/backend/src/recruitment/delivery.ts",
+          "apps/backend/src/recruitment/http-guard.test.ts",
+          "apps/backend/src/recruitment/http-guard.ts",
+          "apps/backend/src/recruitment/http.ts",
+          "apps/backend/src/router.ts",
+          "apps/backend/src/social-events/http.ts",
+          "apps/backend/src/team-application/http.ts",
+          "apps/backend/src/test/native-http.ts",
+          "apps/backend/src/test/platform.ts"
+        ],
+        "symbols": [
+          "Etag",
+          "FetchHttpClient",
+          "HttpApi",
+          "HttpApiBuilder",
+          "HttpApiEndpoint",
+          "HttpApiError",
+          "HttpApiGroup",
+          "HttpApiMiddleware",
+          "HttpClient",
+          "HttpClientRequest",
+          "HttpClientResponse",
+          "HttpEffect",
+          "HttpPlatform",
+          "HttpRouter",
+          "HttpServerError",
+          "HttpServerRequest",
+          "HttpServerResponse",
+          "OpenApi",
+          "SqlClient",
+          "SqlError",
+          "SqlSchema"
+        ]
       },
       "reason": "This module uses the operator-required public native APIs from the exact stable Effect4 application cohort. Their upstream declarations retain unstable annotations. A file-local acknowledgement covers only unstableApiUsage; all other diagnostics remain errors.",
       "missingCapability": "The required native families are exported by stable Effect4.0.0 but still annotated @stability unstable. No unannotated native equivalent preserves this module contract. This record accepts declared API evolution risk, not an RC package or an erased error/lifetime requirement.",
       "nativeAlternatives": [
-        "Inspected exact installed effect/http native HttpClient, HttpClientRequest and FetchHttpClient public declarations and existing deliverJson provider transport; upstream declarations retain unstable annotations.",
-        "Native transport preserves redirect refusal, delivery timeout, unread body release and service ownership. A foreign fetch wrapper would duplicate that contract."
+        "Examined installed effect/http-api/HttpApi: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http-api/HttpApiBuilder: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http-api/HttpApiEndpoint: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http-api/HttpApiError: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http-api/HttpApiGroup: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http-api/HttpApiMiddleware: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http-api/OpenApi: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/Etag: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/FetchHttpClient: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/HttpClient: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/HttpClientRequest: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/HttpClientResponse: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/HttpEffect: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/HttpPlatform: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/HttpRouter: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/HttpServerError: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/HttpServerRequest: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/HttpServerResponse: its used public declarations retain unstable annotations.",
+        "Examined installed effect/sql/SqlError: its used public declarations retain unstable annotations.",
+        "Examined installed effect/sql/SqlSchema: its used public declarations retain unstable annotations.",
+        "Inspected exact stable effect/sql/SqlClient used by the password-reset worker and CLI: public native SQL declarations retain upstream unstable annotations.",
+        "Replacing native protocols, SQL/model variants, schema arbitraries or scoped processes with foreign implementations would violate the approved native ownership and wire/data contracts.",
+        "The installed tsgo rule has no module allowlist. Global disabling or lowering severity would hide unrelated usages, so acknowledgement stays in these explicit files."
       ],
       "verification": [
         "Existing repository exception checks reject unknown ids, files/symbols outside this module, version drift and other suppressed rules. Exact source API inspection establishes this native stability gap.",
@@ -749,7 +841,8 @@
       "verification": [
         "Required native real PostgreSQL acquisition matrix: unmasked/masked callers with omitted,false,true; body interruption, rollback and release, plus failed transaction controls.",
         "Normal-hook native patch publication and actual anonymous Bun installation are source/graph evidence only, not behavioral acceptance. Final frozen source must run native PostgreSQL and application journeys.",
-        "Required v1 leaked-timer negative control versus v3 graceful no-pending-timeout law, omitted branch-ran/FIN-withheld law, forced 1800ms grace plus 100ms close acknowledgement within 2s total, and real close-silent transport bounded defect. Heavy runs remain paused until Main resumes."
+        "Required v1 leaked-timer negative control versus v3 graceful no-pending-timeout law, omitted branch-ran/FIN-withheld law, forced 1800ms grace plus 100ms close acknowledgement within 2s total, and real close-silent transport bounded defect. Heavy runs require Main admission.",
+        "KNOWN UPSTREAM BEHAVIOR, not a pinned requirement: Effect4.0.0 Pool.ts344-346 captures the owner Scope,598 restores the borrower wait,630-631 forks resize in state.scope,1048 restores allocation use; PgConnection.ts2200-2204 destroys the real socket when its startup owner is interrupted. Future upstream borrower cancellation that also cancels resize is acceptable. The startup law requires interrupted borrower/body zero and actual socket close within the unchanged 2s measured after owner Scope closure."
       ],
       "owner": "packages/database",
       "examinedWith": {

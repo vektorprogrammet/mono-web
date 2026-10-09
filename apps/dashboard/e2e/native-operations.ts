@@ -1,4 +1,8 @@
 /**
+ * EX-0025: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+/**
  * The native surface that a dashboard-to-backend recorder allows, derived from the HTTP contract.
  *
  * A request is native when it fills an operation's path template segment by segment, so a random
@@ -6,7 +10,7 @@
  * legacy, provider, recovery, or token request, rather than listing such routes by name.
  */
 import { ExternalNativeApi } from "@vektorprogrammet/http-api";
-import { OpenApi } from "effect/unstable/httpapi";
+import { OpenApi } from "effect/http-api";
 
 const httpMethods = ["get", "put", "post", "delete", "options", "head", "patch", "trace"] as const;
 

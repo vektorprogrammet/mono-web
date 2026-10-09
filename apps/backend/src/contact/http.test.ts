@@ -52,12 +52,12 @@ const message = {
 };
 
 /** The contact ingress as the homepage reaches it, with or without delivery configured. */
-const contactIngress = (contact: typeof config | undefined) => {
+const contactIngress = (contact: typeof config | undefined, recipient = organization) => {
   const database = backendDatabase();
 
   const http = makeBackendTestHttp(
     { ...backendConfig, contact },
-    Layer.mergeAll(database.layer, organization),
+    Layer.mergeAll(database.layer, recipient),
     unavailableAuthHandler,
   );
 
@@ -114,6 +114,10 @@ describe("native contact trust boundary", () => {
         [undefined, "credential.missing"],
         ["wrong", "credential.invalid"],
         ["ingress-test-credential-0000000000000000", "credential.invalid"],
+        [
+          String.fromCharCode(config.backendToken.charCodeAt(0) ^ 1) + config.backendToken.slice(1),
+          "credential.invalid",
+        ],
       ] as const) {
         expect(yield* problemOf(yield* ingress.submit({ ip: "127.0.0.1", token }))).toEqual({
           status: 401,
@@ -123,6 +127,31 @@ describe("native contact trust boundary", () => {
 
       expect(yield* ingress.consumedWindows()).toEqual([{ count: 0 }]);
     }),
+  );
+
+  it.live(
+    "admits the configured token through native verification and rejects a one-bit change",
+    () =>
+      Effect.gen(function* () {
+        const ingress = contactIngress(
+          config,
+          Layer.mock(Organization, {
+            readDepartment: () => Effect.succeedNone,
+          }),
+        );
+
+        const accepted = yield* ingress.submit({ ip: "127.0.0.1", token: config.backendToken });
+
+        expect(yield* problemOf(accepted)).toEqual({ status: 422, code: "validation.failed" });
+
+        const changed =
+          String.fromCharCode(config.backendToken.charCodeAt(0) ^ 1) + config.backendToken.slice(1);
+
+        const denied = yield* ingress.submit({ ip: "127.0.0.1", token: changed });
+
+        expect(yield* problemOf(denied)).toEqual({ status: 401, code: "credential.invalid" });
+        expect(yield* ingress.consumedWindows()).toEqual([{ count: 0 }]);
+      }),
   );
 
   it.live("fails closed for absent configuration and noncanonical addresses before mutation", () =>

@@ -1,3 +1,7 @@
+/**
+ * EX-0024: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 /** Generated native bindings retain the repaired Recruitment authority and receipt boundaries. */
 import {
   ExternalNativeApi,
@@ -18,7 +22,7 @@ import {
   readInterviewStaffing as readInterviewStaffingEndpoint,
   maintainRecruitment as maintainRecruitmentEndpoint,
 } from "@vektorprogrammet/http-api";
-import type { HttpApiGroup } from "effect/unstable/httpapi";
+import type { HttpApiGroup } from "effect/http-api";
 import {
   RecruitmentApiHandlers as GeneratedRecruitmentApiHandlers,
   type RecruitmentGuards,

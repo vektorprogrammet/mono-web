@@ -1,10 +1,14 @@
 /**
+ * EX-0022: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+/**
  * Frozen v0.2 HTTP primitives shared by every native endpoint.
  *
  * @since 0.2.0
  */
 import { Data, ErrorReporter, Predicate, Struct, Schema, type Types } from "effect";
-import { HttpApiSchema } from "effect/unstable/httpapi";
+import { HttpApiSchema } from "effect/http-api";
 
 export { parseJsonWithUniqueMembers } from "@vektorprogrammet/domain/http-semantics";
 

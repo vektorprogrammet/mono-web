@@ -26,7 +26,7 @@ import {
   TeamApplications,
   type TeamApplicationInput,
 } from "@vektorprogrammet/domain/team-application";
-import { DatabaseTestLive } from "../test-support/platform.js";
+import { DatabaseTestLive, TestPlatform } from "../test-support/platform.js";
 import { Database } from "../service.js";
 import { TeamApplicationsLive } from "./index.js";
 import {
@@ -84,6 +84,7 @@ const pilotLayer = seedTeam.pipe(
   Layer.provideMerge(
     Layer.merge(database, TeamApplicationsLive(fastQueue).pipe(Layer.provide(database))),
   ),
+  Layer.provide(TestPlatform),
 );
 
 /**

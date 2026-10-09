@@ -1,3 +1,7 @@
+/**
+ * EX-0024: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { expect, it } from "@effect/vitest";
 import { DomainId, Scope } from "@vektorprogrammet/domain/authz";
 import { PersonId } from "@vektorprogrammet/domain/organization";
@@ -8,8 +12,8 @@ import {
   RecruitmentApi,
 } from "@vektorprogrammet/http-api";
 import { Problem } from "@vektorprogrammet/http-api/http-semantics";
-import { Deferred, Effect, Exit, Fiber, Schema } from "effect";
-import type { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
+import { Deferred, Effect, Exit, Fiber, Schema, flow, Result } from "effect";
+import type { HttpApiEndpoint, HttpApiGroup } from "effect/http-api";
 import { expectTypeOf } from "vitest";
 import type { RecruitmentGuards } from "../../.effx/generated/recruitment-handlers.js";
 import { genericContext } from "../native-operation.js";
@@ -41,7 +45,10 @@ type GuardServices = {
   [K in keyof Guards]: Effect.Services<ReturnType<Guards[K]>>;
 }[keyof Guards];
 
-const source = Schema.decodeSync(RecruitmentInvitationHttpSourceSchema)({
+const source = flow(
+  Schema.decodeResult(RecruitmentInvitationHttpSourceSchema),
+  Result.getOrThrow,
+)({
   capabilitySha256: "recruitment-guard-capability-digest",
   invitationId: "recruitment-guard-invitation",
   interviewId: "recruitment-guard-interview",

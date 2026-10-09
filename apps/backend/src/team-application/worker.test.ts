@@ -11,6 +11,7 @@ import { Deferred, Duration, Effect, Fiber, Layer } from "effect";
 import { describe, expect, it } from "@effect/vitest";
 import { backendDatabase } from "../../test/database.js";
 import { drainTeamApplicationOutbox, runTeamApplicationDeliveryWorker } from "./worker.js";
+import { TestPlatform } from "../test/platform.js";
 
 const sender = "noreply@example.invalid";
 
@@ -57,7 +58,7 @@ const fixture = () => {
   return Layer.merge(
     database.layer,
     TeamApplicationsLive({ pollInterval: "20 millis" }).pipe(Layer.provide(database.layer)),
-  );
+  ).pipe(Layer.provide(TestPlatform));
 };
 
 const submit = (command: string) =>

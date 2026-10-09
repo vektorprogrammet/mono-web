@@ -1,3 +1,7 @@
+/**
+ * EX-0028: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { Buffer } from "node:buffer";
@@ -24,7 +28,7 @@ import {
   UserProfileResponse,
 } from "@vektorprogrammet/http-api";
 import { Effect, Layer, ManagedRuntime, Redacted, Schema } from "effect";
-import { Etag, FetchHttpClient, HttpRouter } from "effect/unstable/http";
+import { Etag, FetchHttpClient, HttpRouter } from "effect/http";
 import { ReceiptDeliveryLive } from "@vektorprogrammet/backend/receipt/delivery";
 import {
   backendHttpHandler,
@@ -139,7 +143,10 @@ export const observeLegacyCandidateNativeJourney = async (
     Layer.provide(http),
   );
 
-  const runtime = ManagedRuntime.make(Layer.mergeAll(services, http, nativeApi));
+  const runtime = ManagedRuntime.make(
+    Layer.mergeAll(services, nativeApi).pipe(Layer.provideMerge(http)),
+  );
+
   const checks: string[] = [];
   let phase = "runtime-start";
 

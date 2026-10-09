@@ -1,4 +1,8 @@
 /**
+ * EX-0021: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+/**
  * Falsifiers of days served and certificates on PostgreSQL (docs/specs/certificates-days-served.md):
  * what counts as a day, what a certificate lists, attributable append-only history, recorded
  * issues with stable content hashes, the issuer rules of journey 3, derived board seats, and the
@@ -6,7 +10,7 @@
  */
 import { expect, layer } from "@effect/vitest";
 import { DateTime, Effect, Exit, Layer, Option } from "effect";
-import { ConstraintError } from "effect/unstable/sql/SqlError";
+import { ConstraintError } from "effect/sql/SqlError";
 import { DelegationArea, DelegationCommand } from "@vektorprogrammet/domain/authz";
 import {
   BoardRosterSeat,

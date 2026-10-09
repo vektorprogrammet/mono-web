@@ -1,11 +1,15 @@
+/**
+ * EX-0024: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { ContactEmail } from "@vektorprogrammet/domain/contact";
 import { Database } from "@vektorprogrammet/database";
 import {
   ReceiptAuxiliaryEffects,
   ReceiptDeliveryUnavailable,
 } from "@vektorprogrammet/domain/receipt";
-import { Predicate, Effect, Layer, Schema } from "effect";
-import { HttpClient } from "effect/unstable/http";
+import { Predicate, Effect, Layer, Schema, flow, Result } from "effect";
+import { HttpClient } from "effect/http";
 import { deliverJson, type HttpDeliveryConfig } from "../delivery/http.js";
 
 /** The economy notification that the receipt outbox sends to the delivery endpoint. */
@@ -40,11 +44,17 @@ export const receiptDeliveryConfig = (
   try {
     const endpoint = new URL(env.RECEIPT_DELIVERY_URL!);
     const token = env.RECEIPT_DELIVERY_TOKEN!;
-    const sender = Schema.decodeUnknownSync(ContactEmail)(env.RECEIPT_DELIVERY_SENDER);
+
+    const sender = flow(
+      Schema.decodeUnknownResult(ContactEmail),
+      Result.getOrThrow,
+    )(env.RECEIPT_DELIVERY_SENDER);
+
     const timeout = Number(env.RECEIPT_DELIVERY_TIMEOUT_MS);
 
-    const recipients = Schema.decodeUnknownSync(
-      Schema.fromJsonString(Schema.Record(Schema.String, ContactEmail)),
+    const recipients = flow(
+      Schema.decodeUnknownResult(Schema.fromJsonString(Schema.Record(Schema.String, ContactEmail))),
+      Result.getOrThrow,
     )(env.RECEIPT_DELIVERY_ECONOMY_RECIPIENTS);
 
     // Cleartext delivery is confined to local rehearsals; credentials never follow redirects.

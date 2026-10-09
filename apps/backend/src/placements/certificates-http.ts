@@ -1,4 +1,8 @@
 /**
+ * EX-0024: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+/**
  * Native HTTP handlers of days served and certificates. Reads answer from one repeatable-read
  * snapshot. Commands run through the receipt executor: current authority before any replay, the
  * `If-Match` precondition on the fresh entry or certificate, and one retry of a serialization
@@ -41,8 +45,8 @@ import {
   Problem,
 } from "@vektorprogrammet/http-api/http-semantics";
 import { Effect, Option, Predicate, Schema } from "effect";
-import { HttpApiBuilder } from "effect/unstable/httpapi";
-import type { SqlError } from "effect/unstable/sql/SqlError";
+import { HttpApiBuilder } from "effect/http-api";
+import type { SqlError } from "effect/sql/SqlError";
 import { resolveRequestCredentialInTransaction } from "../authority.js";
 import {
   authorizePerson,

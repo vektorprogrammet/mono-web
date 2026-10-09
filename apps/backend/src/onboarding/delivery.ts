@@ -1,5 +1,5 @@
 import { Database } from "@vektorprogrammet/database";
-import { Crypto, Effect, Schema } from "effect";
+import { Crypto, Effect, Schema, flow, Result } from "effect";
 import { ContactEmail } from "@vektorprogrammet/domain/contact";
 import { deliverJson, type HttpDeliveryConfig } from "../delivery/http.js";
 import { pollForever } from "../worker-support.js";
@@ -30,7 +30,11 @@ export const onboardingDeliveryConfig = (
     const claimUrl = new URL("/konto-aktivering", origin);
     const token = env.ONBOARDING_DELIVERY_TOKEN!;
     const timeout = Number(env.ONBOARDING_DELIVERY_TIMEOUT_MS);
-    const sender = Schema.decodeUnknownSync(ContactEmail)(env.ONBOARDING_DELIVERY_SENDER);
+
+    const sender = flow(
+      Schema.decodeUnknownResult(ContactEmail),
+      Result.getOrThrow,
+    )(env.ONBOARDING_DELIVERY_SENDER);
 
     for (const url of [endpoint, claimUrl])
       if (

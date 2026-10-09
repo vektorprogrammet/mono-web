@@ -1,4 +1,7 @@
-import { randomUUID } from "node:crypto";
+/**
+ * EX-0024: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import {
   SocialEventCommandId,
   SocialEventId,
@@ -37,8 +40,8 @@ import {
   reflectAccessSpec,
 } from "@vektorprogrammet/http-api";
 import { type CredentialPresentation, Problem } from "@vektorprogrammet/http-api/http-semantics";
-import { Context, Effect, Option, Predicate, Schema } from "effect";
-import type { HttpApiGroup } from "effect/unstable/httpapi";
+import { Context, Crypto, Effect, Option, Predicate, Schema } from "effect";
+import type { HttpApiGroup } from "effect/http-api";
 import {
   SocialEventsApiHandlers as GeneratedSocialEventsApiHandlers,
   type SocialEventsGuards,
@@ -397,15 +400,19 @@ const create = (
             requestSha256: semanticRequestDigest({ body }),
             operationId,
           },
-          execute: SocialEvents.use((events) =>
-            events.create({
+          execute: Effect.gen(function* () {
+            const crypto = yield* Crypto.Crypto;
+            const uuid = yield* crypto.randomUUIDv4.pipe(Effect.orDie);
+            const events = yield* SocialEvents;
+
+            return yield* events.create({
               commandId: SocialEventCommandId.make(identity.commandId),
               actorPersonId: authorization.authority.personId,
               occurredAt: observedAt,
-              eventId: SocialEventId.make(`social_event_${randomUUID()}`),
+              eventId: SocialEventId.make(`social_event_${uuid}`),
               request: body,
-            }),
-          ).pipe(
+            });
+          }).pipe(
             Effect.flatMap(strictOutput(SocialEventResource)),
             Effect.map((event) => ({
               status: 201,

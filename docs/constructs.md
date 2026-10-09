@@ -19,6 +19,7 @@ Tag a construct only when at least 2 modules outside its own module and the test
   - [`encodePathIdentity`](constructs/http-transport.md#encodepathidentity): Encodes one decoded identity as an uppercase RFC 3986 path segment.
   - [`normalizeTarget`](constructs/http-transport.md#normalizetarget): Fills a route template with its encoded identities; a missing identity is a malformed request.
   - [`deriveHttpIdentity`](constructs/http-transport.md#derivehttpidentity): Derives the private storage digest and domain command ID from the identity tuple.
+  - [`withIdentityRequestCancellation`](constructs/http-transport.md#withidentityrequestcancellation): Keeps an identity request's cancellation signal attached to its native Effect fiber.
 - [http-problem](constructs/http-problem.md): Answers a native HTTP request with a declared problem: failure mapping, credential classification, authorization, and decoding.
   - [`authorizeAdmissionPerson`](constructs/http-problem.md#authorizeadmissionperson): Evaluates one admission person AccessSpec through the generated guard of its endpoint.
   - [`returningAuthorization`](constructs/http-problem.md#returningauthorization): Resolves the current person and authorizes one returning-assistant operation on that person's own profile.
@@ -74,6 +75,8 @@ Tag a construct only when at least 2 modules outside its own module and the test
   - [`quarantineOutboxClaim`](constructs/sql-lifecycle.md#quarantineoutboxclaim): Settles the claimed row as Quarantined, a terminal status, with its failure tag.
   - [`releaseOutboxClaim`](constructs/sql-lifecycle.md#releaseoutboxclaim): Returns an interrupted claim to Pending without a provider outcome; a lost claim needs none.
   - [`recoverStaleOutboxClaims`](constructs/sql-lifecycle.md#recoverstaleoutboxclaims): Recovers every Processing row claimed before `claimedBefore`.
+  - [`nativePgLayer`](constructs/sql-lifecycle.md#nativepglayer): Builds the native SQL layer with an explicit host-owned connection limit.
+  - [`AuthPoolLive`](constructs/sql-lifecycle.md#authpoollive): Builds the supported Better Auth pool with its own host-supplied capacity.
 - [delivery](constructs/delivery.md): Delivers committed effects to providers after the transaction.
   - [`deliverJson`](constructs/delivery.md#deliverjson): Shared acknowledged JSON transport; deliberately no retry on ambiguous acceptance.
 - [worker](constructs/worker.md): Runs background workers on the Effect clock.

@@ -77,7 +77,7 @@ import {
   SchedulingBoard,
   reflectAccessSpec,
 } from "@vektorprogrammet/http-api";
-import { DateTime, Effect, Layer, Option, Predicate, Schema } from "effect";
+import { DateTime, Effect, Layer, Option, Predicate, Schema, flow, Result } from "effect";
 import { describe, expect, it } from "@effect/vitest";
 import { jsonText } from "../http-api/problem.js";
 import { PreconditionDecision, evaluateMutationPrecondition } from "../http-semantics.js";
@@ -104,7 +104,10 @@ const observation = {
   responseMessage: null,
 } as const;
 
-const snapshot = Schema.decodeSync(RecruitmentInvitationHttpSnapshotSchema)({
+const snapshot = flow(
+  Schema.decodeResult(RecruitmentInvitationHttpSnapshotSchema),
+  Result.getOrThrow,
+)({
   source: {
     capabilitySha256: "a".repeat(64),
     invitationId: "http-invitation",
@@ -469,7 +472,7 @@ describe("native recruitment HTTP boundary", () => {
   );
 
   it("exposes mutation-compatible strong ETags on scheduling items", () => {
-    const board = Schema.decodeSync(RecruitmentSchedulingBoardSchema)(
+    const board = flow(Schema.decodeResult(RecruitmentSchedulingBoardSchema), Result.getOrThrow)(
       {
         departmentId: "department-1",
         interviews: [
@@ -512,12 +515,14 @@ describe("native recruitment HTTP boundary", () => {
     ];
 
     expect(() =>
-      Schema.decodeUnknownSync(SchedulingBoard)(board, { onExcessProperty: "error" }),
+      flow(Schema.decodeUnknownResult(SchedulingBoard), Result.getOrThrow)(board, {
+        onExcessProperty: "error",
+      }),
     ).toThrow();
 
     const tagged = schedulingBoardWithETags(board, authority);
 
-    const decoded = Schema.decodeSync(SchedulingBoard)(tagged, {
+    const decoded = flow(Schema.decodeResult(SchedulingBoard), Result.getOrThrow)(tagged, {
       onExcessProperty: "error",
     });
 

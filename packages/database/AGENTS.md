@@ -51,6 +51,7 @@ Each folder of `src` holds a bounded context of [docs/model/contexts.cml](../../
 | `@vektorprogrammet/database/outbox-lifecycle`                  | [src/outbox-lifecycle.ts](src/outbox-lifecycle.ts)                                   |
 | `@vektorprogrammet/database/live`                              | [src/layers.ts](src/layers.ts)                                                       |
 | `@vektorprogrammet/database/migrations`                        | [src/migrations.ts](src/migrations.ts)                                               |
+| `@vektorprogrammet/database/postgres-migration-statements`     | [src/postgres-migration-statements.ts](src/postgres-migration-statements.ts)         |
 | `@vektorprogrammet/database/password-recovery`                 | [src/password-recovery.ts](src/password-recovery.ts)                                 |
 | `@vektorprogrammet/database/person-cohort`                     | [src/person-cohort.ts](src/person-cohort.ts)                                         |
 | `@vektorprogrammet/database/placements`                        | [src/placements/index.ts](src/placements/index.ts)                                   |
@@ -84,6 +85,9 @@ The shared constructs defined here. Each name links to its contract; [docs/const
 - [`quarantineOutboxClaim`](../../docs/constructs/sql-lifecycle.md#quarantineoutboxclaim) (sql-lifecycle): Settles the claimed row as Quarantined, a terminal status, with its failure tag.
 - [`releaseOutboxClaim`](../../docs/constructs/sql-lifecycle.md#releaseoutboxclaim) (sql-lifecycle): Returns an interrupted claim to Pending without a provider outcome; a lost claim needs none.
 - [`recoverStaleOutboxClaims`](../../docs/constructs/sql-lifecycle.md#recoverstaleoutboxclaims) (sql-lifecycle): Recovers every Processing row claimed before `claimedBefore`.
+- [`withIdentityRequestCancellation`](../../docs/constructs/http-transport.md#withidentityrequestcancellation) (http-transport): Keeps an identity request's cancellation signal attached to its native Effect fiber.
+- [`nativePgLayer`](../../docs/constructs/sql-lifecycle.md#nativepglayer) (sql-lifecycle): Builds the native SQL layer with an explicit host-owned connection limit.
+- [`AuthPoolLive`](../../docs/constructs/sql-lifecycle.md#authpoollive) (sql-lifecycle): Builds the supported Better Auth pool with its own host-supplied capacity.
 
 Local invariants, pitfalls, and recipes go below this generated part; `just guides write` keeps them.
 

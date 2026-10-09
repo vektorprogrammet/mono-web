@@ -1,6 +1,5 @@
-import { randomUUID } from "node:crypto";
 import { IdentityRequestContext } from "@vektorprogrammet/domain/identity";
-import { Data, Schema } from "effect";
+import { Crypto, Data, Effect, Schema, flow, Result } from "effect";
 import { allowHeader } from "./http-semantics.js";
 
 const Deployment = Schema.Literals(["local", "production"]);
@@ -58,9 +57,12 @@ export const decodeNativeSessionBoundaryPolicy = (
     );
   }
 
-  const deployment = Schema.decodeUnknownSync(Deployment)(env.NATIVE_IDENTITY_DEPLOYMENT);
+  const deployment = flow(
+    Schema.decodeUnknownResult(Deployment),
+    Result.getOrThrow,
+  )(env.NATIVE_IDENTITY_DEPLOYMENT);
 
-  const trustedOrigins = Schema.decodeUnknownSync(TrustedOriginsJson)(
+  const trustedOrigins = flow(Schema.decodeUnknownResult(TrustedOriginsJson), Result.getOrThrow)(
     env.NATIVE_IDENTITY_TRUSTED_ORIGINS,
     { onExcessProperty: "error" },
   );
@@ -93,8 +95,10 @@ export const decodeNativeSessionBoundaryPolicy = (
   return { deployment, trustedOrigins, secureCookies: true };
 };
 
-const safeCorrelation = (value: string | null): string =>
-  value !== null && value.length <= 128 && /^[A-Za-z0-9._:-]+$/u.test(value) ? value : randomUUID();
+const safeCorrelation = (value: string | null): Effect.Effect<string, never, Crypto.Crypto> =>
+  value !== null && value.length <= 128 && /^[A-Za-z0-9._:-]+$/u.test(value)
+    ? Effect.succeed(value)
+    : Crypto.Crypto.use((crypto) => crypto.randomUUIDv4.pipe(Effect.orDie));
 
 const safeSourceIp = (request: Request): string | null => {
   const value = request.headers.get("cf-connecting-ip") ?? request.headers.get("x-real-ip");
@@ -112,21 +116,36 @@ const safeUserAgent = (value: string | null): string | null => {
 const RequestCorrelationHeader = "x-vektorprogrammet-request-correlation";
 
 /** Creates bounded, non-secret request evidence for audit persistence. */
-export const identityRequestContext = (request: Request): IdentityRequestContext =>
-  new IdentityRequestContext({
-    requestCorrelation: safeCorrelation(request.headers.get(RequestCorrelationHeader)),
-    sourceIp: safeSourceIp(request),
-    userAgent: safeUserAgent(request.headers.get("user-agent")),
-  });
+export const identityRequestContext = (
+  request: Request,
+): Effect.Effect<IdentityRequestContext, never, Crypto.Crypto> =>
+  Effect.map(
+    safeCorrelation(request.headers.get(RequestCorrelationHeader)),
+    (requestCorrelation) =>
+      new IdentityRequestContext({
+        requestCorrelation,
+        sourceIp: safeSourceIp(request),
+        userAgent: safeUserAgent(request.headers.get("user-agent")),
+      }),
+  );
 
 /** Overwrites the private correlation carrier before dispatching a request. */
-export const prepareIdentityBoundaryRequest = (request: Request) => {
-  const headers = new Headers(request.headers);
-  headers.set(RequestCorrelationHeader, randomUUID());
-  const prepared = new Request(request, { headers });
+export const prepareIdentityBoundaryRequest = (
+  request: Request,
+): Effect.Effect<
+  { readonly request: Request; readonly context: IdentityRequestContext },
+  never,
+  Crypto.Crypto
+> =>
+  Effect.gen(function* () {
+    const crypto = yield* Crypto.Crypto;
+    const correlation = yield* crypto.randomUUIDv4.pipe(Effect.orDie);
+    const headers = new Headers(request.headers);
+    headers.set(RequestCorrelationHeader, correlation);
+    const prepared = new Request(request, { headers });
 
-  return { request: prepared, context: identityRequestContext(prepared) };
-};
+    return { request: prepared, context: yield* identityRequestContext(prepared) };
+  });
 
 export type OriginDecision =
   | { readonly _tag: "Allowed"; readonly origin: string | null }

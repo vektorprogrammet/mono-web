@@ -1,12 +1,16 @@
-import type { PgPoolConfig } from "@effect/sql-pg/PgClient";
-import * as Migrator from "effect/unstable/sql/Migrator";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+/**
+ * EX-0021: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+import * as Migrator from "effect/sql/Migrator";
+import * as SqlClient from "effect/sql/SqlClient";
 import {
   databaseMigrationLoader,
   type ExecuteMigration,
   runDatabaseMigrations,
 } from "../migrations.js";
-import { sharedPgLayer } from "../pg-pool.js";
+import { nativePgLayer, type NativePgPoolConfig } from "../pg-pool.js";
+import { executePostgresMigration } from "../postgres-migration-statements.js";
 import { Database } from "../service.js";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import { canonicalJson } from "@vektorprogrammet/domain/shared-kernel";
@@ -297,8 +301,7 @@ const replayedReceiptAuthority = `
     ADD CONSTRAINT economy_receipts_file_byte_length_check CHECK (file_byte_length > 0);
 `;
 
-const executeMigration: ExecuteMigration = (source) =>
-  SqlClient.SqlClient.use((sql) => sql.unsafe(source).pipe(Effect.asVoid));
+const executeMigration: ExecuteMigration = executePostgresMigration;
 
 const migrateThrough = (lastMigrationId: number) =>
   Migrator.make({})({
@@ -313,13 +316,13 @@ const migrateThrough = (lastMigrationId: number) =>
  * migration 4 and its replay-era file size check, then the remaining migrations as `DatabaseLive`
  * runs them.
  */
-const upgradedLegacyReceiptSchema = (database: PgPoolConfig) =>
+const upgradedLegacyReceiptSchema = (database: NativePgPoolConfig) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     const legacyMigrations = yield* migrateThrough(receiptAuthorityReplayMigrationId - 1);
-    yield* sql.unsafe(legacyReceiptAuthority);
+    yield* sql.withTransaction(executePostgresMigration(legacyReceiptAuthority));
     const replayMigrations = yield* migrateThrough(receiptAuthorityReplayMigrationId);
-    yield* sql.unsafe(replayedReceiptAuthority);
+    yield* sql.withTransaction(executePostgresMigration(replayedReceiptAuthority));
     const appliedMigrationIds = [...legacyMigrations, ...replayMigrations].map(([id]) => id).join();
 
     if (appliedMigrationIds !== "1,2,3,4") {
@@ -329,13 +332,13 @@ const upgradedLegacyReceiptSchema = (database: PgPoolConfig) =>
     yield* runDatabaseMigrations(executeMigration);
 
     return yield* receiptSchemaDefinition(sql);
-  }).pipe(Effect.provide(sharedPgLayer(database)));
+  }).pipe(Effect.provide(nativePgLayer(database)));
 
 export const runReceiptFileProof = (
   fileSnapshot: Effect.Effect<ReceiptFileRecordingSnapshot>,
   failNextFileEffect: (effectId: string) => Effect.Effect<void>,
   auxiliaryEffectIds: Effect.Effect<ReadonlyArray<string>>,
-  legacyUpgradeDatabase: PgPoolConfig,
+  legacyUpgradeDatabase: NativePgPoolConfig,
 ) =>
   Effect.gen(function* () {
     const sql = yield* Database;

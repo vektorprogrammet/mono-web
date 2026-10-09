@@ -173,3 +173,6 @@ export const canonicalJsonBytes: <A>(datum: A) => Uint8Array<ArrayBuffer> = flow
  * @construct digest
  */
 export const sha256Hex = (bytes: Uint8Array): string => bytesToHex(sha256(bytes));
+
+/** Returns the SHA-256 bytes for the same input contract as sha256Hex, without changing the input. */
+export const sha256Bytes = (bytes: Uint8Array): Uint8Array => sha256(bytes);

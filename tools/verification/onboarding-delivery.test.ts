@@ -1,3 +1,7 @@
+/**
+ * EX-0029: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { randomBytes } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Database, type DatabaseOperations } from "@vektorprogrammet/database";
@@ -6,7 +10,7 @@ import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application"
 import { Instant } from "@vektorprogrammet/domain/time";
 import { claimOnboarding, commandOnboarding } from "@vektorprogrammet/database/onboarding";
 import { Crypto, DateTime, Effect, Predicate, Schema } from "effect";
-import { HttpClient, HttpClientResponse, type HttpClientRequest } from "effect/unstable/http";
+import { HttpClient, HttpClientResponse, type HttpClientRequest } from "effect/http";
 import { DatabaseTestLive } from "@vektorprogrammet/database/test-support/platform";
 import { makeControlledTestRuntime } from "./controlled-test-runtime.js";
 import { provisionOnboardingAccount } from "@vektorprogrammet/database/onboarding-account";

@@ -1,8 +1,10 @@
-import { Predicate } from "effect";
+/**
+ * EX-0025: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { StrongETag } from "@vektorprogrammet/http-api";
 import { expect, it } from "@effect/vitest";
-import { Effect, Schema as S } from "effect";
-import { Arbitrary } from "effect/unstable/arbitrary";
+import { Arbitrary, Effect, Predicate, Schema as S } from "effect";
 import { AsyncData, FieldValidation } from "foldkit";
 import type { InvitationResponseClient } from "./browser-client";
 import { InvitationResponseObservationSchema, InvitationBridgeFailureSchema } from "./bridge";
@@ -186,7 +188,7 @@ it("requires a bounded message only when requesting a new time", () => {
   expect(invalidRejectCommands).toEqual([]);
   expect(invalidNewTime.validationFeedback).toBeNull();
   expect(invalidNewTime.responseMessage).toHaveProperty("_tag", "Invalid");
-expect(invalidNewTime.responseMessage).toMatchObject({ errors: expect.arrayContaining([expect.stringContaining("2000")]) });
+  expect(invalidNewTime.responseMessage).toMatchObject({ errors: expect.arrayContaining([expect.stringContaining("2000")]) });
   expect(invalidNewTimeCommands).toEqual([]);
 
   const validMaximumMessage = Array.from({ length: 2_000 }, (_, index) =>
@@ -216,7 +218,7 @@ it("clears capability-shaped messages before rendering or creating a browser com
   for (const rawMessage of rawMessages) {
     const { model: sanitized } = update(pendingModel(), UpdatedResponseMessage({ value: rawMessage }));
     expect(sanitized.responseMessage).toHaveProperty("_tag", "Invalid");
-expect(sanitized.responseMessage).toMatchObject({ value: "", errors: expect.arrayContaining([expect.stringContaining("ikke er tillatt")]) });
+    expect(sanitized.responseMessage).toMatchObject({ value: "", errors: expect.arrayContaining([expect.stringContaining("ikke er tillatt")]) });
 
     const { model: next, commands = [] } = update(sanitized, RequestedNewInvitationTime());
     expect(next).toBe(sanitized);
@@ -231,7 +233,7 @@ expect(sanitized.responseMessage).toMatchObject({ value: "", errors: expect.arra
     );
 
     expect(rejected.responseMessage).toHaveProperty("_tag", "Invalid");
-expect(rejected.responseMessage).toMatchObject({ value: "", errors: expect.arrayContaining([expect.stringContaining("ikke er tillatt")]) });
+    expect(rejected.responseMessage).toMatchObject({ value: "", errors: expect.arrayContaining([expect.stringContaining("ikke er tillatt")]) });
     expect(rejectCommands).toEqual([]);
   }
 });

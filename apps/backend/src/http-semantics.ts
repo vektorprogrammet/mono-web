@@ -1,5 +1,9 @@
-import { createHash } from "node:crypto";
-import { canonicalJson, canonicalJsonBytes } from "@vektorprogrammet/domain/shared-kernel";
+import {
+  canonicalJson,
+  canonicalJsonBytes,
+  sha256Bytes,
+  sha256Hex as canonicalSha256Hex,
+} from "@vektorprogrammet/domain/shared-kernel";
 import { parseJsonWithUniqueMembers } from "@vektorprogrammet/domain/http-semantics";
 import {
   type IdempotencyKey,
@@ -13,7 +17,7 @@ import {
   type ValidationProblemCode,
   StrongETag as StrongETagSchema,
 } from "@vektorprogrammet/http-api/http-semantics";
-import { Array as Arr, Data, Predicate, Result, Schema } from "effect";
+import { Array as Arr, Data, Predicate, Result, Schema, flow } from "effect";
 
 const encoder = new TextEncoder();
 
@@ -47,13 +51,10 @@ export type CanonicalSemanticRequest = {
   readonly query?: Schema.JsonObject;
 };
 
-const sha256Bytes = (bytes: Uint8Array): Uint8Array =>
-  new Uint8Array(createHash("sha256").update(bytes).digest());
-
 const base64urlNoPad = (bytes: Uint8Array): string => Buffer.from(bytes).toString("base64url");
 
 export const sha256Hex = (bytes: Uint8Array): Sha256Hex =>
-  Sha256Hex.make(createHash("sha256").update(bytes).digest("hex"));
+  Sha256Hex.make(canonicalSha256Hex(bytes));
 
 const isUnicodeScalarString = (value: string): boolean => {
   for (let index = 0; index < value.length; index += 1) {
@@ -254,7 +255,7 @@ export const parseIdempotencyKey = (values: ReadonlyArray<string>): IdempotencyK
   }
 
   try {
-    return Schema.decodeUnknownSync(IdempotencyKeySchema)(values[0]);
+    return flow(Schema.decodeUnknownResult(IdempotencyKeySchema), Result.getOrThrow)(values[0]);
   } catch {
     throw Problem.make("idempotency-key.invalid");
   }
@@ -274,7 +275,7 @@ export const parseRequiredIfMatch = (values: ReadonlyArray<string>): StrongETag 
   }
 
   try {
-    return Schema.decodeSync(StrongETagSchema)(canonical);
+    return flow(Schema.decodeResult(StrongETagSchema), Result.getOrThrow)(canonical);
   } catch {
     throw Problem.make("precondition.invalid");
   }
@@ -470,7 +471,7 @@ export const deriveHttpIdentity = (identity: NativeIdempotencyIdentity): Derived
   }
 
   try {
-    Schema.decodeSync(IdempotencyKeySchema)(identity.idempotencyKey);
+    flow(Schema.decodeResult(IdempotencyKeySchema), Result.getOrThrow)(identity.idempotencyKey);
   } catch {
     throw Problem.make("idempotency-key.invalid");
   }
