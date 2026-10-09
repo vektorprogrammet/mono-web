@@ -1,6 +1,7 @@
 import * as BunFileSystem from "@effect/platform-bun/BunFileSystem";
 import * as BunPath from "@effect/platform-bun/BunPath";
 import { Miniflare } from "miniflare";
+import process from "node:process";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import {
   Schema,
@@ -49,12 +50,6 @@ import {
   FIXTURE_SEED_EVENTS,
 } from "../src/tutor/fixture.js";
 
-const PINNED_BUN_VERSION = "1.3.10";
-
-const EFFECT_VERSION = "4.0.0-rc.109";
-
-const MINIFLARE_VERSION = "4.20260706.0";
-
 const SPEC_ID = "0017";
 
 const BASE_COMMIT = "a8dafe618907dfd623718802fdaf5712d55f70d4";
@@ -70,17 +65,6 @@ const CANONICAL_D1_INTEGRATION_COMMIT = "9a166a327a21924537a3a3ac23ede88619b64c9
 const PREDECESSOR_COMMIT = "a8dafe618907dfd623718802fdaf5712d55f70d4";
 
 const ADR_SHA256 = "94a2dbe93d353ddf98af784d3d6a66903c69631f8adc656c07f98a329491c830";
-
-const D1_CLIENT_SOURCE_HASH = "33d086b2b5599349e012f93241d40f079ff78d09ddea00857744217e39b8647e";
-
-const STATEMENT_SOURCE_HASH = "d0217382c9cded3a4f143058461b96aecf18c0f2daedd7995e726831d7cc12f5";
-
-const SQL_EVENT_JOURNAL_SOURCE_HASH =
-  "832b3143d50baeb589a6739f6938357d57a794d22bae5cb28bad51b94c4748ac";
-
-const MIGRATOR_SOURCE_HASH = "c94e7d36a4d253210e76e694bde656aeace439e541e503b9442e06bf95878de9";
-
-const SQL_CLIENT_SOURCE_HASH = "aed2fc43ca7582797a4762198318936ed9e743696b7aa4ec43002bbc1622d27f";
 
 const D1_BINDING_NAME = "TUTOR_D1";
 
@@ -105,7 +89,7 @@ interface RowCounts {
 }
 
 const readFixtureHead = (db: LocalBinding): Effect.Effect<HeadSnapshot | null> =>
-  Effect.gen(function* () {
+  Effect.gen(function*() {
     const rows = yield* dbRows<Schema.JsonObject>(
       db,
       `SELECT current_version, last_command_id
@@ -140,13 +124,13 @@ const readFixtureHead = (db: LocalBinding): Effect.Effect<HeadSnapshot | null> =
 interface CaseRecord {
   readonly caseId: string;
   readonly status:
-    | "accepted"
-    | "rejected"
-    | "stale"
-    | "terminal"
-    | "duplicate"
-    | "duplicate-conflict"
-    | "drift";
+  | "accepted"
+  | "rejected"
+  | "stale"
+  | "terminal"
+  | "duplicate"
+  | "duplicate-conflict"
+  | "drift";
   readonly reasonCode: string;
   readonly commandId: string;
   readonly before: RowCounts;
@@ -209,7 +193,7 @@ const expectFailure = <A, E, R>(
   predicate: Predicate.Predicate<Error>,
   message: string,
 ): Effect.Effect<Error, never, R> =>
-  Effect.gen(function* () {
+  Effect.gen(function*() {
     const exit = yield* Effect.exit(operation);
 
     if (Exit.isSuccess(exit)) {
@@ -250,7 +234,7 @@ const bindEvidence = (binds: ReadonlyArray<unknown>) =>
   binds.map((bind) => (bind instanceof Uint8Array ? { bytesHex: bytesToHex(bind) } : bind));
 
 const rowCounts = (db: LocalBinding): Effect.Effect<RowCounts> =>
-  Effect.gen(function* () {
+  Effect.gen(function*() {
     const rows = yield* dbRows<Record<string, number>>(
       db,
       `SELECT
@@ -272,12 +256,12 @@ const rowCounts = (db: LocalBinding): Effect.Effect<RowCounts> =>
 /** One disposable Miniflare D1 binding per journey run; every case resets its schema. */
 class ProofRuntime extends Context.Service<ProofRuntime, LocalRuntime>()(
   "@vektorprogrammet/domain/runtime/ProofRuntime",
-) {}
+) { }
 
 const ProofRuntimeLive = Layer.effect(
   ProofRuntime,
   Effect.acquireRelease(
-    Effect.gen(function* () {
+    Effect.gen(function*() {
       const miniflare = new Miniflare({
         modules: true,
         script: "",
@@ -292,7 +276,7 @@ const ProofRuntimeLive = Layer.effect(
   ),
 );
 
-const migrationSql = Effect.gen(function* () {
+const migrationSql = Effect.gen(function*() {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
 
@@ -304,7 +288,7 @@ const migrationSql = Effect.gen(function* () {
 });
 
 const applyMigration = (db: LocalBinding, sql: string) =>
-  Effect.gen(function* () {
+  Effect.gen(function*() {
     const statements = sql.split(/;\s*(?=CREATE TABLE|CREATE TRIGGER)/);
 
     for (const statement of statements) {
@@ -319,7 +303,7 @@ const seedStream = (
   headVersion = 3,
   headToken: string | null = FIXTURE_ID,
 ) =>
-  Effect.gen(function* () {
+  Effect.gen(function*() {
     yield* dbExec(
       db,
       `INSERT INTO stream_heads (person_id, department_id, semester_year, semester_term, current_version, last_command_id)
@@ -360,7 +344,7 @@ const seedStream = (
   });
 
 const resetDatabase = (db: LocalBinding) =>
-  Effect.gen(function* () {
+  Effect.gen(function*() {
     for (const sql of [
       "DROP TRIGGER IF EXISTS tutor_events_immutable_update;",
       "DROP TRIGGER IF EXISTS tutor_events_immutable_delete;",
@@ -375,7 +359,7 @@ const resetDatabase = (db: LocalBinding) =>
   });
 
 const withMigration = <A, E, R>(run: (runtime: LocalRuntime) => Effect.Effect<A, E, R>) =>
-  Effect.gen(function* () {
+  Effect.gen(function*() {
     const runtime = yield* ProofRuntime;
     yield* resetDatabase(runtime.db);
     yield* applyMigration(runtime.db, yield* migrationSql);
@@ -462,7 +446,7 @@ const observationFor = (commandId: string): CommandObservation => ({
 
 const migrationCase = (sql: string) =>
   withMigration(({ db }) =>
-    Effect.gen(function* () {
+    Effect.gen(function*() {
       const before = yield* rowCounts(db);
 
       const schemaRows = yield* dbRows<Schema.JsonObject>(
@@ -513,7 +497,7 @@ const migrationCase = (sql: string) =>
 
 const seedCase = () =>
   withMigration(({ db }) =>
-    Effect.gen(function* () {
+    Effect.gen(function*() {
       const before = yield* rowCounts(db);
       yield* seedStream(db);
       const after = yield* rowCounts(db);
@@ -546,7 +530,7 @@ const seedCase = () =>
 
 const appendAcceptedCase = () =>
   withSeed(({ db }) =>
-    Effect.gen(function* () {
+    Effect.gen(function*() {
       const before = yield* rowCounts(db);
       const result = yield* append(db, FIXTURE_COMMAND);
       assert(Predicate.isTagged(result, "AcceptedResult"), "accepted command did not append");
@@ -559,8 +543,8 @@ const appendAcceptedCase = () =>
       const after = yield* rowCounts(db);
       assert(
         after.stream_heads === before.stream_heads &&
-          after.tutor_events === before.tutor_events + 1 &&
-          after.command_receipts === before.command_receipts + 1,
+        after.tutor_events === before.tutor_events + 1 &&
+        after.command_receipts === before.command_receipts + 1,
         "accepted counts mismatch",
       );
 
@@ -592,14 +576,50 @@ const appendAcceptedCase = () =>
     }),
   );
 
-const runJourney = (schemaHash: string) =>
-  Effect.gen(function* () {
+const decodePackageVersion = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(Schema.Struct({ version: Schema.NonEmptyString })),
+);
+
+const installedRuntimeIdentity = Effect.gen(function*() {
+  const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+
+  const versionOf = Effect.fnUntraced(function*(specifier: string) {
+    const file = yield* path.fromFileUrl(new URL(import.meta.resolve(specifier)));
+    const metadata = yield* fileSystem.readFileString(file).pipe(Effect.flatMap(decodePackageVersion));
+
+    return metadata.version;
+  });
+
+  const moduleHashes: Record<string, string> = {};
+
+  for (const [name, specifier] of Object.entries({
+    d1Client: "@effect/sql-d1/D1Client",
+    statement: "effect/sql/Statement",
+    migrator: "effect/sql/Migrator",
+    sqlClient: "effect/sql/SqlClient",
+  })) {
+    const file = yield* path.fromFileUrl(new URL(import.meta.resolve(specifier)));
+
+    moduleHashes[name] = sha256Hex(yield* fileSystem.readFile(file));
+  }
+
+  return {
+    effectVersion: yield* versionOf("effect/package.json"),
+    miniflareVersion: yield* versionOf("miniflare/package.json"),
+    bunVersion: yield* Schema.decodeUnknownEffect(Schema.NonEmptyString)(process.versions.bun),
+    moduleHashes,
+  };
+});
+
+const runJourney = (schemaHash: string, runtimeIdentity: Effect.Success<typeof installedRuntimeIdentity>) =>
+  Effect.gen(function*() {
     const cases: Array<CaseRecord> = [];
     cases.push(yield* migrationCase(yield* migrationSql));
     cases.push(yield* seedCase());
     cases.push(
       yield* withMigration(({ db }) =>
-        Effect.gen(function* () {
+        Effect.gen(function*() {
           const before = yield* rowCounts(db);
 
           const missingCommand = {
@@ -634,7 +654,7 @@ const runJourney = (schemaHash: string) =>
     cases.push(accepted.record);
     cases.push(
       yield* withSeed(({ db }) =>
-        Effect.gen(function* () {
+        Effect.gen(function*() {
           const acceptedResult = yield* append(db, FIXTURE_COMMAND);
           assert(
             Predicate.isTagged(acceptedResult, "AcceptedResult"),
@@ -646,7 +666,7 @@ const runJourney = (schemaHash: string) =>
 
           assert(
             replay.events.map((event) => event.eventId).join(",") ===
-              "evt-0014-001,evt-0014-002,evt-0014-003,evt-0014-004",
+            "evt-0014-001,evt-0014-002,evt-0014-003,evt-0014-004",
             "replay event order mismatch",
           );
           assert(replay.folded.events.length === 4, "replay fold count mismatch");
@@ -670,7 +690,7 @@ const runJourney = (schemaHash: string) =>
     );
     cases.push(
       yield* withSeed(({ db }) =>
-        Effect.gen(function* () {
+        Effect.gen(function*() {
           yield* append(db, FIXTURE_COMMAND);
           const before = yield* rowCounts(db);
 
@@ -704,7 +724,7 @@ const runJourney = (schemaHash: string) =>
     );
     cases.push(
       yield* withMigration(({ db }) =>
-        Effect.gen(function* () {
+        Effect.gen(function*() {
           const before = yield* rowCounts(db);
 
           const command = {
@@ -740,7 +760,7 @@ const runJourney = (schemaHash: string) =>
     );
     cases.push(
       yield* withSeed(({ db }) =>
-        Effect.gen(function* () {
+        Effect.gen(function*() {
           const before = yield* rowCounts(db);
           const headBefore = yield* readFixtureHead(db);
           assert(headBefore !== null, "divergence preflight head missing");
@@ -760,8 +780,8 @@ const runJourney = (schemaHash: string) =>
           const headAfter = yield* readFixtureHead(db);
           assert(
             headAfter !== null &&
-              headBefore.current_version === 3 &&
-              headBefore.last_command_id === FIXTURE_ID,
+            headBefore.current_version === 3 &&
+            headBefore.last_command_id === FIXTURE_ID,
             "divergence preflight head mismatch",
           );
           assert(
@@ -770,7 +790,7 @@ const runJourney = (schemaHash: string) =>
           );
           assert(
             after.tutor_events === before.tutor_events &&
-              after.command_receipts === before.command_receipts,
+            after.command_receipts === before.command_receipts,
             "divergence changed event or receipt rows",
           );
 
@@ -794,7 +814,7 @@ const runJourney = (schemaHash: string) =>
     );
     cases.push(
       yield* withSeed(({ db }) =>
-        Effect.gen(function* () {
+        Effect.gen(function*() {
           const before = yield* rowCounts(db);
           const headBefore = yield* readFixtureHead(db);
           assert(headBefore !== null, "stale preflight head missing");
@@ -829,7 +849,7 @@ const runJourney = (schemaHash: string) =>
     );
     cases.push(
       yield* withSeed(({ db }) =>
-        Effect.gen(function* () {
+        Effect.gen(function*() {
           yield* append(db, FIXTURE_COMMAND);
           const before = yield* rowCounts(db);
 
@@ -863,7 +883,7 @@ const runJourney = (schemaHash: string) =>
     );
     cases.push(
       yield* withSeed(({ db }) =>
-        Effect.gen(function* () {
+        Effect.gen(function*() {
           yield* append(db, FIXTURE_COMMAND);
           const before = yield* rowCounts(db);
           const duplicate = yield* append(db, FIXTURE_COMMAND);
@@ -892,7 +912,7 @@ const runJourney = (schemaHash: string) =>
     );
     cases.push(
       yield* withSeed(({ db }) =>
-        Effect.gen(function* () {
+        Effect.gen(function*() {
           yield* append(db, FIXTURE_COMMAND);
           const before = yield* rowCounts(db);
 
@@ -925,7 +945,7 @@ const runJourney = (schemaHash: string) =>
     );
     cases.push(
       yield* withSeed(({ db }) =>
-        Effect.gen(function* () {
+        Effect.gen(function*() {
           const before = yield* rowCounts(db);
           const headBefore = yield* readFixtureHead(db);
           assert(headBefore !== null, "race preflight head missing");
@@ -967,20 +987,20 @@ const runJourney = (schemaHash: string) =>
           const outcomeB = yield* Fiber.join(outcomeBFiber);
           assert(
             Exit.isFailure(outcomeB) &&
-              errorReason(Cause.squash(outcomeB.cause)) === "STALE_VERSION",
+            errorReason(Cause.squash(outcomeB.cause)) === "STALE_VERSION",
             "race B was not stale",
           );
           const after = yield* rowCounts(db);
           const headAfter = yield* readFixtureHead(db);
           assert(
             headAfter !== null &&
-              headAfter.current_version === 4 &&
-              headAfter.last_command_id === commandA.commandId,
+            headAfter.current_version === 4 &&
+            headAfter.last_command_id === commandA.commandId,
             "race winner head mismatch",
           );
           assert(
             after.tutor_events === before.tutor_events + 1 &&
-              after.command_receipts === before.command_receipts + 1,
+            after.command_receipts === before.command_receipts + 1,
             "race wrote more than one append",
           );
 
@@ -1003,7 +1023,7 @@ const runJourney = (schemaHash: string) =>
     );
     cases.push(
       yield* withSeed(({ db }) =>
-        Effect.gen(function* () {
+        Effect.gen(function*() {
           const before = yield* rowCounts(db);
           const headBefore = yield* readFixtureHead(db);
           assert(headBefore !== null, "older-event preflight head missing");
@@ -1014,7 +1034,7 @@ const runJourney = (schemaHash: string) =>
           const failure = yield* expectFailure(
             append(db, candidateCommand, {
               beforeBatch: (plan) =>
-                Effect.gen(function* () {
+                Effect.gen(function*() {
                   candidatePlan = plan;
                   yield* dbExec(
                     db,
@@ -1060,19 +1080,19 @@ const runJourney = (schemaHash: string) =>
           const candidateCausationId = candidateEventBinds[5];
           assert(
             candidatePlan.commandId === candidateCommand.commandId &&
-              candidatePlan.eventId === oldEvent.eventId &&
-              candidatePlan.newVersion === oldEvent.streamVersion,
+            candidatePlan.eventId === oldEvent.eventId &&
+            candidatePlan.newVersion === oldEvent.streamVersion,
             "older-event candidate plan identity mismatch",
           );
           assert(
             candidateCausationId === candidateCommand.commandId &&
-              candidateCausationId !== oldEvent.causationId,
+            candidateCausationId !== oldEvent.causationId,
             "older-event candidate causation mismatch",
           );
           assert(
             candidateReceiptBinds[4] === candidateCommand.commandId &&
-              candidateReceiptBinds[9] === candidatePlan.eventId &&
-              candidateReceiptBinds[10] === candidatePlan.newVersion,
+            candidateReceiptBinds[9] === candidatePlan.eventId &&
+            candidateReceiptBinds[10] === candidatePlan.newVersion,
             "older-event receipt plan mismatch",
           );
 
@@ -1090,26 +1110,26 @@ const runJourney = (schemaHash: string) =>
 
           assert(
             headAfter !== null &&
-              headAfter.current_version === 4 &&
-              headAfter.last_command_id === oldEvent.causationId,
+            headAfter.current_version === 4 &&
+            headAfter.last_command_id === oldEvent.causationId,
             "older-event setup head mismatch",
           );
           assert(
             existingOldEvent?.event_id === candidatePlan.eventId &&
-              existingOldEvent.stream_version === candidatePlan.newVersion &&
-              existingOldEvent.causation_id === oldEvent.causationId,
+            existingOldEvent.stream_version === candidatePlan.newVersion &&
+            existingOldEvent.causation_id === oldEvent.causationId,
             "older-event causation fixture mismatch",
           );
           assert(
             fkCandidateReceipt.eventId === existingOldEvent.event_id &&
-              fkCandidateReceipt.eventStreamVersion === existingOldEvent.stream_version &&
-              fkCandidateReceipt.commandId === candidateCausationId,
+            fkCandidateReceipt.eventStreamVersion === existingOldEvent.stream_version &&
+            fkCandidateReceipt.commandId === candidateCausationId,
             "older-event FK candidate mismatch",
           );
           assert(
             after.stream_heads === before.stream_heads &&
-              after.tutor_events === before.tutor_events + 1 &&
-              after.command_receipts === before.command_receipts,
+            after.tutor_events === before.tutor_events + 1 &&
+            after.command_receipts === before.command_receipts,
             "older event candidate was not rolled back",
           );
 
@@ -1152,7 +1172,7 @@ const runJourney = (schemaHash: string) =>
     );
     cases.push(
       yield* withSeed(({ db }) =>
-        Effect.gen(function* () {
+        Effect.gen(function*() {
           const before = yield* rowCounts(db);
           const headBefore = yield* readFixtureHead(db);
           assert(headBefore !== null, "beyond-version preflight head missing");
@@ -1178,13 +1198,13 @@ const runJourney = (schemaHash: string) =>
           const headAfter = yield* readFixtureHead(db);
           assert(
             headAfter !== null &&
-              headAfter.current_version === 5 &&
-              headAfter.last_command_id === "cmd-0017-advance-b",
+            headAfter.current_version === 5 &&
+            headAfter.last_command_id === "cmd-0017-advance-b",
             "beyond-version setup head mismatch",
           );
           assert(
             after.tutor_events === before.tutor_events &&
-              after.command_receipts === before.command_receipts,
+            after.command_receipts === before.command_receipts,
             "beyond-version batch left candidate rows",
           );
 
@@ -1211,7 +1231,7 @@ const runJourney = (schemaHash: string) =>
     );
     cases.push(
       yield* withSeed(({ db }) =>
-        Effect.gen(function* () {
+        Effect.gen(function*() {
           const before = yield* rowCounts(db);
           const headBefore = yield* readFixtureHead(db);
           assert(headBefore !== null, "receipt-conflict preflight head missing");
@@ -1231,7 +1251,7 @@ const runJourney = (schemaHash: string) =>
               { ...FIXTURE_COMMAND },
               {
                 beforeBatch: (_plan) =>
-                  Effect.gen(function* () {
+                  Effect.gen(function*() {
                     yield* dbExec(
                       db,
                       `INSERT INTO tutor_events (person_id, department_id, semester_year, semester_term, event_id, stream_version, schema_version, event_type, envelope_bytes, occurred_at, causation_id, correlation_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12);`,
@@ -1282,8 +1302,8 @@ const runJourney = (schemaHash: string) =>
           );
           assert(
             after.stream_heads === before.stream_heads &&
-              after.tutor_events === before.tutor_events + 1 &&
-              after.command_receipts === before.command_receipts + 1,
+            after.tutor_events === before.tutor_events + 1 &&
+            after.command_receipts === before.command_receipts + 1,
             "receipt conflict candidate changed rows",
           );
 
@@ -1309,7 +1329,7 @@ const runJourney = (schemaHash: string) =>
     );
     cases.push(
       yield* withSeed(({ db }) =>
-        Effect.gen(function* () {
+        Effect.gen(function*() {
           const before = yield* rowCounts(db);
           const headBefore = yield* readFixtureHead(db);
           assert(headBefore !== null, "event-unique preflight head missing");
@@ -1353,8 +1373,8 @@ const runJourney = (schemaHash: string) =>
           );
           assert(
             after.stream_heads === before.stream_heads &&
-              after.tutor_events === before.tutor_events + 1 &&
-              after.command_receipts === before.command_receipts,
+            after.tutor_events === before.tutor_events + 1 &&
+            after.command_receipts === before.command_receipts,
             "event uniqueness candidate changed rows",
           );
 
@@ -1379,7 +1399,7 @@ const runJourney = (schemaHash: string) =>
     );
     cases.push(
       yield* withSeed(({ db }) =>
-        Effect.gen(function* () {
+        Effect.gen(function*() {
           yield* append(db, FIXTURE_COMMAND);
           const before = yield* rowCounts(db);
 
@@ -1435,7 +1455,7 @@ const runJourney = (schemaHash: string) =>
     );
     cases.push(
       yield* withSeed(({ db }) =>
-        Effect.gen(function* () {
+        Effect.gen(function*() {
           yield* append(db, FIXTURE_COMMAND);
 
           const rows = yield* dbRows<ReplayEventRow>(db, REPLAY_SQL, [
@@ -1479,7 +1499,7 @@ const runJourney = (schemaHash: string) =>
     );
     cases.push(
       yield* withSeed(({ db }) =>
-        Effect.gen(function* () {
+        Effect.gen(function*() {
           const rows = yield* dbRows<ReplayEventRow>(db, REPLAY_SQL, [
             stream.personId,
             stream.cycle.departmentId,
@@ -1512,7 +1532,7 @@ const runJourney = (schemaHash: string) =>
 
           assert(
             failures.length === wrongValues.length &&
-              failures.every((failure) => failure.startsWith("D1IntegrityError:D1_INTEGRITY")),
+            failures.every((failure) => failure.startsWith("D1IntegrityError:D1_INTEGRITY")),
             "wrong BLOB values did not fail closed",
           );
           const counts = yield* rowCounts(db);
@@ -1532,7 +1552,7 @@ const runJourney = (schemaHash: string) =>
     );
     cases.push(
       yield* withSeed(({ db }) =>
-        Effect.gen(function* () {
+        Effect.gen(function*() {
           assert(
             Predicate.isTagged(accepted.result, "AcceptedResult"),
             "accepted SQL plan missing",
@@ -1547,7 +1567,7 @@ const runJourney = (schemaHash: string) =>
           const stale = yield* expectFailure(
             append(db, staleCommand, {
               beforeBatch: (plan) =>
-                Effect.gen(function* () {
+                Effect.gen(function*() {
                   stalePlan = plan;
                   yield* dbExec(
                     db,
@@ -1570,8 +1590,8 @@ const runJourney = (schemaHash: string) =>
           );
           assert(
             acceptedResult.batchPlan.statements[0]?.binds.length === 7 &&
-              acceptedResult.batchPlan.statements[1]?.binds.length === 12 &&
-              acceptedResult.batchPlan.statements[2]?.binds.length === 11,
+            acceptedResult.batchPlan.statements[1]?.binds.length === 12 &&
+            acceptedResult.batchPlan.statements[2]?.binds.length === 11,
             "bind cardinality mismatch",
           );
           const after = yield* rowCounts(db);
@@ -1582,8 +1602,8 @@ const runJourney = (schemaHash: string) =>
           );
           assert(
             headAfter !== null &&
-              headAfter.current_version === 4 &&
-              headAfter.last_command_id === "cmd-0017-sql-race",
+            headAfter.current_version === 4 &&
+            headAfter.last_command_id === "cmd-0017-sql-race",
             "stale SQL setup head mismatch",
           );
           assert(canonicalJson(before) === canonicalJson(after), "stale SQL batch changed rows");
@@ -1617,7 +1637,7 @@ const runJourney = (schemaHash: string) =>
     cases.push(yield* replayCases());
 
     const acceptedReplay = yield* withSeed(({ db }) =>
-      Effect.gen(function* () {
+      Effect.gen(function*() {
         yield* append(db, FIXTURE_COMMAND);
         const result = yield* readReplay(db);
         const projection = projectFoldedState(result.folded);
@@ -1642,15 +1662,9 @@ const runJourney = (schemaHash: string) =>
       fixtureId: FIXTURE_ID,
       schemaMigrationId: "0017-0001-tutor-event-store",
       schemaHash,
-      localEffectVersion: EFFECT_VERSION,
-      localEffectSourceHashes: {
-        d1Client: D1_CLIENT_SOURCE_HASH,
-        statement: STATEMENT_SOURCE_HASH,
-        sqlEventJournal: SQL_EVENT_JOURNAL_SOURCE_HASH,
-        migrator: MIGRATOR_SOURCE_HASH,
-        sqlClient: SQL_CLIENT_SOURCE_HASH,
-      },
-      localMiniflareVersion: MINIFLARE_VERSION,
+      localEffectVersion: runtimeIdentity.effectVersion,
+      localEffectSourceHashes: runtimeIdentity.moduleHashes,
+      localMiniflareVersion: runtimeIdentity.miniflareVersion,
       correlationId: FIXTURE_CORRELATION_ID,
       stream,
       seedHead: canonicalJsonValue({
@@ -1711,7 +1725,8 @@ const runJourney = (schemaHash: string) =>
         "adapter-array-duplicate-and-cross-stream-cases-are-fold-input-only",
       ],
       provenance: canonicalJsonValue({
-        pinnedBunVersion: PINNED_BUN_VERSION,
+        bunVersion: runtimeIdentity.bunVersion,
+        localEffectSourceKind: "installed-runtime-entrypoint-bytes",
         miniflareSetup: {
           modules: true,
           script: "",
@@ -1720,18 +1735,18 @@ const runJourney = (schemaHash: string) =>
         },
         migrationAppliedOrder: ["0017-0001-tutor-event-store"],
         reasonCounts,
-        sourceCommit: BASE_COMMIT,
-        sourceCandidateParent: SOURCE_CANDIDATE_PARENT,
-        sourceCandidateCommit: SOURCE_CANDIDATE_COMMIT,
-        canonicalIntegrationBase: CANONICAL_INTEGRATION_BASE,
-        canonicalD1IntegrationCommit: CANONICAL_D1_INTEGRATION_COMMIT,
+        historicalSourceCommit: BASE_COMMIT,
+        historicalSourceCandidateParent: SOURCE_CANDIDATE_PARENT,
+        historicalSourceCandidateCommit: SOURCE_CANDIDATE_COMMIT,
+        historicalCanonicalIntegrationBase: CANONICAL_INTEGRATION_BASE,
+        historicalCanonicalD1IntegrationCommit: CANONICAL_D1_INTEGRATION_COMMIT,
         noNetwork: true,
       }),
     } satisfies D1Evidence;
   }).pipe(Effect.provide(ProofRuntimeLive));
 
 const replayCases = () =>
-  Effect.gen(function* () {
+  Effect.gen(function*() {
     type BadRow = {
       readonly caseId: string;
       readonly reasonCode: string;
@@ -1788,7 +1803,7 @@ const replayCases = () =>
       event: EventEnvelopeV1,
       indexed: Partial<Omit<ReplayEventRow, "envelope_bytes">>,
     ) =>
-      Effect.gen(function* () {
+      Effect.gen(function*() {
         const row = {
           person_id: stream.personId,
           department_id: stream.cycle.departmentId,
@@ -1829,7 +1844,7 @@ const replayCases = () =>
 
     for (const bad of badRows) {
       yield* withSeed(({ db }) =>
-        Effect.gen(function* () {
+        Effect.gen(function*() {
           const before = yield* rowCounts(db);
 
           const { event, indexed } = bad.makeEvent(
@@ -1851,7 +1866,7 @@ const replayCases = () =>
           const after = yield* rowCounts(db);
           assert(
             after.tutor_events === before.tutor_events + 1 &&
-              after.command_receipts === before.command_receipts,
+            after.command_receipts === before.command_receipts,
             `persisted replay ${bad.caseId} changed unexpected rows`,
           );
           observations.push(`${bad.caseId}:persisted:D1IntegrityError:${bad.reasonCode}`);
@@ -1860,7 +1875,7 @@ const replayCases = () =>
     }
 
     yield* withSeed(({ db }) =>
-      Effect.gen(function* () {
+      Effect.gen(function*() {
         const rows = yield* dbRows<ReplayEventRow>(db, REPLAY_SQL, [
           stream.personId,
           stream.cycle.departmentId,
@@ -1891,7 +1906,7 @@ const replayCases = () =>
     );
 
     return yield* withSeed(({ db }) =>
-      Effect.gen(function* () {
+      Effect.gen(function*() {
         const before = yield* rowCounts(db);
 
         const valid = yield* readReplay(db);
@@ -1968,17 +1983,18 @@ export interface D1ProofRun {
   readonly reasonCounts: Readonly<Record<string, number>>;
 }
 
-export const runD1Proof = Effect.gen(function* () {
+export const runD1Proof = Effect.gen(function*() {
   const sql = yield* migrationSql;
   const schemaHash = sha256Hex(new TextEncoder().encode(sql));
-  const first = yield* runJourney(schemaHash);
-  const second = yield* runJourney(schemaHash);
+  const runtimeIdentity = yield* installedRuntimeIdentity;
+  const first = yield* runJourney(schemaHash, runtimeIdentity);
+  const second = yield* runJourney(schemaHash, runtimeIdentity);
   const firstBase = renderEvidence(first);
   const secondBase = renderEvidence(second);
   assert(firstBase.digest === secondBase.digest, "clean local evidence digest changed");
   assert(
     firstBase.bytes.length === secondBase.bytes.length &&
-      firstBase.bytes.every((byte, index) => byte === secondBase.bytes[index]),
+    firstBase.bytes.every((byte, index) => byte === secondBase.bytes[index]),
     "clean local evidence bytes changed",
   );
 
@@ -2019,7 +2035,7 @@ export const runD1Proof = Effect.gen(function* () {
   );
   assert(
     firstRender.bytes.length === secondRender.bytes.length &&
-      firstRender.bytes.every((byte, index) => byte === secondRender.bytes[index]),
+    firstRender.bytes.every((byte, index) => byte === secondRender.bytes[index]),
     "same-document evidence bytes changed",
   );
   const reasonCounts: Record<string, number> = {};

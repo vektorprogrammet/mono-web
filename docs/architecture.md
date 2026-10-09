@@ -220,6 +220,12 @@ Do not maintain a second handwritten interface beside a schema-derived type.
 Canonical JSON for digests and stored evidence accepts only plain encoded data; encode a
 value through its schema before hashing it.
 
+The local D1 proof reads installed package versions and hashes the resolved runtime
+module bytes before its journeys run. Historical integration references stay
+explicitly historical; fixed RC versions or source hashes do not describe a
+stable runtime observation. Local Miniflare evidence does not prove a remote D1
+binding or provider behavior.
+
 Failures are typed and mapped once at the boundary. Do not parse error messages or
 turn every failure into an untyped 500 response.
 
