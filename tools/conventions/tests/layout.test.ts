@@ -140,6 +140,62 @@ export default mergeConfig(sharedVitestConfig, { test: { maxWorkers: 32 } });
     expect(findingsFor({}, "apps/backend/package.json")).toHaveLength(0);
     expect(findingsFor({}, config)).toHaveLength(0);
   });
+
+  test("rejects a resolved RC browser peer even when the manifest pins stable Effect", () => {
+    const lock = `{
+      // Bun writes JSONC, including trailing commas.
+      "packages": {
+        "@effect/platform-browser": ["@effect/platform-browser@4.0.0-rc.116", "", {}],
+      },
+    }`;
+
+    expect(findingsFor({ "bun.lock": lock }, "bun.lock")).toEqual([
+      {
+        path: "bun.lock",
+        message: expect.stringContaining("@effect/platform-browser@4.0.0-rc.116"),
+      },
+    ]);
+  });
+
+  test("rejects prerelease Effect resolutions in nested dependency graphs", () => {
+    const lock = JSON.stringify({
+      packages: {
+        "nested/effect": ["effect@4.0.0-rc.116"],
+        "nested/@effect/sql-pg": ["@effect/sql-pg@4.0.0-beta.1"],
+      },
+    });
+
+    expect(findingsFor({ "bun.lock": lock }, "bun.lock")).toHaveLength(2);
+  });
+
+  test("preserves separate stable infrastructure and unrelated prerelease packages", () => {
+    const lock = JSON.stringify({
+      packages: {
+        effect: ["effect@4.0.0"],
+        "@effect/platform-browser": ["@effect/platform-browser@4.0.0"],
+        "infra/effect": ["effect@4.0.2"],
+        waku: ["waku@1.0.0-rc.1"],
+      },
+    });
+
+    expect(findingsFor({ "bun.lock": lock }, "bun.lock")).toEqual([]);
+  });
+
+  test("fails closed for malformed lock syntax or unresolved entry shapes", () => {
+    for (const lock of [
+      "{ broken",
+      "{}",
+      '{"packages":{"effect":[]}}',
+      '{"packages":{"effect":[42]}}',
+    ]) {
+      expect(findingsFor({ "bun.lock": lock }, "bun.lock")).toEqual([
+        {
+          path: "bun.lock",
+          message: expect.stringContaining("cannot decode the resolved package graph"),
+        },
+      ]);
+    }
+  });
 });
 
 describe("CML bounded context names", () => {

@@ -3,7 +3,7 @@
  * and `journeys.ts` are the only places to allow an exception.
  */
 import { posix } from "node:path";
-import { Schema } from "effect";
+import { Result, Schema } from "effect";
 import { boundedContextNames, contextFolderName } from "./cml.js";
 import { checkJourneys, readWorkflow, testsWorkflow, type Workflow } from "./journeys.js";
 import type { Justfile } from "./justfile.js";
@@ -41,6 +41,42 @@ const Manifest = Schema.fromJsonString(
 );
 
 const decodeManifest = Schema.decodeSync(Manifest);
+
+const Lockfile = Schema.Struct({
+  packages: Schema.Record(
+    Schema.String,
+    Schema.TupleWithRest(Schema.Tuple([Schema.String]), [Schema.Unknown]),
+  ),
+});
+
+const decodeLockfile = Schema.decodeUnknownResult(Lockfile);
+
+/** Native Bun JSON5 parses the JSONC lock; Schema owns its untrusted resolved-entry boundary. */
+const stableEffectLockFindings = (repository: Repository): ReadonlyArray<Finding> => {
+  const parsed = Result.try<unknown>(() => Bun.JSON5.parse(repository.read("bun.lock"))).pipe(
+    Result.flatMap(decodeLockfile),
+  );
+
+  if (Result.isFailure(parsed)) {
+    return [
+      {
+        path: "bun.lock",
+        message: "cannot decode the resolved package graph; regenerate it with Bun",
+      },
+    ];
+  }
+
+  return Object.entries(parsed.success.packages).flatMap(([locator, [resolution]]) =>
+    /^(?:effect|@effect\/[^@/]+)@[^-]*-/u.test(resolution)
+      ? [
+          {
+            path: "bun.lock",
+            message: `${locator} resolves to a prerelease Effect package (${resolution}); select its stable compatible cohort and regenerate the lock`,
+          },
+        ]
+      : [],
+  );
+};
 
 const absent = (entry: string): Finding => ({
   path: declaration,
@@ -440,6 +476,7 @@ export const checkLayout = (repository: Repository, justfile: Justfile): Readonl
     ...toolImportFindings(repository),
     ...rootScriptFindings(repository),
     ...vitestConfigFindings(repository),
+    ...stableEffectLockFindings(repository),
     ...commandMentionFindings(repository, justfile),
     ...checkJourneys(repository, justfile, workflow),
     ...sectionFindings(repository, justfile, workflow),

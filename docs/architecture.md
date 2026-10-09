@@ -72,6 +72,9 @@ packages/domain         -> Effect and portable domain dependencies
 
 Required rules:
 
+- The root catalog and Bun lock own application versions. `just layout` decodes the
+  resolved lock graph and rejects prerelease Effect packages, including peer-only
+  and nested entries. Separately owned stable infrastructure releases remain valid.
 - `packages/domain` must not import database, HTTP, application, browser, provider,
   or migration-tool code.
 - Product packages must not import from `tools`.
