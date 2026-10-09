@@ -820,6 +820,7 @@
           "observeNativePgTransport",
           "withFinWithheldPostgres",
           "readNativeTimeoutCount",
+          "readNativeHostRuntime",
           "CloseSilentPgDuplex",
           "withStartupWithheldPostgres"
         ]
@@ -829,7 +830,7 @@
       "nativeAlternatives": [
         "Inspected PgClientConfig.stream public Node Duplex ABI and native PgConnection shutdown; opaque private pool bookkeeping cannot supply a real close receipt.",
         "Native BunSocket/BunSocketServer own scoped FIN/startup-withheld peers and are reused for protocol traffic; node net is restricted to the supported synchronous stream constructor and independent real socket observation.",
-        "Clock.monotonic and Deferred own receipt timing; process.getActiveResourcesInfo is used only for the test host timeout inventory, not configuration or application behavior."
+        "Clock.monotonic and Deferred own receipt timing; process.getActiveResourcesInfo is used only for the test host timeout inventory and process.versions only for safe runtime/version receipts, not environment, credentials, configuration or application behavior."
       ],
       "verification": [
         "Required real PostgreSQL physical close, active cancellation, startup interruption, graceful no-timer-leak, omitted original synchronous branch, forced deadline timing and never-closing transport bounded-defect laws.",
