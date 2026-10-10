@@ -40,7 +40,7 @@ import {
   RecruitmentRoleDenied,
   type RecruitmentActor,
 } from "@vektorprogrammet/domain/recruitment";
-import { DateTime, Predicate, Effect, Schema } from "effect";
+import { DateTime, Predicate, Effect, Schema, flow, Result } from "effect";
 import { hasBetterAuthSessionCredential } from "./session-security.js";
 
 /**
@@ -66,7 +66,7 @@ export const currentInstant = (now: (() => string) | undefined): Effect.Effect<s
   now === undefined ? Effect.map(DateTime.now, DateTime.formatIso) : Effect.sync(now);
 
 const decodeAuthorizationInstant = (value: string): OrganizationAuthorityInstant =>
-  Schema.decodeSync(OrganizationAuthorityInstantSchema)(value);
+  flow(Schema.decodeResult(OrganizationAuthorityInstantSchema), Result.getOrThrow)(value);
 
 const sessionEffect = (
   cookieHeader: string | undefined,
@@ -92,6 +92,9 @@ export const headerCredentialCount = (
 
 type AcceptedCredential = Extract<CredentialOutcome, { readonly _tag: "Accepted" }>;
 
+const isAcceptedCredential = (credential: CredentialOutcome): credential is AcceptedCredential =>
+  Predicate.isTagged(credential, "Accepted");
+
 const requestCredentialEffect = (
   request: Request,
   expected: "OAuthUserBearer" | "OAuthServiceBearer" | "Either",
@@ -109,10 +112,9 @@ const requestCredentialEffect = (
 
   if (authorization !== null) {
     return OAuthCredentialAuthority.use(({ resolve }) => resolve(request, expected)).pipe(
-      Effect.flatMap((outcome) =>
-        Predicate.isTagged(outcome, "Accepted")
-          ? Effect.succeed(outcome)
-          : Effect.fail(new UnauthenticatedActor({ message: "authentication required" })),
+      Effect.filterOrFail(
+        isAcceptedCredential,
+        () => new UnauthenticatedActor({ message: "authentication required" }),
       ),
     );
   }
@@ -158,10 +160,9 @@ const requestCredentialInTransactionEffect = (
     return OAuthCredentialAuthority.use(({ resolveInTransaction }) =>
       resolveInTransaction(request, expected, DateTime.makeUnsafe(authorizationInstant)),
     ).pipe(
-      Effect.flatMap((outcome) =>
-        Predicate.isTagged(outcome, "Accepted")
-          ? Effect.succeed(outcome)
-          : Effect.fail(new UnauthenticatedActor({ message: "authentication required" })),
+      Effect.filterOrFail(
+        isAcceptedCredential,
+        () => new UnauthenticatedActor({ message: "authentication required" }),
       ),
     );
   }

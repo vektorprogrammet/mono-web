@@ -1,3 +1,7 @@
+/**
+ * EX-0024: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 /** The problems receipt handlers answer for domain, store, and credential failures. */
 import type { IdentityEngineError } from "@vektorprogrammet/domain/identity";
 import type {
@@ -9,7 +13,7 @@ import type {
 } from "@vektorprogrammet/domain/receipt";
 import { type CredentialPresentation, Problem } from "@vektorprogrammet/http-api/http-semantics";
 import type { Cause } from "effect";
-import type { SqlError } from "effect/unstable/sql/SqlError";
+import type { SqlError } from "effect/sql/SqlError";
 import {
   type CredentialCases,
   type ProblemCases,

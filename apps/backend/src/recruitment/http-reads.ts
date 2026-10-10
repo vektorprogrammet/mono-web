@@ -10,19 +10,13 @@ import {
   AssignmentBoard,
   ConductObservation,
   InvitationResponseObservation,
-  ReadAssignmentBoardEndpoint,
-  ReadInterviewConductEndpoint,
-  ReadInterviewReportEndpoint,
-  ReadInvitationResponseEndpoint,
-  ReadSchedulingBoardEndpoint,
+  readInterviewConduct as readInterviewConductEndpoint,
   SchedulingBoard,
-  reflectAccessSpec,
 } from "@vektorprogrammet/http-api";
 import { Problem } from "@vektorprogrammet/http-api/http-semantics";
-import { Effect, Option, Predicate, Schema } from "effect";
+import { Effect, Predicate, Schema } from "effect";
 import { currentInstant } from "../authority.js";
 import {
-  authorizePerson,
   conditionalJson,
   personPresentation,
   requireNoQuery,
@@ -32,11 +26,15 @@ import {
 import { PRIVATE_NO_STORE } from "../http-semantics.js";
 import {
   actorDepartment,
-  authorizeInvitationOperation,
   boardContext,
   interviewAuthorizationInTransaction,
 } from "./http-access.js";
 import type { RecruitmentApiHttpOptions } from "./http-context.js";
+import {
+  authorizeAt,
+  type RecruitmentPersonAuthorize,
+  type RecruitmentInvitationAuthorize,
+} from "./http-guard.js";
 import {
   decodeBoardQuery,
   decodeInterviewReportQuery,
@@ -61,7 +59,11 @@ const privateJson = (
     headers: { "cache-control": PRIVATE_NO_STORE, "content-type": "application/json" },
   });
 
-export const readInvitationResponse = <R>(request: Request, input: RecruitmentApiHttpOptions<R>) =>
+export const readInvitationResponse = <R>(
+  request: Request,
+  input: RecruitmentApiHttpOptions<R>,
+  authorize: RecruitmentInvitationAuthorize,
+) =>
   Effect.gen(function* () {
     yield* requireNoQuery(request);
     const capability = yield* invitationCapability(request);
@@ -71,8 +73,9 @@ export const readInvitationResponse = <R>(request: Request, input: RecruitmentAp
       service.readInvitationSnapshot(capability),
     );
 
-    yield* authorizeInvitationOperation({
-      spec: Option.getOrThrow(reflectAccessSpec(ReadInvitationResponseEndpoint)),
+    yield* authorizeAt(authorize, {
+      kind: "Invitation",
+      operation: "recruitment.readInvitationResponse",
       source: snapshot.source,
       authorizationInstant: now,
     });
@@ -103,7 +106,11 @@ export const readInvitationResponse = <R>(request: Request, input: RecruitmentAp
     ),
   );
 
-export const readAssignmentBoard = <R>(request: Request, input: RecruitmentApiHttpOptions<R>) => {
+export const readAssignmentBoard = <R>(
+  request: Request,
+  input: RecruitmentApiHttpOptions<R>,
+  authorize: RecruitmentPersonAuthorize,
+) => {
   const presentation = personPresentation(request);
 
   return Effect.gen(function* () {
@@ -112,9 +119,11 @@ export const readAssignmentBoard = <R>(request: Request, input: RecruitmentApiHt
     const now = yield* currentInstant(input.config.now);
     const departmentId = actorDepartment(actor);
 
-    yield* authorizePerson(
-      {
-        spec: Option.getOrThrow(reflectAccessSpec(ReadAssignmentBoardEndpoint)),
+    yield* authorizeAt(authorize, {
+      kind: "Person",
+      operation: "recruitment.readAssignmentBoard",
+      request,
+      input: {
         request,
         personId: actor.personId,
         resolution: {
@@ -138,8 +147,7 @@ export const readAssignmentBoard = <R>(request: Request, input: RecruitmentApiHt
             : [Scope.Department({ departmentId })],
         now,
       },
-      presentation,
-    );
+    });
 
     const observation = yield* Recruitment.use(({ readAssignmentBoard: read }) =>
       read(query, { actor, now }),
@@ -164,7 +172,11 @@ export const readAssignmentBoard = <R>(request: Request, input: RecruitmentApiHt
   );
 };
 
-export const readInterviewReport = <R>(request: Request, input: RecruitmentApiHttpOptions<R>) => {
+export const readInterviewReport = <R>(
+  request: Request,
+  input: RecruitmentApiHttpOptions<R>,
+  authorize: RecruitmentPersonAuthorize,
+) => {
   const presentation = personPresentation(request);
 
   return Effect.gen(function* () {
@@ -176,9 +188,11 @@ export const readInterviewReport = <R>(request: Request, input: RecruitmentApiHt
       service.resolveInterviewReportLeader(caller.personId, now),
     );
 
-    yield* authorizePerson(
-      {
-        spec: Option.getOrThrow(reflectAccessSpec(ReadInterviewReportEndpoint)),
+    yield* authorizeAt(authorize, {
+      kind: "Person",
+      operation: "recruitment.readInterviewReport",
+      request,
+      input: {
         request,
         personId: actor.personId,
         resolution: {
@@ -190,8 +204,7 @@ export const readInterviewReport = <R>(request: Request, input: RecruitmentApiHt
         grantScopes: [Scope.Department({ departmentId: actor.departmentId })],
         now,
       },
-      presentation,
-    );
+    });
 
     const observation = yield* Recruitment.use((service) =>
       service.readCompletedInterviewReport(actor.personId, now, query),
@@ -216,7 +229,11 @@ export const readInterviewReport = <R>(request: Request, input: RecruitmentApiHt
   );
 };
 
-export const readSchedulingBoard = <R>(request: Request, input: RecruitmentApiHttpOptions<R>) => {
+export const readSchedulingBoard = <R>(
+  request: Request,
+  input: RecruitmentApiHttpOptions<R>,
+  authorize: RecruitmentPersonAuthorize,
+) => {
   const presentation = personPresentation(request);
 
   return Effect.gen(function* () {
@@ -225,9 +242,11 @@ export const readSchedulingBoard = <R>(request: Request, input: RecruitmentApiHt
     const now = yield* currentInstant(input.config.now);
     const departmentId = actorDepartment(actor);
 
-    yield* authorizePerson(
-      {
-        spec: Option.getOrThrow(reflectAccessSpec(ReadSchedulingBoardEndpoint)),
+    yield* authorizeAt(authorize, {
+      kind: "Person",
+      operation: "recruitment.readSchedulingBoard",
+      request,
+      input: {
         request,
         personId: actor.personId,
         resolution: {
@@ -249,8 +268,7 @@ export const readSchedulingBoard = <R>(request: Request, input: RecruitmentApiHt
             : [Scope.Department({ departmentId })],
         now,
       },
-      presentation,
-    );
+    });
 
     const observation = yield* Recruitment.use(({ readSchedulingBoard: read }) =>
       read({ actor, now }),
@@ -284,6 +302,7 @@ export const readInterviewConduct = <R>(
   request: Request,
   interviewId: RecruitmentInterviewId,
   input: RecruitmentApiHttpOptions<R>,
+  authorize: RecruitmentPersonAuthorize,
 ) =>
   Effect.gen(function* () {
     yield* requireNoQuery(request);
@@ -294,9 +313,10 @@ export const readInterviewConduct = <R>(
           const authorization = yield* interviewAuthorizationInTransaction(
             request,
             interviewId,
-            ReadInterviewConductEndpoint,
+            readInterviewConductEndpoint,
             false,
             input,
+            authorize,
           );
 
           const now = yield* currentInstant(input.config.now);
@@ -318,7 +338,7 @@ export const readInterviewConduct = <R>(
       ),
     ).pipe(Effect.catchTag("SqlError", () => Effect.fail(Problem.make("internal.error"))));
 
-    const output = yield* strictOutput(ConductObservation)(snapshot.observation);
+    const output = yield* strictOutput(Schema.toType(ConductObservation))(snapshot.observation);
 
     // The observation fits its own schema, so encoding it cannot fail.
     const encoded = yield* Schema.encodeEffect(Schema.toCodecJson(ConductObservation))(output).pipe(

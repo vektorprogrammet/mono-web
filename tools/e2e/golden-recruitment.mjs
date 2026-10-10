@@ -11,6 +11,10 @@ export const recruitmentSteps = [
   "reloaded",
   "invitation-failed",
   "invitation-delivered",
+  "other-assigned",
+  "other-scheduled",
+  "other-responded",
+  "other-recommended",
   "other-claimed",
   "other-applicant-denied",
   "claim-opened",
@@ -173,8 +177,9 @@ export const createRecruitmentObserver = (pool, mailbox) => {
       'counts', json_build_object(${tables.map((table) => `'${table}',(SELECT count(*)::int FROM public.${table})`).join(",")}),
       'applications',(SELECT coalesce(json_agg(row_to_json(a) ORDER BY a.email),'[]') FROM (SELECT p.email,a.application_id,a.applicant_id FROM admission_applications a JOIN admission_applicants p USING(applicant_id)) a),
       'interviews',(SELECT coalesce(json_agg(row_to_json(i)),'[]') FROM (SELECT interview_id,application_id,interviewer_person_id,revision FROM recruitment_interviews) i),
-      'responses',(SELECT coalesce(json_agg(response_state),'[]') FROM recruitment_invitations),
+      'responses',(SELECT coalesce(json_agg(row_to_json(r) ORDER BY r.application_id),'[]') FROM (SELECT i.application_id,v.response_state FROM recruitment_invitations v JOIN recruitment_interviews i USING(interview_id)) r),
       'conducts',(SELECT coalesce(json_agg(row_to_json(c)),'[]') FROM (SELECT interview_id,recommendation,explanatory_power,role_model,suitability,finalized_by_person_id FROM recruitment_interview_conducts) c),
+      'admissionFacts',(SELECT coalesce(json_agg(row_to_json(f) ORDER BY f.email),'[]') FROM (SELECT p.email,a.application_id,a.admission_period_id,period.semester_id,(now() >= period.start_at AND now() < period.end_at) AS current_period,i.interview_id,c.finalized_at IS NOT NULL AS completed,cancel.interview_id IS NOT NULL AS cancelled,e.recommendation,l.person_id AS linked_person_id FROM admission_applications a JOIN admission_applicants p USING(applicant_id) JOIN admission_periods period USING(admission_period_id) LEFT JOIN recruitment_interviews i USING(application_id) LEFT JOIN recruitment_interview_conducts c USING(interview_id) LEFT JOIN recruitment_interview_cancellations cancel USING(interview_id) LEFT JOIN recruitment_interview_effective_assessments e USING(interview_id) LEFT JOIN applicant_account_links l USING(applicant_id)) f),
       'links',(SELECT coalesce(json_agg(row_to_json(l) ORDER BY l.applicant_id),'[]') FROM applicant_account_links l),
       'accounts',(SELECT count(*)::int FROM auth.account a JOIN auth."user" u ON u.id=a."userId" WHERE u.email IN ('ada@example.invalid','olav@example.invalid')),
       'invitations',(SELECT coalesce(json_agg(row_to_json(i) ORDER BY i.application_id),'[]') FROM (SELECT invitation_id,application_id,state FROM applicant_account_invitations) i),
@@ -191,17 +196,21 @@ export const createRecruitmentObserver = (pool, mailbox) => {
     const facts = result.rows[0].facts;
     const at = (name) => recruitmentSteps.indexOf(step) >= recruitmentSteps.indexOf(name);
     const n = (table, expected) => assert.equal(facts.counts[table], expected, `${step}: ${table}`);
+    const assignedCount = Number(at("assigned")) + Number(at("other-assigned"));
+    const scheduledCount = Number(at("scheduled")) + Number(at("other-scheduled"));
+    const respondedCount = Number(at("responded")) + Number(at("other-responded"));
+    const completedCount = Number(at("recommended")) + Number(at("other-recommended"));
     n("admission_applications", at("applications") ? 2 : 0);
     n("admission_application_command_receipts", at("applications") ? 2 : 0);
     n("admission_application_outbox", at("applications") ? 6 : 0);
     assert.ok(facts.applicationOutbox.every((status) => status === "Pending"));
     assert.deepEqual(
       facts.history.assignment,
-      at("assigned") ? [recruitmentPeople.leader.personId] : [],
+      Array(assignedCount).fill(recruitmentPeople.leader.personId),
     );
     assert.deepEqual(
       facts.history.schedule,
-      at("scheduled") ? [recruitmentPeople.leader.personId] : [],
+      Array(scheduledCount).fill(recruitmentPeople.leader.personId),
     );
     assert.deepEqual(
       facts.history.placement,
@@ -213,7 +222,7 @@ export const createRecruitmentObserver = (pool, mailbox) => {
       "recruitment_assignment_command_receipts",
       "recruitment_assignment_audit",
     ])
-      n(table, at("assigned") ? 1 : 0);
+      n(table, assignedCount);
 
     for (const table of [
       "recruitment_interview_schedules",
@@ -221,9 +230,9 @@ export const createRecruitmentObserver = (pool, mailbox) => {
       "recruitment_schedule_audit",
       "recruitment_invitations",
     ])
-      n(table, at("scheduled") ? 1 : 0);
+      n(table, scheduledCount);
 
-    n("recruitment_invitation_response_audit", at("responded") ? 1 : 0);
+    n("recruitment_invitation_response_audit", respondedCount);
 
     for (const table of [
       "recruitment_interview_conducts",
@@ -231,7 +240,7 @@ export const createRecruitmentObserver = (pool, mailbox) => {
       "recruitment_interview_lifecycle_audit",
       "recruitment_interview_completion_outbox",
     ])
-      n(table, at("recommended") ? 1 : 0);
+      n(table, completedCount);
     n("applicant_account_invitations", at("other-claimed") ? 2 : at("invitation-failed") ? 1 : 0);
     n("applicant_account_links", at("claimed") ? 2 : at("other-claimed") ? 1 : 0);
     n(
@@ -247,31 +256,45 @@ export const createRecruitmentObserver = (pool, mailbox) => {
     n("assistant_placements", at("placed") ? 1 : 0);
     n("assistant_placement_audit", at("placed") ? 1 : 0);
 
-    if (at("assigned")) {
-      const application = facts.applications.find(
-        (a) => a.email === recruitmentPeople.applicant.email,
-      );
+    for (const { person, assignedStep, respondedStep, completedStep, scores } of [
+      { person: recruitmentPeople.applicant, assignedStep: "assigned", respondedStep: "responded", completedStep: "recommended", scores: [7, 8, 9] },
+      { person: recruitmentPeople.other, assignedStep: "other-assigned", respondedStep: "other-responded", completedStep: "other-recommended", scores: [6, 7, 8] },
+    ]) {
+      if (!at("applications")) continue;
+      const application = facts.applications.find((a) => a.email === person.email);
+      const own = facts.admissionFacts.find((a) => a.application_id === application.application_id);
+      assert.equal(own.admission_period_id, "recruitment-period");
+      assert.equal(own.semester_id, recruitmentFixture.semesterId);
+      assert.equal(own.current_period, true);
+      assert.equal(own.cancelled, false);
+      assert.equal(own.completed, at(completedStep));
+      assert.equal(own.recommendation, at(completedStep) ? "Ja" : null);
 
-      assert.equal(facts.interviews[0].application_id, application.application_id);
-      assert.equal(facts.interviews[0].interviewer_person_id, recruitmentPeople.leader.personId);
+      if (person === recruitmentPeople.other && !at("other-claimed"))
+        assert.equal(own.linked_person_id, null);
 
-      if (at("recommended"))
-        assert.equal(facts.conducts[0].interview_id, facts.interviews[0].interview_id);
+      if (!at(assignedStep)) {
+        assert.equal(own.interview_id, null);
+        continue;
+      }
+
+      const interview = facts.interviews.find((i) => i.application_id === application.application_id);
+      assert.equal(interview.interviewer_person_id, recruitmentPeople.leader.personId);
+      assert.equal(interview.interview_id, own.interview_id);
+
+      if (at(respondedStep)) {
+        const response = facts.responses.find((r) => r.application_id === application.application_id);
+        assert.equal(response.response_state, "Accepted");
+      }
+
+      if (at(completedStep)) {
+        const conduct = facts.conducts.find((c) => c.interview_id === interview.interview_id);
+        assert.deepEqual(
+          [conduct.recommendation, conduct.explanatory_power, conduct.role_model, conduct.suitability, conduct.finalized_by_person_id],
+          ["Ja", ...scores, recruitmentPeople.leader.personId],
+        );
+      }
     }
-
-    if (at("responded")) assert.deepEqual(facts.responses, ["Accepted"]);
-
-    if (at("recommended"))
-      assert.deepEqual(
-        facts.conducts.map((c) => [
-          c.recommendation,
-          c.explanatory_power,
-          c.role_model,
-          c.suitability,
-          c.finalized_by_person_id,
-        ]),
-        [["Ja", 7, 8, 9, recruitmentPeople.leader.personId]],
-      );
 
     if (step === "invitation-failed") {
       assert.deepEqual(
@@ -353,8 +376,8 @@ export const createRecruitmentObserver = (pool, mailbox) => {
         observations.map((o) => o.step),
         recruitmentSteps,
       );
-      assert.deepEqual(previous.interviewDelivery, ["Delivered"]);
-      assert.deepEqual(previous.completionDelivery, ["Delivered"]);
+      assert.deepEqual(previous.interviewDelivery, ["Delivered", "Delivered"]);
+      assert.deepEqual(previous.completionDelivery, ["Delivered", "Delivered"]);
 
       return {
         deliveries: mailbox.deliveries.map(({ status, key, digest }) => ({ status, key, digest })),

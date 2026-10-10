@@ -12,7 +12,7 @@ import {
   type ReceiptResource,
 } from "@vektorprogrammet/http-api";
 import { Problem } from "@vektorprogrammet/http-api/http-semantics";
-import { Effect, Schema } from "effect";
+import { Effect, Schema, flow, Result } from "effect";
 import type { NativeHttpResponseCapsule } from "../http-api/receipt-transaction.js";
 import { deriveStrongETag } from "../http-semantics.js";
 import type { ReceiptFileStore } from "./filesystem.js";
@@ -76,7 +76,10 @@ export const receiptSettlementEvidenceResource = (
   }
 
   try {
-    return Schema.decodeSync(ReceiptSettlementEvidenceResource)({
+    return flow(
+      Schema.decodeResult(ReceiptSettlementEvidenceResource),
+      Result.getOrThrow,
+    )({
       ...settlement,
       amountOre,
     });

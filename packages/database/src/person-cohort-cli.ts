@@ -1,13 +1,13 @@
 import { Config, Effect, Redacted } from "effect";
-import { Pool } from "pg";
 import {
   parseDisposableCohortDatabaseUrl,
   readPrivateCohortJson,
   writeCohortReport,
 } from "./cohort-cli.js";
 import { DatabaseLive } from "./layers.js";
+import { NativeDatabaseStartupOptions } from "./search-path.js";
 import { decodePersonCohort, PersonCohortFailure, importPersonCohort } from "./person-cohort.js";
-import { databaseHealth } from "./service.js";
+import { Database } from "./service.js";
 
 const invalidSnapshot = () => new PersonCohortFailure({ code: "InvalidSnapshot" });
 
@@ -37,14 +37,17 @@ export const runPersonCohortCli = Effect.gen(function* () {
   const input = yield* Effect.try({ try: () => decodePersonCohort(json), catch: invalidSnapshot });
 
   if (input.sourceKind !== "Synthetic") return yield* invalidSnapshot();
-  yield* databaseHealth.pipe(
-    Effect.provide(DatabaseLive({ url: Redacted.make(url), maxConnections: 1 })),
+  yield* Effect.gen(function* () {
+    const sql = yield* Database;
+    yield* sql.health;
+    yield* writeCohortReport(yield* importPersonCohort(sql, input));
+  }).pipe(
+    Effect.provide(
+      DatabaseLive({
+        url: Redacted.make(url),
+        maxConnections: 2,
+        startupOptions: NativeDatabaseStartupOptions,
+      }),
+    ),
   );
-
-  const pool = yield* Effect.acquireRelease(
-    Effect.sync(() => new Pool({ connectionString: url, max: 2 })),
-    (pool) => Effect.promise(() => pool.end()),
-  );
-
-  yield* writeCohortReport(yield* importPersonCohort(pool, input));
 }).pipe(Effect.scoped);

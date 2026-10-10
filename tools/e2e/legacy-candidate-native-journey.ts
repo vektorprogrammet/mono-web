@@ -1,3 +1,7 @@
+/**
+ * EX-0028: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { Buffer } from "node:buffer";
@@ -5,6 +9,11 @@ import * as BunHttpPlatform from "@effect/platform-bun/BunHttpPlatform";
 import * as BunServices from "@effect/platform-bun/BunServices";
 import { AuthEngine, AuthLive, OAUTH_NATIVE_API_RESOURCE } from "@vektorprogrammet/database";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
+import {
+  BetterAuthStartupOptions,
+  NativeDatabaseStartupOptions,
+} from "@vektorprogrammet/database/search-path";
+import { AuthPoolLive } from "@vektorprogrammet/database/pg-pool";
 import { AdmissionsLive } from "@vektorprogrammet/database/admissions";
 import { ReturningAssistantsLive } from "@vektorprogrammet/database/application";
 import { ContentLive, ContentManagementLive } from "@vektorprogrammet/database/content";
@@ -24,7 +33,7 @@ import {
   UserProfileResponse,
 } from "@vektorprogrammet/http-api";
 import { Effect, Layer, ManagedRuntime, Redacted, Schema } from "effect";
-import { Etag, FetchHttpClient, HttpRouter } from "effect/unstable/http";
+import { Etag, FetchHttpClient, HttpRouter } from "effect/http";
 import { ReceiptDeliveryLive } from "@vektorprogrammet/backend/receipt/delivery";
 import {
   backendHttpHandler,
@@ -97,6 +106,7 @@ export const observeLegacyCandidateNativeJourney = async (
     url: Redacted.make(input.target.url),
     applicationName: "candidate-native-journey",
     maxConnections: 4,
+    startupOptions: NativeDatabaseStartupOptions,
   }).pipe(Layer.provide(BunServices.layer));
 
   const platform = Layer.merge(BunServices.layer, FetchHttpClient.layer);
@@ -121,7 +131,17 @@ export const observeLegacyCandidateNativeJourney = async (
     SocialEventsLive.pipe(Layer.provide(database)),
     TeamApplicationsLive().pipe(Layer.provide(database)),
     ReceiptDeliveryLive(undefined).pipe(Layer.provide(Layer.merge(database, platform))),
-    AuthLive(config.auth).pipe(Layer.provide(database)),
+    AuthLive(config.auth, globalThis.crypto.subtle).pipe(
+      Layer.provide(database),
+      Layer.provide(
+        AuthPoolLive(config.auth, {
+          maxConnections: 4,
+          applicationName: "candidate-native-journey-auth",
+          pipeline: false,
+          startupOptions: BetterAuthStartupOptions,
+        }),
+      ),
+    ),
   );
 
   const http = Layer.mergeAll(
@@ -139,7 +159,10 @@ export const observeLegacyCandidateNativeJourney = async (
     Layer.provide(http),
   );
 
-  const runtime = ManagedRuntime.make(Layer.mergeAll(services, http, nativeApi));
+  const runtime = ManagedRuntime.make(
+    Layer.mergeAll(services, nativeApi).pipe(Layer.provideMerge(http)),
+  );
+
   const checks: string[] = [];
   let phase = "runtime-start";
 

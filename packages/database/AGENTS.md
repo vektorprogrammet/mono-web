@@ -51,6 +51,7 @@ Each folder of `src` holds a bounded context of [docs/model/contexts.cml](../../
 | `@vektorprogrammet/database/outbox-lifecycle`                  | [src/outbox-lifecycle.ts](src/outbox-lifecycle.ts)                                   |
 | `@vektorprogrammet/database/live`                              | [src/layers.ts](src/layers.ts)                                                       |
 | `@vektorprogrammet/database/migrations`                        | [src/migrations.ts](src/migrations.ts)                                               |
+| `@vektorprogrammet/database/postgres-migration-statements`     | [src/postgres-migration-statements.ts](src/postgres-migration-statements.ts)         |
 | `@vektorprogrammet/database/password-recovery`                 | [src/password-recovery.ts](src/password-recovery.ts)                                 |
 | `@vektorprogrammet/database/person-cohort`                     | [src/person-cohort.ts](src/person-cohort.ts)                                         |
 | `@vektorprogrammet/database/placements`                        | [src/placements/index.ts](src/placements/index.ts)                                   |
@@ -67,6 +68,7 @@ Each folder of `src` holds a bounded context of [docs/model/contexts.cml](../../
 | `@vektorprogrammet/database/onboarding-account`                | [src/onboarding-account.ts](src/onboarding-account.ts)                               |
 | `@vektorprogrammet/database/password-codec`                    | [src/password-codec.ts](src/password-codec.ts)                                       |
 | `@vektorprogrammet/database/pg-pool`                           | [src/pg-pool.ts](src/pg-pool.ts)                                                     |
+| `@vektorprogrammet/database/search-path`                       | [src/search-path.ts](src/search-path.ts)                                             |
 | `@vektorprogrammet/database/test-support/observe-postgres`     | [src/test-support/observe-postgres.ts](src/test-support/observe-postgres.ts)         |
 | `@vektorprogrammet/database/test-support/platform`             | [src/test-support/platform.ts](src/test-support/platform.ts)                         |
 
@@ -76,6 +78,7 @@ The shared constructs defined here. Each name links to its contract; [docs/const
 
 - [`AdvisoryLockKey`](../../docs/constructs/sql-lock.md#advisorylockkey) (sql-lock): The registered advisory-lock keys, one constructor per namespace.
 - [`lockAdvisory`](../../docs/constructs/sql-lock.md#lockadvisory) (sql-lock): Waits for the advisory lock on `key` until the current transaction ends.
+- [`withNativeAuthProvisioning`](../../docs/constructs/sql-lifecycle.md#withnativeauthprovisioning) (sql-lifecycle): Runs one explicit native provisioning attempt through Better Auth's public endpoint context API.
 - [`accountAccessEnabled`](../../docs/constructs/sql-lifecycle.md#accountaccessenabled) (sql-lifecycle): Whether the native account of `personId` exists and is not disabled.
 - [`selectDatabaseMigration`](../../docs/constructs/test-harness.md#selectdatabasemigration) (test-harness): Selects the registered migration `id` and the migrations that run before it.
 - [`outboxClaimAssignments`](../../docs/constructs/sql-lifecycle.md#outboxclaimassignments) (sql-lifecycle): SET list for the aggregate's claim UPDATE; `targetAlias` names the updated outbox row.
@@ -84,6 +87,11 @@ The shared constructs defined here. Each name links to its contract; [docs/const
 - [`quarantineOutboxClaim`](../../docs/constructs/sql-lifecycle.md#quarantineoutboxclaim) (sql-lifecycle): Settles the claimed row as Quarantined, a terminal status, with its failure tag.
 - [`releaseOutboxClaim`](../../docs/constructs/sql-lifecycle.md#releaseoutboxclaim) (sql-lifecycle): Returns an interrupted claim to Pending without a provider outcome; a lost claim needs none.
 - [`recoverStaleOutboxClaims`](../../docs/constructs/sql-lifecycle.md#recoverstaleoutboxclaims) (sql-lifecycle): Recovers every Processing row claimed before `claimedBefore`.
+- [`withIdentityRequestCancellation`](../../docs/constructs/http-transport.md#withidentityrequestcancellation) (http-transport): Keeps an identity request's cancellation signal attached to its native Effect fiber.
+- [`nativePgLayer`](../../docs/constructs/sql-lifecycle.md#nativepglayer) (sql-lifecycle): Builds the native SQL layer with an explicit host-owned connection limit.
+- [`AuthPoolLive`](../../docs/constructs/sql-lifecycle.md#authpoollive) (sql-lifecycle): Builds the supported Better Auth pool with its own host-supplied capacity.
+- [`executePostgresMigration`](../../docs/constructs/sql-lifecycle.md#executepostgresmigration) (sql-lifecycle): Executes parsed statements sequentially on the provided native SQL client.
+- [`SecretEqualityLive`](../../docs/constructs/digest.md#secretequalitylive) (digest): Supplies constant-time comparison of raw secrets under one process-owned HMAC key.
 
 Local invariants, pitfalls, and recipes go below this generated part; `just guides write` keeps them.
 

@@ -1,7 +1,11 @@
+/**
+ * EX-0021: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { Database, type DatabaseOperations } from "../service.js";
 import { receiptCursorPage, receiptCursorTimestamp } from "./cursor.js";
 import { flow, Effect, Schema } from "effect";
-import { SqlSchema } from "effect/unstable/sql";
+import { SqlSchema } from "effect/sql";
 import {
   RECEIPT_PAGE_SIZE,
   decodeReceiptCursor,

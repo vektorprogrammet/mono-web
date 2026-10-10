@@ -13,7 +13,7 @@ import {
 import { DepartmentId, PersonId, TeamId } from "../organization/schema.js";
 
 export const ReturningRegistrationIdSchema = Schema.String.pipe(
-  Schema.check(Schema.isPattern(/^returning-registration-[a-f0-9]{64}$/)),
+  Schema.check(Schema.isPattern(/^returning-registration-[a-f0-9]{64}$/u)),
   Schema.brand("ReturningRegistrationId"),
 );
 

@@ -292,11 +292,12 @@ it("normalizes equivalent reviewed timestamps for native persistence and reconci
 });
 
 it("rejects arbitrary private strings as quarantine reason evidence", () => {
-  const decodeReasons = Schema.decodeUnknownSync(Schema.Array(ReceiptQuarantineReason));
+  const decodeReasons = Schema.decodeUnknownResult(Schema.Array(ReceiptQuarantineReason));
 
-  expect(decodeReasons(["UnresolvedOwner", "UnreadableFile"])).toEqual([
-    "UnresolvedOwner",
-    "UnreadableFile",
-  ]);
-  expect(() => decodeReasons(["UnresolvedOwner", "private/account/12345678901"])).toThrow();
+  expect(decodeReasons(["UnresolvedOwner", "UnreadableFile"])).toEqual(
+    Result.succeed(["UnresolvedOwner", "UnreadableFile"]),
+  );
+  expect(Result.isFailure(decodeReasons(["UnresolvedOwner", "private/account/12345678901"]))).toBe(
+    true,
+  );
 });

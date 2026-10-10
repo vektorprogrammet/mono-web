@@ -1,6 +1,6 @@
 import { deny, allow } from "../authz/decision.js";
 import { describe, expect, it } from "@effect/vitest";
-import { Schema, Effect } from "effect";
+import { flow, Result, Schema, Effect } from "effect";
 import { Scope, PrincipalSchema, RECEIPT_DOMAIN_ID } from "../authz/access.js";
 import { composeCapabilityEvidence } from "../authz/rules.js";
 import {
@@ -74,6 +74,9 @@ const directGrant = (
   revision: 0,
 });
 
+// A fixture that does not decode is a defect of the test, so it throws its schema error.
+const decodeRuleFixture = flow(Schema.decodeUnknownResult(AuthzRuleSchema), Result.getOrThrow);
+
 const rule = (options: {
   readonly id: string;
   readonly scope: AuthzRule["scope"];
@@ -81,7 +84,7 @@ const rule = (options: {
   readonly subject?: AuthzRule["subject"];
   readonly endAt?: string | null;
 }): AuthzRule =>
-  Schema.decodeUnknownSync(AuthzRuleSchema)({
+  decodeRuleFixture({
     ruleId: AuthzRuleId.make(options.id),
     capabilityId: "approveReceipt",
     effectKind: "delegate",
@@ -109,7 +112,7 @@ const requirement = (
   id: string,
   requirementId: "receipts.pending" | "receipts.approver-relationship",
 ): AuthzRule =>
-  Schema.decodeUnknownSync(AuthzRuleSchema)({
+  decodeRuleFixture({
     ruleId: AuthzRuleId.make(id),
     capabilityId: "approveReceipt",
     effectKind: "requirement",

@@ -3,7 +3,7 @@
  * of the department whose confirmed total is above zero, with the confirmed schools and days, and
  * it names the issuer and the seat that authorizes them (docs/system.md#certificates).
  */
-import { Data, Option, Order, Schema } from "effect";
+import { Data, flow, Option, Order, Result, Schema } from "effect";
 import { CertificateIssuer } from "../organization/board-roster.js";
 import { DepartmentId, PersonId, SemesterId } from "../organization/schema.js";
 import { canonicalJsonBytes, sha256Hex } from "../shared-kernel/canonical-json.js";
@@ -146,7 +146,7 @@ export const certificateContent = (input: {
       });
 };
 
-const encodeContent = Schema.encodeSync(CertificateContent);
+const encodeContent = flow(Schema.encodeResult(CertificateContent), Result.getOrThrow);
 
 /** The content hash: the same content always has the same hash, whoever issues it and when. */
 export const certificateContentSha256 = (content: CertificateContent): string =>

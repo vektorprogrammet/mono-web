@@ -1,10 +1,14 @@
 /**
+ * EX-0022: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+/**
  * Frozen v0.2 HTTP primitives shared by every native endpoint.
  *
  * @since 0.2.0
  */
 import { Data, ErrorReporter, Predicate, Struct, Schema, type Types } from "effect";
-import { HttpApiSchema } from "effect/unstable/httpapi";
+import { HttpApiSchema } from "effect/http-api";
 
 export { parseJsonWithUniqueMembers } from "@vektorprogrammet/domain/http-semantics";
 
@@ -335,6 +339,18 @@ export const NativeProblemRegistry = {
     type: "urn:vektorprogrammet:problem:v0.2:onboarding.already-linked",
     title: "Applicant already linked",
     detail: "This applicant already has an immutable account association.",
+    status: 409,
+  },
+  "onboarding.not-admitted": {
+    type: "urn:vektorprogrammet:problem:v0.2:onboarding.not-admitted",
+    title: "Applicant is not currently admitted",
+    detail: "Current admitted standing in the application period and semester is required.",
+    status: 409,
+  },
+  "onboarding.delivery-not-retryable": {
+    type: "urn:vektorprogrammet:problem:v0.2:onboarding.delivery-not-retryable",
+    title: "Invitation delivery cannot be retried",
+    detail: "An open unexpired invitation with pending or stale-claimed delivery is required.",
     status: 409,
   },
   "placement.overlap": {

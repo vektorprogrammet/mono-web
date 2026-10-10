@@ -770,7 +770,7 @@ export const readReceiptFileForApproval = (
           'fileRef', file_ref,
           'objectKey', file_object_key,
           'contentType', file_content_type,
-          'byteLength', file_byte_length::integer,
+          'byteLength', file_byte_length,
           'sha256', file_sha256
         ) AS file
       FROM economy_receipts
@@ -1426,7 +1426,7 @@ export const readOwnedReceiptFile = (receiptId: string, personId: string) =>
 
     const rows = yield* sql`
       SELECT department_id AS "departmentId", revision, status, file_ref AS "fileRef", file_object_key AS "objectKey",
-        file_content_type AS "contentType", file_byte_length::integer AS "byteLength",
+        file_content_type AS "contentType", file_byte_length::double precision AS "byteLength",
         file_sha256 AS "sha256"
       FROM economy_receipts
       WHERE receipt_id = ${receiptId} AND owner_person_id = ${personId} AND status <> 'Withdrawn'

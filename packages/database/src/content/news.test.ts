@@ -1,3 +1,4 @@
+import { types } from "@electric-sql/pglite";
 import { expect, layer } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import { Database } from "../service.js";
@@ -98,3 +99,80 @@ layer(suiteSeed.pipe(Layer.provideMerge(suiteLayer)), {
     }),
   );
 });
+
+/**
+ * The native driver decodes every int8 as a bigint, where PGlite narrows a safe int8 to a number.
+ * This layer reproduces the driver, so an id column that a read does not project fails here as it
+ * fails on PostgreSQL.
+ */
+const nativeInt8Layer = ProfileLive.pipe(
+  Layer.provideMerge(
+    OrganizationLive.pipe(
+      Layer.provideMerge(
+        DatabaseTestLive({ parsers: { [types.INT8]: (value: string) => BigInt(value) } }),
+      ),
+    ),
+  ),
+);
+
+/** The first id above integer. The check constraint of the column admits every safe integer. */
+const articleId = 2 ** 31;
+
+const departmentLinkSeed = Layer.effectDiscard(
+  Effect.gen(function* () {
+    const sql = yield* Database;
+    yield* sql`
+INSERT INTO person_profiles (person_id, first_name, last_name)
+VALUES ('person-linked', 'Linked', 'Author')
+    `;
+    yield* sql`
+INSERT INTO organization_departments (department_id, name, short_name, email, city)
+VALUES ('department-linked', 'Linked', 'LNK', 'linked@example.invalid', 'Oslo')
+    `;
+    yield* sql`
+INSERT INTO content_articles (
+  article_id, title, slug, body_html, created_by_person_id, current_version_number
+) OVERRIDING SYSTEM VALUE VALUES (
+  ${articleId}, 'Department link', 'department-link', '<p>text</p>', 'person-linked', 1
+)
+    `;
+    yield* sql`
+INSERT INTO content_article_versions (
+  article_id, version_number, title, slug, body_html, sticky, published_at, published_by_person_id
+) SELECT article_id, 1, title, slug, body_html, FALSE, '2030-01-01T00:00:00.000Z'::timestamptz,
+  'person-linked'
+FROM content_articles
+WHERE slug = 'department-link'
+    `;
+    yield* sql`
+INSERT INTO content_article_departments (article_id, department_id)
+SELECT article_id, 'department-linked' FROM content_articles WHERE slug = 'department-link'
+    `;
+  }),
+);
+
+layer(departmentLinkSeed.pipe(Layer.provideMerge(nativeInt8Layer)), {
+  excludeTestServices: true,
+  timeout: "30 seconds",
+})(
+  "public news reads of an article whose id exceeds integer, under the native int8 codec",
+  (it) => {
+    it.effect("lists the department links of a published article", () =>
+      Effect.gen(function* () {
+        const listing = yield* readNewsListingPostgres();
+
+        expect(listing.articles.map((article) => article.departmentIds)).toEqual([
+          ["department-linked"],
+        ]);
+      }),
+    );
+
+    it.effect("reads the department links of a published article", () =>
+      Effect.gen(function* () {
+        const article = yield* readPublishedArticlePostgres("department-link");
+
+        expect(article.departmentIds).toEqual(["department-linked"]);
+      }),
+    );
+  },
+);

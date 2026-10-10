@@ -1,15 +1,17 @@
-import { createHash } from "node:crypto";
-import { canonicalJson } from "@vektorprogrammet/domain/shared-kernel";
+import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import { describe, expect, it } from "vitest";
-import { flow, Schema } from "effect";
+import { flow, Result, Schema } from "effect";
 import {
   currentAssignmentPlacementId,
   decodeCurrentAssignmentSnapshot,
   decodeReconciledCurrentAssignmentSnapshot,
 } from "./current-assignment-cohort.js";
 
-const digest = flow(Schema.decodeUnknownSync(Schema.Json), (value) =>
-  createHash("sha256").update(canonicalJson(value)).digest("hex"),
+const digest = flow(
+  Schema.decodeUnknownResult(Schema.Json),
+  Result.getOrThrow,
+  canonicalJsonBytes,
+  sha256Hex,
 );
 
 const signed = <T extends object>(body: T) => ({ ...body, snapshotDigest: digest(body) });

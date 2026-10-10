@@ -1,3 +1,7 @@
+/**
+ * EX-0023: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import {
   ApproveReceiptEndpoint,
   ContentArticleDetailSchema,
@@ -20,8 +24,8 @@ import {
 } from "@vektorprogrammet/http-api";
 import { assert, describe, expectTypeOf, it } from "@effect/vitest";
 import { Array, Effect, Layer, Order, Redacted, Ref, Schema } from "effect";
-import { HttpRouter, HttpServer } from "effect/unstable/http";
-import { HttpApi, HttpApiBuilder, HttpApiGroup, HttpApiSchema } from "effect/unstable/httpapi";
+import { HttpRouter, HttpServer } from "effect/http";
+import { HttpApi, HttpApiBuilder, HttpApiGroup, HttpApiSchema } from "effect/http-api";
 import { createEffectClient, type FetchCapability } from "../effect-client.js";
 import { createPromiseClient, type PromiseSdk } from "../promise.js";
 
@@ -72,7 +76,7 @@ const recordingSecurity = (cookies: Ref.Ref<ReadonlyArray<string>>) =>
 describe("generated NativeApi client", () => {
   it("accepts the complete command union through one Promise endpoint", () => {
     // The union payload type-checks through the patched HttpApiEndpoint.ClientRequest of
-    // patches/effect@4.0.0-rc.116.patch, exception EX-0010 of docs/effect-exceptions.json.
+    // patches/effect@4.0.0.patch, exception EX-0010 of docs/effect-exceptions.json.
     type Request = Parameters<PromiseSdk["placements"]["commandBoard"]>[0];
 
     expectTypeOf<{

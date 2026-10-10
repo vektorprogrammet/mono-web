@@ -1,11 +1,15 @@
 /**
+ * EX-0021: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+/**
  * PostgreSQL adapter of days served and certificates. It reads the counted service facts,
  * appends attributable confirmations, and records certificate issues. It never writes a
  * placement, a commitment, a decision, an occurrence, or legacy history.
  */
 import { Effect, Option, Predicate, Schema } from "effect";
-import { SqlSchema } from "effect/unstable/sql";
-import { isSqlError } from "effect/unstable/sql/SqlError";
+import { SqlSchema } from "effect/sql";
+import { isSqlError } from "effect/sql/SqlError";
 import { certificateIssuerBasis, reaches, ReachTarget } from "@vektorprogrammet/domain/authz";
 import {
   DepartmentId,

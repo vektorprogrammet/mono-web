@@ -10,14 +10,26 @@ export const OnboardingCommand = Schema.Struct({
 });
 
 export const OnboardingToken = Schema.String.pipe(
-  Schema.check(Schema.isPattern(/^onboard_[a-f0-9]{64}$/)),
+  Schema.check(Schema.isPattern(/^onboard_[a-f0-9]{64}$/u)),
 );
+
+const PASSWORD_MIN_LENGTH = 12;
 
 export const OnboardingClaim = Schema.Union([
   Schema.Struct({
     mode: Schema.Literal("NewAccount"),
     token: OnboardingToken,
-    password: Schema.String.pipe(Schema.check(Schema.isMinLength(12), Schema.isMaxLength(128))),
+    password: Schema.String.pipe(
+      Schema.check(
+        // The schema publishes the product constraint of PASSWORD_MIN_LENGTH characters, not the
+        // code-point bound `Math.ceil(n / 2)` that Effect's generic hook derives from this check of
+        // UTF-16 code units (effect 4.0.0 `Schema.ts:8118-8125`, `8146-8149`, `8160-8164`).
+        Schema.isMinLength(PASSWORD_MIN_LENGTH, {
+          toJsonSchema: () => [{ minLength: PASSWORD_MIN_LENGTH }, true],
+        }),
+        Schema.isMaxLength(128),
+      ),
+    ),
   }),
   Schema.Struct({ mode: Schema.Literal("ExistingAccount"), token: OnboardingToken }),
 ]);
@@ -26,6 +38,7 @@ export const OnboardingItem = Schema.Struct({
   applicationId: PublicApplicationIdSchema,
   firstName: Schema.String,
   lastName: Schema.String,
+  canIssue: Schema.Boolean,
   invitationId: Schema.NullOr(Schema.String),
   state: Schema.Literals(["Absent", "Open", "Revoked", "Claimed", "Expired", "Linked"]),
   delivery: Schema.Literals(["Absent", "Pending", "Claimed", "Delivered", "Cancelled"]),
@@ -41,6 +54,11 @@ export const OnboardingClaimResult = Schema.Struct({
   state: Schema.Literal("Claimed"),
   departmentId: DepartmentId,
 });
+
+/** Durable acceptance identifies only the invitation this command may attempt after commit. */
+export const OnboardingDeliveryAdmission = Schema.Struct({ invitationId: Schema.NonEmptyString });
+
+export type OnboardingDeliveryAdmission = typeof OnboardingDeliveryAdmission.Type;
 
 export type OnboardingCommand = typeof OnboardingCommand.Type;
 

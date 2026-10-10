@@ -1,7 +1,12 @@
-import { withPostgresTestDatabase } from "./test-support/postgres.js";
+/**
+ * EX-0021: required public native SQL APIs in exact stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+import { withRealPostgres } from "./test-support/postgres.js";
 import { TestPlatform } from "./test-support/platform.js";
 import { PersonId } from "@vektorprogrammet/domain/organization";
-import { Effect } from "effect";
+import { Deferred, Effect, Fiber, Exit, Schema } from "effect";
+import { SqlClient } from "effect/sql";
 import { expect, layer } from "@effect/vitest";
 import { disposablePersonCohortDatabaseUrl } from "./person-cohort-cli.js";
 import {
@@ -11,7 +16,18 @@ import {
   personCohortSourceRowDigest,
 } from "./person-cohort.js";
 import { importHistoricalServiceCohort } from "./historical-service-cohort.js";
-import { pgQuery, pgWithClient } from "./pg-pool.js";
+import { executePostgresMigration } from "./postgres-migration-statements.js";
+
+const decodeCounts = Schema.decodeUnknownEffect(
+  Schema.Array(
+    Schema.Struct({
+      profiles: Schema.Int,
+      persons: Schema.Int,
+      history: Schema.Int,
+      snapshots: Schema.Int,
+    }),
+  ),
+);
 
 layer(TestPlatform, { excludeTestServices: true })("synthetic person cohort boundary", (it) => {
   const fixture = {
@@ -73,154 +89,191 @@ layer(TestPlatform, { excludeTestServices: true })("synthetic person cohort boun
       expect(() => disposablePersonCohortDatabaseUrl(value)).toThrow("InvalidSnapshot");
   });
 
-  it.effect("rolls both imports back on a later failure and replays committed evidence", () =>
-    withPostgresTestDatabase((pool) =>
-      Effect.gen(function* () {
-        yield* pgQuery(
-          pool,
-          `
-        INSERT INTO public.organization_departments (department_id,name,short_name,email,city)
-        VALUES ('department','Department','D','department@example.invalid','Trondheim');
-        INSERT INTO public.admission_period_semesters (semester_id,start_at,end_at)
-        VALUES ('semester','2026-08-01T00:00:00Z','2026-12-31T00:00:00Z');
-        INSERT INTO public.schools_directory_schools (name,contact_person,email,phone,language,active)
-        VALUES ('School','Contact','school@example.invalid','+47 900 10 001','Norwegian',true);
-        INSERT INTO public.schools_directory_departments (school_id,department_id)
-        SELECT school_id,'department' FROM public.schools_directory_schools;
+  it.effect(
+    "rolls both imports back on a later failure and replays committed evidence",
+    () =>
+      withRealPostgres("person-cohort-rollback-proof", (sql) =>
+        Effect.gen(function* () {
+          yield* executePostgresMigration(
+            `
+          INSERT INTO public.organization_departments(department_id, name, short_name, email, city)
+        VALUES('department', 'Department', 'D', 'department@example.invalid', 'Trondheim');
+        INSERT INTO public.admission_period_semesters(semester_id, start_at, end_at)
+        VALUES('semester', '2026-08-01T00:00:00Z', '2026-12-31T00:00:00Z');
+        INSERT INTO public.schools_directory_schools(name, contact_person, email, phone, language, active)
+        VALUES('School', 'Contact', 'school@example.invalid', '+47 900 10 001', 'Norwegian', true);
+        INSERT INTO public.schools_directory_departments(school_id, department_id)
+        SELECT school_id, 'department' FROM public.schools_directory_schools;
         CREATE FUNCTION public.reject_history() RETURNS trigger LANGUAGE plpgsql AS $$
         BEGIN RAISE EXCEPTION 'history insert rejected'; END $$;
         CREATE TRIGGER reject_history BEFORE INSERT ON public.assistant_service_history
         FOR EACH ROW EXECUTE FUNCTION public.reject_history();
-      `,
-        );
+          `,
+          ).pipe(Effect.provideService(SqlClient.SqlClient, sql));
 
-        const row = {
-          sourceUserId: "user",
-          active: true,
-          firstName: "Legacy",
-          lastName: "User",
-          email: "user@example.invalid",
-          phone: "+47 999 00 000",
-        };
+          const row = {
+            sourceUserId: "user",
+            active: true,
+            firstName: "Legacy",
+            lastName: "User",
+            email: "user@example.invalid",
+            phone: "+47 999 00 000",
+          };
 
-        const personSnapshot = {
-          sourceRepository: "synthetic",
-          sourceRevision: "source",
-          snapshotId: "person",
-          transformationRevision: "0106",
-          sourceKind: "Synthetic" as const,
-          occurrences: [{ occurrenceId: "person-occurrence", row }],
-          mappings: [
-            PersonMapping.cases.CreatePerson.make({
-              sourceUserId: "user",
-              personId: PersonId.make("person"),
-              emailOwnership: {
-                email: row.email,
-                attestedBy: "operator",
-                evidenceRef: "attestation",
+          const personSnapshot = {
+            sourceRepository: "synthetic",
+            sourceRevision: "source",
+            snapshotId: "person",
+            transformationRevision: "0106",
+            sourceKind: "Synthetic" as const,
+            occurrences: [{ occurrenceId: "person-occurrence", row }],
+            mappings: [
+              PersonMapping.cases.CreatePerson.make({
+                sourceUserId: "user",
+                personId: PersonId.make("person"),
+                emailOwnership: {
+                  email: row.email,
+                  attestedBy: "operator",
+                  evidenceRef: "attestation",
+                },
+              }),
+            ],
+          };
+
+          const serviceSnapshot = {
+            sourceRepository: "synthetic",
+            sourceRevision: "source",
+            snapshotId: "history",
+            transformationRevision: "0108",
+            sourceKind: "Synthetic" as const,
+            occurrences: [
+              {
+                occurrenceId: "history-occurrence",
+                row: {
+                  sourceHistoryId: "history",
+                  sourceUserId: "user",
+                  sourceDepartmentId: "department",
+                  sourceSemesterId: "semester",
+                  sourceSchoolId: "school",
+                  workdays: "4",
+                  block: "Bolk 1",
+                  day: "Mandag",
+                },
               },
-            }),
-          ],
-        };
-
-        const serviceSnapshot = {
-          sourceRepository: "synthetic",
-          sourceRevision: "source",
-          snapshotId: "history",
-          transformationRevision: "0108",
-          sourceKind: "Synthetic" as const,
-          occurrences: [
-            {
-              occurrenceId: "history-occurrence",
-              row: {
+            ],
+            mappings: [
+              {
                 sourceHistoryId: "history",
                 sourceUserId: "user",
                 sourceDepartmentId: "department",
                 sourceSemesterId: "semester",
                 sourceSchoolId: "school",
-                workdays: "4",
-                block: "Bolk 1",
-                day: "Mandag",
+                personId: "person",
+                departmentId: "department",
+                semesterId: "semester",
+                schoolId: 1,
+                evidenceRef: "service-evidence",
               },
-            },
-          ],
-          mappings: [
-            {
-              sourceHistoryId: "history",
-              sourceUserId: "user",
-              sourceDepartmentId: "department",
-              sourceSemesterId: "semester",
-              sourceSchoolId: "school",
-              personId: "person",
-              departmentId: "department",
-              semesterId: "semester",
-              schoolId: 1,
-              evidenceRef: "service-evidence",
-            },
-          ],
-        };
+            ],
+          };
 
-        const counts = pgQuery<{
-          profiles: number;
-          persons: number;
-          history: number;
-          snapshots: number;
-        }>(
-          pool,
-          `
+          const counts = sql
+            .unsafe(
+              `
         SELECT (SELECT count(*)::int FROM public.person_profiles) AS profiles,
         (SELECT count(*)::int FROM public.person_cohort_imports) AS persons,
         (SELECT count(*)::int FROM public.assistant_service_history) AS history,
         (SELECT count(*)::int FROM public.historical_service_snapshots) AS snapshots
       `,
-        ).pipe(Effect.map(({ rows }) => rows[0]));
-
-        yield* pgWithClient(pool, (failed) =>
-          Effect.gen(function* () {
-            yield* pgQuery(failed, "BEGIN");
-            expect((yield* importPersonCohort(pool, personSnapshot, failed)).occurrences).toEqual([
-              {
-                occurrenceId: "person-occurrence",
-                disposition: "Accepted",
-                reason: "CreatedPerson",
-              },
-            ]);
-            expect(
-              yield* Effect.flip(importHistoricalServiceCohort(pool, serviceSnapshot, failed)),
-            ).toMatchObject({ code: "PersistenceFailure" });
-          }).pipe(Effect.ensuring(pgQuery(failed, "ROLLBACK").pipe(Effect.orDie))),
-        );
-
-        expect(yield* counts).toEqual({ profiles: 0, persons: 0, history: 0, snapshots: 0 });
-        yield* pgQuery(
-          pool,
-          "DROP TRIGGER reject_history ON public.assistant_service_history; DROP FUNCTION public.reject_history()",
-        );
-
-        const service = yield* pgWithClient(pool, (tx) =>
-          Effect.gen(function* () {
-            yield* pgQuery(tx, "BEGIN");
-            const person = yield* importPersonCohort(pool, personSnapshot, tx);
-            const imported = yield* importHistoricalServiceCohort(pool, serviceSnapshot, tx);
-            expect(person.replay).toBe(false);
-            expect(imported.occurrences).toEqual([
-              { occurrenceId: "history-occurrence", disposition: "Accepted", reason: "Imported" },
-            ]);
-            expect((yield* importPersonCohort(pool, personSnapshot, tx)).replay).toBe(true);
-            expect(yield* importHistoricalServiceCohort(pool, serviceSnapshot, tx)).toEqual(
-              imported,
+            )
+            .pipe(
+              Effect.flatMap(decodeCounts),
+              Effect.map((rows) => rows[0]),
             );
-            yield* pgQuery(tx, "COMMIT");
 
-            return imported;
-          }).pipe(Effect.ensuring(pgQuery(tx, "ROLLBACK").pipe(Effect.orDie))),
-        );
+          expect(
+            yield* Effect.flip(
+              sql.withTransaction(
+                Effect.gen(function* () {
+                  expect((yield* importPersonCohort(sql, personSnapshot)).occurrences).toEqual([
+                    {
+                      occurrenceId: "person-occurrence",
+                      disposition: "Accepted",
+                      reason: "CreatedPerson",
+                    },
+                  ]);
 
-        expect(yield* counts).toEqual({ profiles: 1, persons: 1, history: 1, snapshots: 1 });
-        expect((yield* importPersonCohort(pool, personSnapshot)).replay).toBe(true);
-        expect(yield* importHistoricalServiceCohort(pool, serviceSnapshot)).toEqual(service);
-        expect(yield* counts).toEqual({ profiles: 1, persons: 1, history: 1, snapshots: 1 });
-      }),
-    ),
+                  return yield* importHistoricalServiceCohort(sql, serviceSnapshot);
+                }),
+              ),
+            ),
+          ).toMatchObject({ code: "PersistenceFailure" });
+
+          expect(yield* counts).toEqual({ profiles: 0, persons: 0, history: 0, snapshots: 0 });
+          yield* sql.unsafe("DROP TRIGGER reject_history ON public.assistant_service_history");
+          yield* sql.unsafe("DROP FUNCTION public.reject_history()");
+
+          const imported = yield* Deferred.make<void>();
+
+          const interrupted = yield* Effect.forkChild(
+            sql.withTransaction(
+              Effect.gen(function* () {
+                yield* importPersonCohort(sql, personSnapshot);
+                yield* Deferred.succeed(imported, undefined);
+
+                return yield* Effect.never;
+              }),
+            ),
+          );
+
+          yield* Deferred.await(imported);
+          yield* Fiber.interrupt(interrupted);
+          expect(Exit.hasInterrupts(yield* Fiber.await(interrupted))).toBe(true);
+          expect(yield* counts).toEqual({ profiles: 0, persons: 0, history: 0, snapshots: 0 });
+
+          const service = yield* sql.withTransaction(
+            Effect.gen(function* () {
+              const person = yield* importPersonCohort(sql, personSnapshot);
+              const imported = yield* importHistoricalServiceCohort(sql, serviceSnapshot);
+
+              expect(person.replay).toBe(false);
+              expect(imported.occurrences).toEqual([
+                { occurrenceId: "history-occurrence", disposition: "Accepted", reason: "Imported" },
+              ]);
+              expect((yield* importPersonCohort(sql, personSnapshot)).replay).toBe(true);
+              expect(yield* importHistoricalServiceCohort(sql, serviceSnapshot)).toEqual(imported);
+
+              return imported;
+            }),
+          );
+
+          expect(yield* counts).toEqual({ profiles: 1, persons: 1, history: 1, snapshots: 1 });
+          expect((yield* importPersonCohort(sql, personSnapshot)).replay).toBe(true);
+          expect(yield* importHistoricalServiceCohort(sql, serviceSnapshot)).toEqual(service);
+          expect(yield* counts).toEqual({ profiles: 1, persons: 1, history: 1, snapshots: 1 });
+
+          const unmapped = yield* importPersonCohort(sql, {
+            ...personSnapshot,
+            snapshotId: "unmapped",
+            occurrences: [
+              {
+                occurrenceId: "unmapped-person",
+                row: { ...row, sourceUserId: "unmapped", email: "unmapped@example.invalid" },
+              },
+            ],
+            mappings: [],
+          });
+
+          expect(unmapped.occurrences).toEqual([
+            {
+              occurrenceId: "unmapped-person",
+              disposition: "Quarantined",
+              reason: "MappingMissing",
+            },
+          ]);
+          expect(yield* counts).toEqual({ profiles: 1, persons: 1, history: 1, snapshots: 1 });
+        }),
+      ),
+    60_000,
   );
 });

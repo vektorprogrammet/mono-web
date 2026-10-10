@@ -1,3 +1,7 @@
+/**
+ * EX-0026: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import AxeBuilder from "@axe-core/playwright";
 import { randomUUID } from "node:crypto";
 import { writeFile } from "node:fs/promises";
@@ -11,7 +15,7 @@ import {
   SubmitApplicationRequest,
 } from "@vektorprogrammet/http-api";
 import { Schema, Struct } from "effect";
-import { type HttpApiEndpoint, HttpApiSchema } from "effect/unstable/httpapi";
+import { type HttpApiEndpoint, HttpApiSchema } from "effect/http-api";
 import {
   expect,
   test,

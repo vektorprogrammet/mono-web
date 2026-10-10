@@ -12,6 +12,71 @@ import {
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { Schema } from "effect";
+
+const Receipt = Schema.Struct({
+  commands: Schema.Record(Schema.String, Schema.Struct({
+    solution: Schema.optionalKey(Schema.Array(Schema.Struct({}))),
+  })),
+});
+
+const decodeReceipt = Schema.decodeUnknownSync(Schema.fromJsonString(Receipt));
+
+export type AlloyCommand = { kind: string; name: string; expectsInstance: boolean };
+
+export type AlloyCommandResult = AlloyCommand & { result: "missing" | "error" | "SAT" | "UNSAT" };
+
+export type AlloyAccounting = {
+  results: AlloyCommandResult[];
+  missing: AlloyCommandResult[];
+  unexpected: AlloyCommandResult[];
+  unknown: string[];
+  passed: boolean;
+};
+
+/** Count only completed solver results corroborated by Alloy's receipt.
+ * Alloy adds an entry before solving: an empty entry alone does not prove UNSAT.
+ */
+export const accountAlloyResults = (
+  commands: ReadonlyArray<AlloyCommand>,
+  receiptText: string | undefined,
+  trace: string,
+  status: number | null,
+): AlloyAccounting => {
+  const receipt = receiptText === undefined ? undefined : decodeReceipt(receiptText);
+  const completed = new Map<string, boolean>();
+
+  for (const line of trace.split("\n")) {
+    const match = /^\d+\.\s+(check|run)\s+(\w+)\s+.*\b(UNSAT|SAT)\b/.exec(line);
+
+    if (match?.[2] !== undefined && match[3] !== undefined) completed.set(match[2], match[3] === "SAT");
+  }
+
+  const results = commands.map((command): AlloyCommandResult => {
+    const entry = receipt?.commands[command.name];
+    const observed = completed.get(command.name);
+    const hasInstance = (entry?.solution?.length ?? 0) > 0;
+
+    const result = entry === undefined || observed === undefined
+      ? "missing" : observed !== hasInstance ? "error" : observed ? "SAT" : "UNSAT";
+
+    return { ...command, result };
+  });
+
+  const missing = results.filter((command) => command.result === "missing" || command.result === "error");
+
+  const unexpected = results.filter((command) =>
+    (command.result === "SAT" || command.result === "UNSAT") &&
+    (command.result === "SAT") !== command.expectsInstance,
+  );
+
+  const unknown = [...new Set([...Object.keys(receipt?.commands ?? {}), ...completed.keys()])]
+    .filter((name) => !commands.some((command) => command.name === name));
+
+  return { results, missing, unexpected, unknown,
+    passed: status === 0 && missing.length === 0 && unexpected.length === 0 && unknown.length === 0 };
+};
+
 
 // The Context Mapper CLI release and the SHA-256 that Maven Central publishes for its archive.
 const contextMapperVersion = "6.12.0";
@@ -26,8 +91,9 @@ check     Runs every command of docs/model/authority.als with Alloy 6 from nixpk
           (nix shell nixpkgs#alloy6, the glucose solver) and compares each result
           with the command's \`expect\`. A check expects no counterexample (0). A
           mutant check, whose name contains "mutant", and a scenario run expect an
-          instance (1). Prints the counts and every unexpected result, and keeps
-          Alloy's output when there is one.
+          instance (1). Counts only completed SAT/UNSAT results corroborated by
+          receipt.json. Missing/error results and nonzero exits fail the check.
+          Keeps Alloy's receipt, instance files, stdout, and stderr on failure.
 validate  Validates docs/model/contexts.cml with Context Mapper CLI ${contextMapperVersion} from
           Maven Central on OpenJDK 17 from nixpkgs (nix shell
           nixpkgs#jdk17_headless). The CLI archive must match its SHA-256. It is
@@ -103,10 +169,13 @@ const check = () => {
       "-f",
       modelPath,
     ],
-    { stdio: ["ignore", "inherit", "inherit"] },
+    { stdio: ["ignore", "pipe", "pipe"], encoding: "utf8", maxBuffer: 16 * 1024 * 1024 },
   );
 
-  const found = new Set<string>();
+  process.stdout.write(alloy.stdout ?? "");
+  process.stderr.write(alloy.stderr ?? "");
+  writeFileSync(join(output, "stdout.log"), alloy.stdout ?? "");
+  writeFileSync(join(output, "stderr.log"), alloy.stderr ?? "");
 
   for (const file of readdirSync(output)) {
     const name = /^(\w+)-solution-\d+\.txt$/.exec(file)?.[1];
@@ -114,31 +183,40 @@ const check = () => {
     if (name === undefined) continue;
 
     if (!names.has(name)) fail(`Alloy wrote ${file}, which names no command. The output is ${output}.`);
-
-    found.add(name);
   }
 
-  const unexpected = commands.filter((command) => found.has(command.name) !== command.expectsInstance);
-  const checks = commands.filter((command) => command.kind === "check" && !command.name.includes("mutant"));
-  const mutants = commands.filter((command) => command.kind === "check" && command.name.includes("mutant"));
-  const scenarios = commands.filter((command) => command.kind === "run");
+  const receiptPath = join(output, "receipt.json");
+  let accounting: AlloyAccounting;
+
+  try {
+    accounting = accountAlloyResults(commands, existsSync(receiptPath) ? readFileSync(receiptPath, "utf8") : undefined, alloy.stderr ?? "", alloy.status);
+  } catch (cause) {
+    fail("Invalid Alloy receipt: " + String(cause) + "; output kept in " + output);
+  }
+
+  const { results, missing, unexpected, unknown } = accounting;
+  const checks = results.filter((command) => command.kind === "check" && !command.name.includes("mutant"));
+  const mutants = results.filter((command) => command.kind === "check" && command.name.includes("mutant"));
+  const scenarios = results.filter((command) => command.kind === "run");
 
   process.stdout.write(
     `model: authority.als, Alloy ${version}: ${commands.length} commands; ` +
-      `${checks.filter((command) => !found.has(command.name)).length} of ${checks.length} checks hold, ` +
-      `${mutants.filter((command) => found.has(command.name)).length} of ${mutants.length} mutants caught, ` +
-      `${scenarios.filter((command) => found.has(command.name)).length} of ${scenarios.length} scenarios found, ` +
-      `${unexpected.length} unexpected\n`,
+      `${checks.filter((command) => command.result === "UNSAT").length} of ${checks.length} checks hold, ` +
+      `${mutants.filter((command) => command.result === "SAT").length} of ${mutants.length} mutants caught, ` +
+      `${scenarios.filter((command) => command.result === "SAT").length} of ${scenarios.length} scenarios found, ` +
+      `${unexpected.length} unexpected${missing.length > 0 ? `, ${missing.length} missing/error` : ""}\n`,
   );
 
-  if (unexpected.length > 0 || alloy.status !== 0)
+  if (!accounting.passed)
     fail(
       `Alloy exited with ${alloy.status ?? alloy.signal}; the output is kept in ${output}.` +
+        missing.map((command) => `\n  ${command.kind} ${command.name}: ${command.result}`).join("") +
+        unknown.map((name) => `\n  unknown command: ${name}`).join("") +
         unexpected
           .map(
             (command) =>
               `\n  ${command.kind} ${command.name}: expected ${command.expectsInstance ? "an instance" : "none"}, ` +
-              `found ${found.has(command.name) ? "one" : "none"}`,
+              `found ${command.result}`,
           )
           .join(""),
     );
@@ -216,15 +294,17 @@ const validate = async () => {
   );
 };
 
-const [action, ...rest] = process.argv.slice(2);
+if (import.meta.main) {
+  const [action, ...rest] = process.argv.slice(2);
 
-if (action === "--help" || action === "-h") {
-  process.stdout.write(usage);
-  process.exit(0);
+  if (action === "--help" || action === "-h") {
+    process.stdout.write(usage);
+    process.exit(0);
+  }
+
+  if (rest.length > 0) fail("Pass one action: check or validate.");
+
+  if (action === "check") check();
+  else if (action === "validate") await validate();
+  else fail("Pass one action: check or validate. Use --help.");
 }
-
-if (rest.length > 0) fail("Pass one action: check or validate.");
-
-if (action === "check") check();
-else if (action === "validate") await validate();
-else fail("Pass one action: check or validate. Use --help.");

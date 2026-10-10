@@ -1,5 +1,5 @@
 import { expect, it } from "@effect/vitest";
-import { DateTime, Effect, Schema } from "effect";
+import { DateTime, Effect, Result, Schema } from "effect";
 import {
   IdentityActor,
   IdentitySecurityEvent,
@@ -48,21 +48,17 @@ it("accepts only credential-free native session metadata", () => {
     current: true,
   };
 
-  expect(Schema.decodeSync(IdentitySession)(session, { onExcessProperty: "error" })).toBeInstanceOf(
-    IdentitySession,
-  );
-  expect(() =>
-    Schema.decodeUnknownSync(IdentitySession)(
-      { ...session, token: "must-not-be-exposed" },
-      { onExcessProperty: "error" },
+  const decodeSession = Schema.decodeUnknownResult(IdentitySession, { onExcessProperty: "error" });
+
+  expect(
+    Result.getOrThrow(Schema.decodeResult(IdentitySession, { onExcessProperty: "error" })(session)),
+  ).toBeInstanceOf(IdentitySession);
+  expect(Result.isFailure(decodeSession({ ...session, token: "must-not-be-exposed" }))).toBe(true);
+  expect(
+    Result.isFailure(
+      decodeSession({ ...session, personId: PersonId.make("person-identity-test") }),
     ),
-  ).toThrow();
-  expect(() =>
-    Schema.decodeUnknownSync(IdentitySession)(
-      { ...session, personId: PersonId.make("person-identity-test") },
-      { onExcessProperty: "error" },
-    ),
-  ).toThrow();
+  ).toBe(true);
 });
 
 it("keeps identity security events closed, bounded, and request-correlated", () => {
@@ -80,28 +76,24 @@ it("keeps identity security events closed, bounded, and request-correlated", () 
     },
   };
 
+  const decodeEvent = Schema.decodeUnknownResult(IdentitySecurityEvent, {
+    onExcessProperty: "error",
+  });
+
+  expect(Result.getOrThrow(decodeEvent(event))).toBeInstanceOf(IdentitySecurityEvent);
+  expect(Result.isFailure(decodeEvent({ ...event, eventKind: "arbitrary-provider-event" }))).toBe(
+    true,
+  );
   expect(
-    Schema.decodeUnknownSync(IdentitySecurityEvent)(event, {
-      onExcessProperty: "error",
-    }),
-  ).toBeInstanceOf(IdentitySecurityEvent);
-  expect(() =>
-    Schema.decodeUnknownSync(IdentitySecurityEvent)(
-      { ...event, eventKind: "arbitrary-provider-event" },
-      { onExcessProperty: "error" },
-    ),
-  ).toThrow();
-  expect(() =>
-    Schema.decodeUnknownSync(IdentitySecurityEvent)(
-      {
+    Result.isFailure(
+      decodeEvent({
         ...event,
         details: {
           ...event.details,
           affectedSessionCount: 10_001,
           password: "must-not-persist",
         },
-      },
-      { onExcessProperty: "error" },
+      }),
     ),
-  ).toThrow();
+  ).toBe(true);
 });

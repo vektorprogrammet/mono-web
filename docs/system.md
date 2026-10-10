@@ -170,6 +170,12 @@ position, and the teaching block of a four-week position. An eight-week position
 serves both blocks. The application also states one school wish: the teaching
 language, which names a Norwegian school, an international school, or either.
 
+An anonymous application creates its own unlinked applicant statement. Equal email addresses
+do not establish identity or grant access to another applicant. Each admission period permits
+one application per normalized email. Exact command replay preserves the original application.
+Applicant statements remain immutable. A later submission cannot replace a linked applicant
+statement or change its Person, account, existing application, or notification recipient.
+
 ```text
 Applicant submits
   -> interview scheduled
@@ -224,6 +230,42 @@ person with a final Rejected outcome fails. A later placement change for an Admi
 assistant changes neither the announced outcome nor the message, and sends no
 correction.
 
+The first explicit Kanskje or Returning decision closes ordinary assessment correction.
+For Ja or Nei, the announcement closes ordinary correction. Each closure retains its cited
+assessment and recommendation. Authorized explicit decisions can change before announcement,
+but only against that same citation. A later assessment correction cannot replace the citation
+or change admission standing by itself. Historical uncited decisions keep their recorded
+outcome with unavailable citation provenance.
+
+Both assigned interviewers can correct completed, uncancelled conduct before closure.
+The current linked applicant cannot correct their own assessment. After closure, a correction
+requires a current window from the staffing maintenance workflow. A scoped board leader or
+global administrator opens or closes the window with a reason and its observed sequence.
+
+The window ends no later than the application’s own semester end. Its opener cannot correct
+within that window. At the end instant, the window no longer permits correction.
+
+The window history retains its opener, reason, end, sequence, and any early close.
+Corrections, explicit decisions, announcements, and window commands share the application’s
+versioned transaction fence. Every committing correction rechecks participant authority,
+known-self identity, cancellation, and the current window before receipt replay. Later
+corrections preserve final announcements and their original messages.
+
+Announcement validators follow the caller's current department-scoped authority.
+An Announce-only caller can use only the current Minimal validator and receives no Full representation.
+A caller with both Decide and Announce authority can use the current Full or Minimal validator.
+The handler resolves both authorities in the committing transaction. The domain-locked callback compares exact strong validator bytes against the current entry.
+The representation namespaces remain distinct. A stale Full or Minimal validator fails with `precondition.failed`/412.
+Fresh authorization precedes receipt lookup. Exact replay returns the original capsule before mutation-only preconditions, without another mutation, audit event, or message envelope.
+The announcement response remains Minimal and private/no-store. Validator selection does not change frozen citations or final outcomes.
+
+The correction-window dialog uses native modal isolation. Ordinary Cancel, Escape, and Tilbake return focus to the opener through the native Dialog.
+After a confirmed Close, the workflow waits for the correlated staffing refresh to report Closed with server-owned `canReopen`.
+After native dialog close completion, a workflow-owned focus Command targets the current Reopen action, not the former Close opener.
+Failure, release, cancellation, selection change, replacement, navigation, and disposal invalidate pending focus for the old workflow identity.
+Server eligibility and mutation locks control Reopen and Close. An open dialog alone does not disable an otherwise eligible opener.
+The workflow refuses reentrant opens and pending dismissal. Dialog state and focus grant no correction-window authority.
+
 The announcement queues one message to the email address on the application. The
 server renders its subject, HTML, and text from the effective template when it
 announces, and never again. A later template edit does not change a queued message.
@@ -232,6 +274,26 @@ The onboarding claim link is a bearer capability for one invitation. A consumed 
 A holder without an account presents only the link and creates an account; a request that also carries a session or bearer fails.
 A signed-in holder links the existing account without changing that account's email. The session is then the one principal, and the link is a requirement bound to its invitation, not a second credential.
 Claiming the account grants neither affiliation nor a placement.
+
+Issue requires admitted standing from the application’s own admission period and semester.
+The server applies the one Admissions standing rule after applicant and application custody,
+at the committing instant. A lock wait or transaction retry cannot reuse an earlier
+eligibility instant. Completed uncancelled Ja conduct qualifies without an announcement.
+Kanskje and Returning require their applicable explicit decision. An account link prevents
+another Issue. The existing Returning registration rule remains separate.
+
+A RetryDelivery success means that a currently authorized retry was durably accepted.
+It does not mean that a provider delivered the message. Nonretryable work and unavailable
+transport fail before an accepted response receipt commits. The original response and exact
+replay agree. Only the new command performs its postcommit delivery attempt. Replay performs
+no delivery attempt, and remaining pending work needs a separately authorized retry.
+
+The onboarding department selector uses successful native onboarding reads as its authority
+projection. Candidate department labels and placement-management roles grant no onboarding
+authority. Issue controls use the server’s canIssue observation. Issue still rechecks standing
+and authority when it commits. Dashboard failures retain the native problem code and status.
+Scheduling-board visibility for current department members remains unchanged and grants no
+staffing, assessment, outcome-decision, or announcement authority.
 
 Applicant progress shows the same facts in sequence. Interview or returning
 registration completion can lead to a pending affiliation, active affiliation,
@@ -251,6 +313,12 @@ Completed or cancelled interviews reject staffing changes. Removed interviewers 
 
 Both maintenance workflows require a reason and the observed revision when updating an existing record.
 State, immutable history, and command receipts commit together. Replays recheck current authority without repeating the change.
+
+The native maintenance transaction retries a serialization or deadlock race once.
+An exhausted race answers 409 transaction.conflict. An ordinary persistence outage answers
+503 recruitment.unavailable. A successful retry commits the change, history, and receipts
+together. Exact replay does not repeat the change.
+
 Queued notifications retain their original content and recipients. Staffing changes do not bypass notification integrity or cancellation checks.
 
 After an applicant requests a new interview time, authorized staff can select a replacement through the scheduling board.
@@ -263,6 +331,18 @@ Current boards, interview conduct, reports, and applicant progress use the curre
 Each replacement rechecks current authority and the observed revision in one transaction. Exact retries return the original outcome without repeating the change.
 Transient failures retain the draft and request identity. Conflicts retain the draft for explicit refresh without overwriting newer state.
 Superseded notification work cannot start another provider attempt. An existing attempt can finish, but its acknowledgement cannot change replacement facts.
+
+A cancelled interview closes its invitation-response capability. Cancelled and superseded
+capabilities receive the same concealed not-found answer as an unknown capability. Original
+schedules, responses, audit records, and notification envelopes remain intact. Capability
+selection, current authorization, the observed revision, and the response transition all run
+inside the committing transaction. A response preflight grants no write authority.
+
+A short transaction admits each provider attempt under the current claim and invitation
+fences. Admission commits before provider I/O. Cancellation before admission refuses the
+attempt. Later cancellation does not revoke an already admitted external attempt. Its
+acknowledgement remains claim-fenced. Delivery can repeat after a crash. Exactly-once external
+delivery requires receiver deduplication.
 
 ### School administration
 

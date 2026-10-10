@@ -1,17 +1,23 @@
+/**
+ * EX-0021: native stable SQL carries upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+import { AuthPoolLive } from "../src/pg-pool.js";
+import { DatabaseLive } from "../src/layers.js";
+import { BetterAuthStartupOptions, NativeDatabaseStartupOptions } from "../src/search-path.js";
+import { Database } from "../src/service.js";
+import { Redacted } from "effect";
 import { PersonId } from "@vektorprogrammet/domain/organization";
 import { CredentialOutcomeSchema, PrincipalSchema } from "@vektorprogrammet/domain/authz";
-import { Config, ConfigProvider, Effect, FileSystem, Layer, Path, Predicate, Schema } from "effect";
+import { Config, ConfigProvider, Effect, Layer, Predicate, Schema } from "effect";
 import { AuthLive, AuthEngine } from "../src/auth-live.js";
-import { AuthPoolLive } from "../src/auth-engine.js";
-import { DatabasePgPool, pgQuery } from "../src/pg-pool.js";
 import { OAuthClientOperator, OAuthCredentialAuthority } from "../src/oauth-live.js";
 import assert from "node:assert/strict";
-import { createHash, randomBytes } from "node:crypto";
-import { Pool } from "pg";
+import { Crypto } from "effect";
+import { sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import { createLocalAccountIssuer } from "better-auth";
 import { IdentityRequestContext } from "@vektorprogrammet/domain/identity";
-import { type AuthEngineConfig } from "../src/auth-engine.js";
-import { databaseMigrationDefinitions } from "../src/migrations.js";
+import { withNativeAuthProvisioning, type AuthEngineConfig } from "../src/auth-engine.js";
 import { TestPlatform } from "../src/test-support/platform.js";
 
 /** The bytes that `JSON.stringify` writes for `value`. */
@@ -25,16 +31,13 @@ const jsonRecordBody = (response: Response) =>
 
 const trace = (target: string) =>
   Effect.gen(function* () {
-    const pool = yield* DatabasePgPool;
+    const pool = yield* Database;
     const authEngine = yield* AuthEngine;
     const engine = authEngine.engine;
     const engineContext = yield* Effect.promise(() => engine.$context);
 
-    yield* pgQuery(
-      pool,
-      `INSERT INTO public.person_profiles (person_id, first_name, last_name)
-       VALUES ('oauth-proof-person', 'OAuth', 'Proof')`,
-    );
+    yield* pool.unsafe(`INSERT INTO public.person_profiles (person_id, first_name, last_name)
+     VALUES ('oauth-proof-person', 'OAuth', 'Proof')`);
 
     const delegatedPassword = "oauth-proof-person-password";
 
@@ -42,7 +45,7 @@ const trace = (target: string) =>
       engineContext.password.hash(delegatedPassword),
     );
 
-    yield* Effect.tryPromise(() =>
+    yield* withNativeAuthProvisioning(engineContext, () =>
       engineContext.internalAdapter.createUser(
         {
           id: "oauth-proof-person",
@@ -54,7 +57,7 @@ const trace = (target: string) =>
       ),
     );
 
-    yield* Effect.tryPromise(() =>
+    yield* withNativeAuthProvisioning(engineContext, () =>
       engineContext.internalAdapter.linkAccount({
         accountId: "oauth-proof-person",
         providerId: "credential",
@@ -179,22 +182,18 @@ const trace = (target: string) =>
       }
     }
 
-    const tracked = yield* pgQuery<{ readonly count: string }>(
-      pool,
+    const tracked = yield* pool.unsafe<{ readonly count: string }>(
       "SELECT count(*)::text AS count FROM auth.oauth_access_token_state WHERE client_id = $1",
       [service.clientId],
     );
 
-    assert.equal(tracked.rows[0]?.count, "2");
+    assert.equal(tracked[0]?.count, "2");
 
-    const serviceRuleSubjectColumn = yield* pgQuery(
-      pool,
-      `SELECT 1 FROM information_schema.columns
-        WHERE table_schema = 'public' AND table_name = 'authz_rules'
-          AND column_name = 'subject_service_principal_id'`,
-    );
+    const serviceRuleSubjectColumn = yield* pool.unsafe(`SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'authz_rules'
+        AND column_name = 'subject_service_principal_id'`);
 
-    assert.equal(serviceRuleSubjectColumn.rowCount, 1);
+    assert.equal(serviceRuleSubjectColumn.length, 1);
 
     const introspectionRequest = (token: string): Request =>
       new Request("http://127.0.0.1:4173/api/auth/oauth2/introspect", {
@@ -276,11 +275,14 @@ const trace = (target: string) =>
 
     const sessionCookie = sessionSetCookie.split(";", 1)[0]!;
 
-    const verifier = randomBytes(32).toString("base64url");
+    const crypto = yield* Crypto.Crypto;
+    const verifier = Buffer.from(yield* crypto.randomBytes(32)).toString("base64url");
 
-    const challenge = createHash("sha256").update(verifier, "utf8").digest("base64url");
+    const challenge = Buffer.from(sha256Hex(new TextEncoder().encode(verifier)), "hex").toString(
+      "base64url",
+    );
 
-    const state = randomBytes(32).toString("base64url");
+    const state = Buffer.from(yield* crypto.randomBytes(32)).toString("base64url");
 
     const authorizeUrl = new URL("http://127.0.0.1:4173/api/auth/oauth2/authorize");
 
@@ -469,14 +471,13 @@ const trace = (target: string) =>
       CredentialOutcomeSchema.cases.Rejected.make({ reason: "Revoked" }),
     );
 
-    const family = yield* pgQuery<{ readonly revocation_reason: string | null }>(
-      pool,
+    const family = yield* pool.unsafe<{ readonly revocation_reason: string | null }>(
       `SELECT revocation_reason FROM auth.oauth_refresh_families
-        WHERE client_id = $1`,
+      WHERE client_id = $1`,
       [delegated.clientId],
     );
 
-    assert.deepEqual(family.rows, [{ revocation_reason: "refresh-replay" }]);
+    assert.deepEqual(family, [{ revocation_reason: "refresh-replay" }]);
 
     const delegatedCredentialEvidence = [
       authorizationCode,
@@ -486,12 +487,11 @@ const trace = (target: string) =>
       rotatedTokens.refresh_token,
     ];
 
-    const audits = yield* pgQuery<{ readonly details: unknown }>(
-      pool,
+    const audits = yield* pool.unsafe<{ readonly details: unknown }>(
       "SELECT details FROM auth.oauth_security_audit ORDER BY occurred_at",
     );
 
-    const boundedEvidence = yield* jsonText(audits.rows);
+    const boundedEvidence = yield* jsonText(audits);
 
     for (const forbidden of [
       firstToken,
@@ -538,24 +538,6 @@ const program = Effect.gen(function* () {
     "OAuth proof database name must be disposable",
   );
 
-  const fs = yield* FileSystem.FileSystem;
-  const path = yield* Path.Path;
-
-  yield* Effect.acquireUseRelease(
-    Effect.sync(() => new Pool({ connectionString: databaseUrl, max: 1 })),
-    (migrationPool) =>
-      Effect.forEach(
-        databaseMigrationDefinitions,
-        (migration) =>
-          path.fromFileUrl(migration.url).pipe(
-            Effect.flatMap((file) => fs.readFileString(file)),
-            Effect.flatMap((source) => pgQuery(migrationPool, source)),
-          ),
-        { discard: true },
-      ),
-    (migrationPool) => Effect.promise(() => migrationPool.end()),
-  );
-
   const config: AuthEngineConfig = {
     postgresUrl: databaseUrl,
     secret: "oauth-0082-disposable-proof-secret-at-least-32-characters",
@@ -569,7 +551,26 @@ const program = Effect.gen(function* () {
   };
 
   yield* trace(parsedDatabaseUrl.pathname.slice(1)).pipe(
-    Effect.provide(AuthLive(config).pipe(Layer.provideMerge(AuthPoolLive(config)))),
+    Effect.provide(
+      AuthLive(config, globalThis.crypto.subtle).pipe(
+        Layer.provideMerge(
+          Layer.mergeAll(
+            AuthPoolLive(config, {
+              maxConnections: 4,
+              applicationName: "stable-auth-proof",
+              pipeline: true,
+              startupOptions: BetterAuthStartupOptions,
+            }),
+            DatabaseLive({
+              url: Redacted.make(config.postgresUrl),
+              maxConnections: 4,
+              applicationName: "stable-auth-proof-sql",
+              startupOptions: NativeDatabaseStartupOptions,
+            }),
+          ),
+        ),
+      ),
+    ),
   );
 });
 
@@ -577,7 +578,7 @@ const program = Effect.gen(function* () {
 void Effect.runPromise(
   program.pipe(
     Effect.provide(
-      Layer.merge(
+      Layer.mergeAll(
         TestPlatform,
         ConfigProvider.layer(ConfigProvider.fromEnv({ preserveEmptyStrings: true })),
       ),

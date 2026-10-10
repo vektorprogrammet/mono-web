@@ -1,4 +1,4 @@
-import { flow, Match, Array, Predicate, Effect, Schema } from "effect";
+import { flow, Match, Array, Predicate, Effect, Schema, Result } from "effect";
 import { canonicalJson, sha256Hex } from "../shared-kernel/index.js";
 import { normalizeRfc3339Instant } from "../time.js";
 import {
@@ -152,11 +152,11 @@ export interface OrganizationImportResult {
   readonly ledger: ReadonlyArray<OrganizationImportLedgerEntry>;
 }
 
-const encodeDepartment = Schema.encodeSync(Department);
+const encodeDepartment = flow(Schema.encodeResult(Department), Result.getOrThrow);
 
-const encodeTeam = Schema.encodeSync(Team);
+const encodeTeam = flow(Schema.encodeResult(Team), Result.getOrThrow);
 
-const encodeMembership = Schema.encodeSync(Membership);
+const encodeMembership = flow(Schema.encodeResult(Membership), Result.getOrThrow);
 
 /** The result with its models encoded, so digests and byte comparisons see stored values. */
 export const encodedOrganizationImportResult = (result: OrganizationImportResult) => ({
@@ -177,7 +177,9 @@ const decode = <A>(
   try {
     return {
       ok: true,
-      value: Schema.decodeSync(schema)(input, { onExcessProperty: "error" }),
+      value: flow(Schema.decodeResult(schema), Result.getOrThrow)(input, {
+        onExcessProperty: "error",
+      }),
     };
   } catch (cause) {
     return { ok: false, message: String(cause) };

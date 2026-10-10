@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import type { Pool, PoolClient } from "pg";
 
+import { PublicApplicationEmailSchema } from "../../packages/domain/src/application/schema.js";
 import {
   CancelInterviewCommandSchema,
   CancelInterviewObservationSchema,
@@ -161,6 +162,113 @@ const clone = async (
        FROM public.${table} source WHERE ${where}`,
     [JSON.stringify(overrides)],
   );
+};
+
+const decodeApplicantEmailRow = Schema.decodeUnknownSync(
+  Schema.Struct({ normalized_email: PublicApplicationEmailSchema }),
+);
+
+/**
+ * A nonterminal staffing target that cannot mutate the correction/history fixtures.
+ * Its application inherits the newly cloned applicant's email within the seed transaction.
+ */
+export const seedRecruitmentMaintenanceJourneyFixture = async (pool: Pool) => {
+  const interviewId = "interview-maintenance-journey-0029";
+  const applicantId = "applicant-maintenance-journey-0029";
+  const applicationId = "application-maintenance-journey-0029";
+  const invitationId = "invitation-maintenance-journey-0029";
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    try {
+      await clone(
+        client,
+        "admission_applicants",
+        "applicant_id='applicant-correction-unfinished-0105'",
+        {
+          applicant_id: applicantId,
+          email: "maintenance.journey@example.invalid",
+          normalized_email: "maintenance.journey@example.invalid",
+          first_name: "Maintenance",
+          last_name: "Journey",
+        },
+      );
+
+      const applicant = decodeApplicantEmailRow(
+        (
+          await client.query(
+            "SELECT normalized_email FROM public.admission_applicants WHERE applicant_id=$1",
+            [applicantId],
+          )
+        ).rows[0],
+      );
+
+      await clone(
+        client,
+        "admission_applications",
+        "application_id='application-correction-unfinished-0105'",
+        {
+          application_id: applicationId,
+          applicant_id: applicantId,
+          normalized_email: applicant.normalized_email,
+        },
+      );
+      await clone(
+        client,
+        "recruitment_interviews",
+        "interview_id='interview-correction-unfinished-0105'",
+        {
+          interview_id: interviewId,
+          application_id: applicationId,
+        },
+      );
+      await clone(
+        client,
+        "recruitment_interview_schedules",
+        "interview_id='interview-correction-unfinished-0105'",
+        {
+          interview_id: interviewId,
+        },
+      );
+      await clone(
+        client,
+        "recruitment_invitations",
+        "invitation_id='invitation-correction-unfinished-0105'",
+        {
+          invitation_id: invitationId,
+          interview_id: interviewId,
+          capability_sha256: "8" + "f".repeat(63),
+        },
+      );
+      await clone(
+        client,
+        "recruitment_invitation_response_audit",
+        "invitation_id='invitation-correction-unfinished-0105'",
+        {
+          invitation_id: invitationId,
+          interview_id: interviewId,
+        },
+      );
+      await clone(
+        client,
+        "recruitment_interview_question_snapshots",
+        "interview_id='interview-correction-unfinished-0105'",
+        {
+          interview_id: interviewId,
+        },
+      );
+      await client.query("COMMIT");
+    } catch (cause) {
+      await client.query("ROLLBACK");
+      throw cause;
+    }
+  } finally {
+    client.release();
+  }
+
+  return { interviewId, applicationId };
 };
 
 const lifecycleRows = (interviewId: string) => {

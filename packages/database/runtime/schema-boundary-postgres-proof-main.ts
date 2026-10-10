@@ -1,17 +1,17 @@
+/**
+ * EX-0021: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import assert from "node:assert/strict";
 import { Database } from "../src/service.js";
-import { Config, Effect, Exit, FileSystem, Path, Predicate, Redacted, Schema } from "effect";
 import * as PgClient from "@effect/sql-pg/PgClient";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
-import {
-  selectDatabaseMigration,
-  type ExecuteMigration,
-  runDatabaseMigrations,
-} from "../src/migrations.js";
+import { Config, Effect, Exit, FileSystem, Path, Predicate, Redacted, Schema } from "effect";
+import { selectDatabaseMigration, runDatabaseMigrations } from "../src/migrations.js";
 import { DatabaseLive } from "../src/layers.js";
-import { pgQuery, pgTransaction, pgWithClient, type PgQueryError } from "../src/pg-pool.js";
+import { nativePgLayer, type NativePgPoolConfig } from "../src/pg-pool.js";
+import { executePostgresMigration } from "../src/postgres-migration-statements.js";
+import { NativeDatabaseStartupOptions } from "../src/search-path.js";
 import { TestPlatform } from "../src/test-support/platform.js";
-import { Pool, type PoolClient, type QueryResultRow } from "pg";
 
 const inventory = [
   "organization_global_administrator_grants",
@@ -49,7 +49,9 @@ const nativeFunctions = [
   "prevent_recruitment_interview_lifecycle_mutation",
 ] as const;
 
-const historicalMigrations = selectDatabaseMigration("22_native-domain-schema-boundary").preceding;
+const boundary = selectDatabaseMigration("22_native-domain-schema-boundary");
+
+const historicalMigrations = boundary.preceding;
 
 const databaseUrl = (name: string) =>
   Effect.gen(function* () {
@@ -65,110 +67,173 @@ const databaseUrl = (name: string) =>
     return value;
   });
 
-/** One pool of a single connection on `url`, ended when the proof ends. */
-const singleConnectionPool = (url: string) =>
-  Effect.acquireRelease(
-    Effect.sync(() => new Pool({ connectionString: url, max: 1 })),
-    (pool) => Effect.promise(() => pool.end()),
+/**
+ * The earlier schema order that this proof reproduces on purpose: the historical loader, the
+ * registered loader and the catalog sessions run with auth ahead of public. The ordinary Database
+ * read after the move declares the public-only production path instead.
+ */
+const historicalStartupOptions = "-c search_path=auth,public";
+
+/**
+ * One native connection on `url` with the declared `startupOptions`. The layer scope that owns it
+ * closes its pool and observes the physical close of its transport, within the explicit shutdown
+ * timeout.
+ */
+const poolConfig = (
+  url: string,
+  applicationName: string,
+  startupOptions: string,
+): NativePgPoolConfig => ({
+  url: Redacted.make(url),
+  applicationName,
+  maxConnections: 1,
+  shutdownTimeout: "30 seconds",
+  startupOptions,
+});
+
+/** The connection that a native client reserves, so that session state stays on it. */
+type Session = Effect.Success<PgClient.PgClient["reserve"]>;
+
+/** A catalog row that the proof compares whole as evidence: text, integers, and nulls only. */
+type Row = Readonly<Record<string, string | number | null>>;
+
+/**
+ * Runs `use` on one reserved connection of a native pool on `url`. The connection returns to
+ * the pool first, then the pool closes, on success, failure, and interruption.
+ */
+const withSession = <A, E, R>(
+  url: string,
+  applicationName: string,
+  use: (session: Session) => Effect.Effect<A, E, R>,
+) =>
+  Effect.gen(function* () {
+    const sql = yield* PgClient.PgClient;
+    const session = yield* sql.reserve;
+
+    return yield* use(session);
+  }).pipe(
+    Effect.scoped,
+    Effect.provide(nativePgLayer(poolConfig(url, applicationName, historicalStartupOptions))),
   );
 
 /** The bytes that `JSON.stringify` writes for `value`. */
 const jsonText = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 
-const query = <T extends QueryResultRow = QueryResultRow>(
-  client: PoolClient,
+const query = <T extends object = Row>(
+  session: Session,
   text: string,
   values: ReadonlyArray<unknown> = [],
-) => pgQuery<T>(client, text, values).pipe(Effect.map(({ rows }) => rows));
+) => session.execute(text, values, undefined).pipe(Effect.map((rows): ReadonlyArray<T> => rows));
 
-const runRegisteredMigrations = (url: string) => {
-  const execute: ExecuteMigration = (source) =>
-    Effect.gen(function* () {
-      const sql = yield* SqlClient.SqlClient;
-      yield* sql.unsafe("SET LOCAL search_path TO auth, public");
-      yield* sql.unsafe(source);
-    });
-
-  return runDatabaseMigrations(execute).pipe(
+const runRegisteredMigrations = (url: string) =>
+  runDatabaseMigrations(executePostgresMigration).pipe(
     Effect.provide(
-      PgClient.layer({
-        url: Redacted.make(url),
-        applicationName: "schema-boundary-registered-loader",
-        maxConnections: 1,
-      }),
+      nativePgLayer(poolConfig(url, "schema-boundary-registered-loader", historicalStartupOptions)),
     ),
-    Effect.scoped,
   );
-};
 
-const runHistoricalSources = (pool: Pool) =>
+const runHistoricalSources = (postgresUrl: string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
+    const sql = yield* PgClient.PgClient;
 
     for (const { url } of historicalMigrations) {
       const source = yield* path
         .fromFileUrl(url)
         .pipe(Effect.flatMap((file) => fs.readFileString(file)));
 
-      yield* pgTransaction(pool, (client) =>
-        Effect.gen(function* () {
-          yield* pgQuery(client, "SET LOCAL search_path TO auth, public");
-          yield* pgQuery(client, source);
-        }),
-      );
+      yield* sql.withTransaction(executePostgresMigration(source));
     }
 
-    yield* pgTransaction(pool, (client) =>
+    yield* sql.withTransaction(
       Effect.gen(function* () {
-        yield* pgQuery(
-          client,
-          `
+        yield* sql.unsafe(`
           CREATE TABLE IF NOT EXISTS public.vektorprogrammet_schema_migrations (
             migration_id integer PRIMARY KEY,
             created_at timestamptz NOT NULL DEFAULT now(),
             name text NOT NULL
           )
-        `,
-        );
+        `);
 
         for (const [index, { name }] of historicalMigrations.entries()) {
-          yield* pgQuery(
-            client,
+          yield* sql.unsafe(
             "INSERT INTO public.vektorprogrammet_schema_migrations (migration_id, name) VALUES ($1, $2)",
             [index + 1, name],
           );
         }
       }),
     );
-  });
+  }).pipe(
+    Effect.provide(
+      nativePgLayer(
+        poolConfig(postgresUrl, "schema-boundary-historical-loader", historicalStartupOptions),
+      ),
+    ),
+  );
+
+/**
+ * Applies the boundary migration alone, in the transaction that the migrator gives it, and records
+ * it in the ledger. The moved tables equal their historical selves at this revision only: later
+ * migrations add columns and constraints to them, and the registered loader applies those after.
+ */
+const runBoundaryMigration = (postgresUrl: string) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const sql = yield* PgClient.PgClient;
+
+    const source = yield* path
+      .fromFileUrl(boundary.migration.url)
+      .pipe(Effect.flatMap((file) => fs.readFileString(file)));
+
+    yield* sql.withTransaction(
+      Effect.gen(function* () {
+        yield* executePostgresMigration(source);
+        yield* sql.unsafe(
+          "INSERT INTO public.vektorprogrammet_schema_migrations (migration_id, name) VALUES ($1, $2)",
+          [historicalMigrations.length + 1, boundary.migration.name],
+        );
+      }),
+    );
+  }).pipe(
+    Effect.provide(
+      nativePgLayer(
+        poolConfig(postgresUrl, "schema-boundary-boundary-loader", historicalStartupOptions),
+      ),
+    ),
+  );
 
 const relationName = (schema: "auth" | "public", table: string) => `"${schema}"."${table}"`;
 
-type CatalogRelation = { table_name: string; schema_name: string };
+type CatalogRelation = { readonly table_name: string; readonly schema_name: string };
 
 type CatalogEvidence = {
-  relations: CatalogRelation[];
-  scheduling: CatalogRelation[];
-  auth: Array<{ table_name: string }>;
-  publicAuth: Array<{ table_name: string }>;
-  identityLink: Array<{ linked: boolean }>;
-  functions: Array<{
-    function_name: string;
-    schema_name: string;
-    function_body: string;
+  readonly relations: ReadonlyArray<CatalogRelation>;
+  readonly scheduling: ReadonlyArray<CatalogRelation>;
+  readonly auth: ReadonlyArray<{ readonly table_name: string }>;
+  readonly publicAuth: ReadonlyArray<{ readonly table_name: string }>;
+  readonly identityLink: ReadonlyArray<{ readonly linked: boolean }>;
+  readonly functions: ReadonlyArray<{
+    readonly function_name: string;
+    readonly schema_name: string;
+    readonly function_body: string;
   }>;
 };
 
 type TableMetadata = {
-  columns: QueryResultRow[];
-  identity: QueryResultRow[];
-  sequenceOwnership: QueryResultRow[];
-  dependencies: QueryResultRow[];
-  constraints: QueryResultRow[];
-  indexes: QueryResultRow[];
-  triggers: Array<{ trigger_name: string; definition: string; function_oid: string }>;
-  rules: QueryResultRow[];
+  readonly columns: ReadonlyArray<Row>;
+  readonly identity: ReadonlyArray<Row>;
+  readonly sequenceOwnership: ReadonlyArray<Row>;
+  readonly dependencies: ReadonlyArray<Row>;
+  readonly constraints: ReadonlyArray<Row>;
+  readonly indexes: ReadonlyArray<Row>;
+  readonly triggers: ReadonlyArray<{
+    readonly trigger_name: string;
+    readonly definition: string;
+    readonly function_oid: string;
+  }>;
+  readonly rules: ReadonlyArray<Row>;
 };
 
 type TableEvidence = {
@@ -178,7 +243,7 @@ type TableEvidence = {
   metadata: TableMetadata;
 };
 
-const tableEvidence = (client: PoolClient, schema: "auth" | "public", table: string) =>
+const tableEvidence = (client: Session, schema: "auth" | "public", table: string) =>
   query<{ count: string; digest: string }>(
     client,
     `SELECT count(*)::text AS count,
@@ -186,11 +251,7 @@ const tableEvidence = (client: PoolClient, schema: "auth" | "public", table: str
        FROM ${relationName(schema, table)} AS row_data`,
   ).pipe(Effect.map((rows) => rows[0]!));
 
-const metadataEvidence = (
-  client: PoolClient,
-  schema: "auth" | "public",
-  table: string,
-): Effect.Effect<TableMetadata, PgQueryError> =>
+const metadataEvidence = (client: Session, schema: "auth" | "public", table: string) =>
   Effect.gen(function* () {
     const columns = yield* query(
       client,
@@ -244,15 +305,17 @@ const metadataEvidence = (
       [schema, table],
     );
 
+    // The native driver decodes records in binary and has no codec for one, so select the text
+    // form that the previous driver returned and keep the record order of the object identities.
     const dependencies = yield* query(
       client,
       `
     SELECT pg_catalog.pg_identify_object(
              dependency.classid, dependency.objid, dependency.objsubid
-           ) AS dependent_object,
+           )::text AS dependent_object,
            pg_catalog.pg_identify_object(
              dependency.refclassid, dependency.refobjid, dependency.refobjsubid
-           ) AS referenced_object,
+           )::text AS referenced_object,
            dependency.deptype AS dependency_type
       FROM pg_catalog.pg_depend AS dependency
      WHERE (
@@ -262,7 +325,13 @@ const metadataEvidence = (
              dependency.classid = 'pg_catalog.pg_class'::regclass
          AND dependency.objid = $1::regclass
        )
-     ORDER BY dependent_object, referenced_object, dependency_type
+     ORDER BY pg_catalog.pg_identify_object(
+                dependency.classid, dependency.objid, dependency.objsubid
+              ),
+              pg_catalog.pg_identify_object(
+                dependency.refclassid, dependency.refobjid, dependency.refobjsubid
+              ),
+              dependency_type
     `,
       [`${schema}.${table}`],
     );
@@ -333,7 +402,7 @@ const metadataEvidence = (
     };
   });
 
-const catalogEvidence = (client: PoolClient): Effect.Effect<CatalogEvidence, PgQueryError> =>
+const catalogEvidence = (client: Session) =>
   Effect.gen(function* () {
     const relations = yield* query<{ table_name: string; schema_name: string }>(
       client,
@@ -442,185 +511,193 @@ const assertCatalog = (
   );
 };
 
-const seedParents = (client: PoolClient) =>
+const seedParents = (client: Session) =>
   Effect.gen(function* () {
-    yield* pgQuery(
+    yield* query(
       client,
       `
-    INSERT INTO public.person_profiles (person_id, first_name, last_name, revision)
-    VALUES ('schema-boundary-person', 'Schema', 'Boundary', 0), ('schema-boundary-interviewer', 'Interview', 'Person', 0)
-  `,
+        INSERT INTO public.person_profiles (person_id, first_name, last_name, revision)
+        VALUES ('schema-boundary-person', 'Schema', 'Boundary', 0), ('schema-boundary-interviewer', 'Interview', 'Person', 0)
+      `,
     );
-    yield* pgQuery(
+    yield* query(
       client,
       `
-    INSERT INTO auth."user" ("id", "name", "email", "emailVerified", "createdAt", "updatedAt")
-    VALUES ('schema-boundary-person', 'Schema Boundary', 'schema-auth@example.invalid', TRUE, '2030-01-01T00:00:00Z', '2030-01-01T00:00:00Z')
-  `,
+        INSERT INTO auth."user" ("id", "name", "email", "emailVerified", "createdAt", "updatedAt")
+        VALUES ('schema-boundary-person', 'Schema Boundary', 'schema-auth@example.invalid', TRUE, '2030-01-01T00:00:00Z', '2030-01-01T00:00:00Z')
+      `,
     );
-    yield* pgQuery(
+    yield* query(
       client,
       `
-    INSERT INTO public.organization_departments (department_id, name, short_name, email, city)
-    VALUES ('schema-boundary-department', 'Schema Boundary', 'SBD', 'schema-boundary@example.invalid', 'Oslo')
-  `,
+        INSERT INTO public.organization_departments (department_id, name, short_name, email, city)
+        VALUES ('schema-boundary-department', 'Schema Boundary', 'SBD', 'schema-boundary@example.invalid', 'Oslo')
+      `,
     );
-    yield* pgQuery(
+    yield* query(
       client,
       `
-    INSERT INTO public.organization_teams (team_id, department_id, name)
-    VALUES ('schema-boundary-team', 'schema-boundary-department', 'Schema Boundary Team')
-  `,
+        INSERT INTO public.organization_teams (team_id, department_id, name)
+        VALUES ('schema-boundary-team', 'schema-boundary-department', 'Schema Boundary Team')
+      `,
     );
-    yield* pgQuery(
+    yield* query(
       client,
       `
-    INSERT INTO public.admission_period_departments (department_id, name)
-    VALUES ('schema-boundary-department', 'Schema Boundary')
-  `,
+        INSERT INTO public.admission_period_departments (department_id, name)
+        VALUES ('schema-boundary-department', 'Schema Boundary')
+      `,
     );
-    yield* pgQuery(
+    yield* query(
       client,
       `
-    INSERT INTO public.admission_period_semesters (semester_id, start_at, end_at)
-    VALUES ('schema-boundary-semester', '2030-01-01T00:00:00Z', '2030-12-31T00:00:00Z')
-  `,
+        INSERT INTO public.admission_period_semesters (semester_id, start_at, end_at)
+        VALUES ('schema-boundary-semester', '2030-01-01T00:00:00Z', '2030-12-31T00:00:00Z')
+      `,
     );
-    yield* pgQuery(
+    yield* query(
       client,
       `
-    INSERT INTO public.admission_periods (admission_period_id, department_id, semester_id, start_at, end_at, last_command_id)
-    VALUES ('schema-boundary-period', 'schema-boundary-department', 'schema-boundary-semester', '2030-01-01T00:00:00Z', '2030-12-31T00:00:00Z', 'schema-boundary-period-command')
-  `,
+        INSERT INTO public.admission_periods (admission_period_id, department_id, semester_id, start_at, end_at, last_command_id)
+        VALUES ('schema-boundary-period', 'schema-boundary-department', 'schema-boundary-semester', '2030-01-01T00:00:00Z', '2030-12-31T00:00:00Z', 'schema-boundary-period-command')
+      `,
     );
-    yield* pgQuery(
+    yield* query(
       client,
       `
-    INSERT INTO public.admission_period_fields_of_study (field_of_study_id, department_id, name)
-    VALUES ('schema-boundary-field', 'schema-boundary-department', 'Schema Boundary Studies')
-  `,
+        INSERT INTO public.admission_period_fields_of_study (field_of_study_id, department_id, name)
+        VALUES ('schema-boundary-field', 'schema-boundary-department', 'Schema Boundary Studies')
+      `,
     );
-    yield* pgQuery(
+    yield* query(
       client,
       `
-    INSERT INTO public.admission_applicants (applicant_id, normalized_email, email, first_name, last_name, phone, gender, field_of_study_id, year_of_study)
-    VALUES ('schema-boundary-applicant', 'schema-boundary@example.invalid', 'schema-boundary@example.invalid', 'Schema', 'Applicant', '90000000', 0, 'schema-boundary-field', 1)
-  `,
+        INSERT INTO public.admission_applicants (applicant_id, normalized_email, email, first_name, last_name, phone, gender, field_of_study_id, year_of_study)
+        VALUES ('schema-boundary-applicant', 'schema-boundary@example.invalid', 'schema-boundary@example.invalid', 'Schema', 'Applicant', '90000000', 0, 'schema-boundary-field', 1)
+      `,
     );
-    yield* pgQuery(
+    yield* query(
       client,
       `
-    INSERT INTO public.admission_applications (application_id, applicant_id, admission_period_id, department_id, field_of_study_id, year_of_study, submitted_at)
-    VALUES ('schema-boundary-application', 'schema-boundary-applicant', 'schema-boundary-period', 'schema-boundary-department', 'schema-boundary-field', 1, '2030-01-02T00:00:00Z')
-  `,
+        INSERT INTO public.admission_applications (application_id, applicant_id, admission_period_id, department_id, field_of_study_id, year_of_study, submitted_at)
+        VALUES ('schema-boundary-application', 'schema-boundary-applicant', 'schema-boundary-period', 'schema-boundary-department', 'schema-boundary-field', 1, '2030-01-02T00:00:00Z')
+      `,
     );
-    yield* pgQuery(
+    yield* query(
       client,
       `
-    INSERT INTO public.recruitment_interview_schemas (interview_schema_id, name, question_count)
-    VALUES ('schema-boundary-schema', 'Schema Boundary Interview', 1)
-  `,
+        INSERT INTO public.recruitment_interview_schemas (interview_schema_id, name, question_count)
+        VALUES ('schema-boundary-schema', 'Schema Boundary Interview', 1)
+      `,
     );
-    yield* pgQuery(
+    yield* query(
       client,
       `
-    INSERT INTO public.recruitment_interviews (interview_id, application_id, department_id, interviewer_person_id, interview_schema_id, assigned_by_person_id, assigned_at)
-    VALUES ('schema-boundary-interview', 'schema-boundary-application', 'schema-boundary-department', 'schema-boundary-interviewer', 'schema-boundary-schema', 'schema-boundary-person', '2030-01-03T00:00:00Z')
-  `,
+        INSERT INTO public.recruitment_interviews (interview_id, application_id, department_id, interviewer_person_id, interview_schema_id, assigned_by_person_id, assigned_at)
+        VALUES ('schema-boundary-interview', 'schema-boundary-application', 'schema-boundary-department', 'schema-boundary-interviewer', 'schema-boundary-schema', 'schema-boundary-person', '2030-01-03T00:00:00Z')
+      `,
     );
   });
 
-const seedInventory = (client: PoolClient, schema: "auth" | "public") =>
+const seedInventory = (client: Session, schema: "auth" | "public") =>
   Effect.gen(function* () {
     const table = (name: string) => relationName(schema, name);
-    yield* pgQuery(
+
+    // Migration 0037 adds `recommendation` and requires it of every new conduct. The current layout
+    // seeds one; the historical layout has no such column.
+    const conduct =
+      schema === "public"
+        ? { column: ", recommendation", value: ", 'Ja'" }
+        : { column: "", value: "" };
+
+    yield* query(
       client,
       `INSERT INTO ${table("organization_global_administrator_grants")} (grant_id, person_id, start_at, revision) VALUES ('schema-boundary-grant', 'schema-boundary-person', '2030-01-01T00:00:00Z', 0)`,
     );
-    yield* pgQuery(
+    yield* query(
       client,
       `INSERT INTO ${table("economy_payment_authorities")} (payment_authority_id, person_id, department_id, payment_account_ciphertext, start_at, revision) VALUES ('schema-boundary-payment', 'schema-boundary-person', 'schema-boundary-department', 'ciphertext', '2030-01-01T00:00:00Z', 0)`,
     );
-    yield* pgQuery(
+    yield* query(
       client,
       `INSERT INTO ${table("economy_receipt_approval_grants")} (approval_grant_id, person_id, scope, start_at, revision) VALUES ('schema-boundary-approval', 'schema-boundary-person', 'Global', '2030-01-01T00:00:00Z', 0)`,
     );
-    yield* pgQuery(
+    yield* query(
       client,
       `INSERT INTO ${table("organization_team_interest_registrations")} (submitter_name, submitter_email, team_id, department_id, submitted_at) VALUES ('Schema Submitter', 'schema-submitter@example.invalid', 'schema-boundary-team', 'schema-boundary-department', '2030-01-01T00:00:00Z')`,
     );
-    yield* pgQuery(
+    yield* query(
       client,
       `INSERT INTO ${table("schools_directory_schools")} (name, contact_person, email, phone, language, active) VALUES ('Schema School', 'Schema Contact', 'schema-school@example.invalid', '+47 90000000', 'Norwegian', TRUE)`,
     );
-    yield* pgQuery(
+    yield* query(
       client,
       `INSERT INTO ${table("schools_directory_departments")} (school_id, department_id) SELECT school_id, 'schema-boundary-department' FROM ${table("schools_directory_schools")} WHERE email = 'schema-school@example.invalid'`,
     );
-    yield* pgQuery(
+    yield* query(
       client,
       `INSERT INTO ${table("content_articles")} (title, slug, body_html, sticky, created_by_person_id) VALUES ('Schema Article', 'schema-article', '<p>Schema</p>', FALSE, 'schema-boundary-person')`,
     );
-    yield* pgQuery(
+    yield* query(
       client,
       `INSERT INTO ${table("content_article_versions")} (article_id, version_number, title, slug, body_html, sticky, published_at, published_by_person_id) SELECT article_id, 1, title, slug, body_html, sticky, '2030-01-04T00:00:00Z', 'schema-boundary-person' FROM ${table("content_articles")} WHERE slug = 'schema-article'`,
     );
-    yield* pgQuery(
+    yield* query(
       client,
       `UPDATE ${table("content_articles")} SET current_version_number = 1 WHERE slug = 'schema-article'`,
     );
-    yield* pgQuery(
+    yield* query(
       client,
       `INSERT INTO ${table("content_article_departments")} (article_id, department_id) SELECT article_id, 'schema-boundary-department' FROM ${table("content_articles")} WHERE slug = 'schema-article'`,
     );
-    yield* pgQuery(
+    yield* query(
       client,
       `INSERT INTO ${table("content_publication_command_receipts")} (command_id, article_id, kind, payload_sha256, result_json, committed_at) SELECT 'schema-boundary-content-command', article_id, 'CreateDraft', repeat('a', 64), '{}'::jsonb, '2030-01-04T00:00:00Z' FROM ${table("content_articles")} WHERE slug = 'schema-article'`,
     );
-    yield* pgQuery(
+    yield* query(
       client,
       `INSERT INTO ${table("content_publication_audit")} (command_id, article_id, actor_person_id, action, occurred_at) SELECT 'schema-boundary-content-command', article_id, 'schema-boundary-person', 'CreateDraft', '2030-01-04T00:00:00Z' FROM ${table("content_articles")} WHERE slug = 'schema-article'`,
     );
-    yield* pgQuery(
+    yield* query(
       client,
       `INSERT INTO ${table("recruitment_interview_schema_questions")} (interview_schema_id, question_id, ordinal, prompt, kind, alternatives) VALUES ('schema-boundary-schema', 'schema-boundary-question', 0, 'Schema question', 'text', '[]'::jsonb)`,
     );
-    yield* pgQuery(
+    yield* query(
       client,
       `INSERT INTO ${table("recruitment_interview_question_snapshots")} (interview_id, question_id, ordinal, prompt, kind, alternatives) VALUES ('schema-boundary-interview', 'schema-boundary-question', 0, 'Schema snapshot', 'text', '[]'::jsonb)`,
     );
-    yield* pgQuery(
+    yield* query(
       client,
-      `INSERT INTO ${table("recruitment_interview_conducts")} (interview_id, answers, explanatory_power, role_model, suitability, finalized_by_person_id, finalized_at, interview_revision) VALUES ('schema-boundary-interview', '[]'::jsonb, 8, 9, 7, 'schema-boundary-person', '2030-01-05T00:00:00Z', 0)`,
+      `INSERT INTO ${table("recruitment_interview_conducts")} (interview_id, answers, explanatory_power, role_model, suitability, finalized_by_person_id, finalized_at, interview_revision${conduct.column}) VALUES ('schema-boundary-interview', '[]'::jsonb, 8, 9, 7, 'schema-boundary-person', '2030-01-05T00:00:00Z', 0${conduct.value})`,
     );
-    yield* pgQuery(
+    yield* query(
       client,
       `INSERT INTO ${table("recruitment_interview_cancellations")} (interview_id, cancelled_by_person_id, cancelled_at, interview_revision) VALUES ('schema-boundary-interview-cancelled', 'schema-boundary-person', '2030-01-05T00:00:00Z', 0)`,
     ).pipe(
       Effect.catch(() =>
         Effect.gen(function* () {
-          yield* pgQuery(
+          yield* query(
             client,
             `INSERT INTO public.recruitment_interviews (interview_id, application_id, department_id, interviewer_person_id, interview_schema_id, assigned_by_person_id, assigned_at) VALUES ('schema-boundary-interview-cancelled', 'schema-boundary-application-cancelled', 'schema-boundary-department', 'schema-boundary-interviewer', 'schema-boundary-schema', 'schema-boundary-person', '2030-01-03T00:00:00Z')`,
           ).pipe(Effect.ignore);
-          yield* pgQuery(
+          yield* query(
             client,
             `INSERT INTO ${table("recruitment_interview_cancellations")} (interview_id, cancelled_by_person_id, cancelled_at, interview_revision) VALUES ('schema-boundary-interview', 'schema-boundary-person', '2030-01-05T00:00:00Z', 0)`,
           );
         }),
       ),
     );
-    yield* pgQuery(
+    yield* query(
       client,
       `INSERT INTO ${table("recruitment_interview_lifecycle_command_receipts")} (command_id, command_sha256, command_json, observation_json, kind, interview_id, resulting_revision, committed_at) VALUES ('schema-boundary-conduct-command', repeat('b', 64), '{}'::jsonb, '{}'::jsonb, 'InterviewFinalized', 'schema-boundary-interview', 0, '2030-01-05T00:00:00Z')`,
     );
-    yield* pgQuery(
+    yield* query(
       client,
       `INSERT INTO ${table("recruitment_interview_lifecycle_audit")} (command_id, interview_id, kind, actor_person_id, resulting_revision, occurred_at) VALUES ('schema-boundary-conduct-command', 'schema-boundary-interview', 'InterviewFinalized', 'schema-boundary-person', 0, '2030-01-05T00:00:00Z')`,
     );
   });
 
-const evidenceForSchema = (client: PoolClient, schema: "auth" | "public") =>
+const evidenceForSchema = (client: Session, schema: "auth" | "public") =>
   Effect.forEach(inventory, (table) =>
     Effect.gen(function* () {
       const evidence: TableEvidence = {
@@ -635,13 +712,13 @@ const evidenceForSchema = (client: PoolClient, schema: "auth" | "public") =>
 
 type SchemaEvidence = {
   catalog: CatalogEvidence;
-  tables: TableEvidence[];
+  tables: ReadonlyArray<TableEvidence>;
 };
 
 const normalizeSql = (value: string) =>
   value.replace(/\b(?:auth|public)\./g, "").replace(/,(?:auth|public)(?=[,)])/g, ",");
 
-const normalizeMetadataRecord = (record: QueryResultRow) =>
+const normalizeMetadataRecord = (record: Row) =>
   Object.fromEntries(
     Object.entries(record).map(([key, value]) => [
       key,
@@ -653,7 +730,7 @@ const normalizeMetadataRecord = (record: QueryResultRow) =>
     ]),
   );
 
-const comparableTables = (tables: TableEvidence[]) =>
+const comparableTables = (tables: ReadonlyArray<TableEvidence>) =>
   tables.map(({ table, count, digest, metadata }) => ({
     table,
     count,
@@ -673,7 +750,7 @@ const comparableTables = (tables: TableEvidence[]) =>
     },
   }));
 
-const triggerTargets = (tables: TableEvidence[]) =>
+const triggerTargets = (tables: ReadonlyArray<TableEvidence>) =>
   tables
     .flatMap(({ table, metadata }) =>
       metadata.triggers.map(({ trigger_name, function_oid, definition }) => ({
@@ -687,7 +764,7 @@ const triggerTargets = (tables: TableEvidence[]) =>
       `${left.table}.${left.trigger_name}`.localeCompare(`${right.table}.${right.trigger_name}`),
     );
 
-const assertImmutableMutations = (client: PoolClient) =>
+const assertImmutableMutations = (client: Session) =>
   Effect.gen(function* () {
     const mutations = [
       `UPDATE public.content_publication_audit SET command_id = command_id`,
@@ -705,7 +782,7 @@ const assertImmutableMutations = (client: PoolClient) =>
     ];
 
     for (const statement of mutations) {
-      const rejected = yield* pgQuery(client, statement).pipe(
+      const rejected = yield* query(client, statement).pipe(
         Effect.match({ onFailure: () => true, onSuccess: () => false }),
       );
 
@@ -736,21 +813,21 @@ const runNormalDatabaseRead = (url: string) =>
           UPDATE public.organization_team_interest_registrations
           SET submitter_name = 'Schema Runtime Submitter', revision = revision + 1
           WHERE submitter_email = 'schema-submitter@example.invalid'
-          RETURNING registration_id AS "registrationId"
+          RETURNING registration_id::text AS "registrationId"
         `;
 
-      const schoolWrite = yield* database<{ readonly schoolId: number }>`
+      const schoolWrite = yield* database<{ readonly schoolId: string }>`
           UPDATE public.schools_directory_schools
           SET contact_person = 'Schema Runtime Contact'
           WHERE email = 'schema-school@example.invalid'
-          RETURNING school_id AS "schoolId"
+          RETURNING school_id::text AS "schoolId"
         `;
 
-      const articleWrite = yield* database<{ readonly articleId: number }>`
+      const articleWrite = yield* database<{ readonly articleId: string }>`
           UPDATE public.content_articles
           SET title = 'Schema Runtime Article'
           WHERE slug = 'schema-article'
-          RETURNING article_id AS "articleId"
+          RETURNING article_id::text AS "articleId"
         `;
 
       const schemaQuestionWrite = yield* database<{ readonly questionId: string }>`
@@ -812,79 +889,73 @@ const runNormalDatabaseRead = (url: string) =>
       };
     }).pipe(
       Effect.provide(
-        DatabaseLive({
-          url: Redacted.make(url),
-          applicationName: "schema-boundary-proof",
-          maxConnections: 1,
-        }),
+        DatabaseLive(poolConfig(url, "schema-boundary-proof", NativeDatabaseStartupOptions)),
       ),
     ),
   );
 
-const program = Effect.scoped(
-  Effect.gen(function* () {
-    const freshUrl = yield* databaseUrl("SCHEMA_BOUNDARY_FRESH_DATABASE_URL");
-    const upgradeUrl = yield* databaseUrl("SCHEMA_BOUNDARY_UPGRADE_DATABASE_URL");
-    const collisionUrl = yield* databaseUrl("SCHEMA_BOUNDARY_COLLISION_DATABASE_URL");
-    const freshPool = yield* singleConnectionPool(freshUrl);
-    const upgradePool = yield* singleConnectionPool(upgradeUrl);
-    const collisionPool = yield* singleConnectionPool(collisionUrl);
+const program = Effect.gen(function* () {
+  const freshUrl = yield* databaseUrl("SCHEMA_BOUNDARY_FRESH_DATABASE_URL");
+  const upgradeUrl = yield* databaseUrl("SCHEMA_BOUNDARY_UPGRADE_DATABASE_URL");
+  const collisionUrl = yield* databaseUrl("SCHEMA_BOUNDARY_COLLISION_DATABASE_URL");
 
-    yield* runRegisteredMigrations(freshUrl);
+  yield* runRegisteredMigrations(freshUrl);
 
-    const freshCatalog = yield* pgWithClient(freshPool, (freshClient) =>
+  const freshCatalog = yield* withSession(freshUrl, "schema-boundary-fresh", (freshClient) =>
+    Effect.gen(function* () {
+      yield* seedParents(freshClient);
+      yield* query(freshClient, "SET search_path TO auth, public");
+      yield* seedInventory(freshClient, "public");
+      const catalog = yield* catalogEvidence(freshClient);
+      assertCatalog(catalog, "public", true);
+
+      return catalog;
+    }),
+  );
+
+  const normalRuntimeEvidence = yield* runNormalDatabaseRead(freshUrl);
+  assert.deepEqual(
+    normalRuntimeEvidence.writes.map((rows) => rows.length),
+    Array.from({ length: 6 }, () => 1),
+  );
+  assert.equal(normalRuntimeEvidence.reads.length, 1);
+  assert.deepEqual(
+    Object.values(normalRuntimeEvidence.reads[0]!),
+    Array.from({ length: 17 }, () => "1"),
+  );
+
+  yield* runHistoricalSources(upgradeUrl);
+
+  const before = yield* withSession(upgradeUrl, "schema-boundary-upgrade-before", (upgradeClient) =>
+    Effect.gen(function* () {
+      yield* seedParents(upgradeClient);
+      yield* query(upgradeClient, "SET search_path TO auth, public");
+      yield* seedInventory(upgradeClient, "auth");
+
+      const evidence: SchemaEvidence = {
+        catalog: yield* catalogEvidence(upgradeClient),
+        tables: yield* evidenceForSchema(upgradeClient, "auth"),
+      };
+
+      assertCatalog(evidence.catalog, "auth", true);
+
+      return evidence;
+    }),
+  );
+
+  yield* runBoundaryMigration(upgradeUrl);
+
+  const atBoundary = yield* withSession(
+    upgradeUrl,
+    "schema-boundary-upgrade-boundary",
+    (boundaryClient) =>
       Effect.gen(function* () {
-        yield* seedParents(freshClient);
-        yield* pgQuery(freshClient, "SET search_path TO auth, public");
-        yield* seedInventory(freshClient, "public");
-        const catalog = yield* catalogEvidence(freshClient);
-        assertCatalog(catalog, "public", true);
-
-        return catalog;
-      }),
-    );
-
-    const normalRuntimeEvidence = yield* runNormalDatabaseRead(freshUrl);
-    assert.deepEqual(
-      normalRuntimeEvidence.writes.map((rows) => rows.length),
-      Array.from({ length: 6 }, () => 1),
-    );
-    assert.equal(normalRuntimeEvidence.reads.length, 1);
-    assert.deepEqual(
-      Object.values(normalRuntimeEvidence.reads[0]!),
-      Array.from({ length: 17 }, () => "1"),
-    );
-
-    yield* runHistoricalSources(upgradePool);
-
-    const before = yield* pgWithClient(upgradePool, (upgradeClient) =>
-      Effect.gen(function* () {
-        yield* seedParents(upgradeClient);
-        yield* pgQuery(upgradeClient, "SET search_path TO auth, public");
-        yield* seedInventory(upgradeClient, "auth");
-
         const evidence: SchemaEvidence = {
-          catalog: yield* catalogEvidence(upgradeClient),
-          tables: yield* evidenceForSchema(upgradeClient, "auth"),
-        };
-
-        assertCatalog(evidence.catalog, "auth", true);
-
-        return evidence;
-      }),
-    );
-
-    yield* runRegisteredMigrations(upgradeUrl);
-
-    const after = yield* pgWithClient(upgradePool, (afterClient) =>
-      Effect.gen(function* () {
-        const evidence: SchemaEvidence = {
-          catalog: yield* catalogEvidence(afterClient),
-          tables: yield* evidenceForSchema(afterClient, "public"),
+          catalog: yield* catalogEvidence(boundaryClient),
+          tables: yield* evidenceForSchema(boundaryClient, "public"),
         };
 
         assertCatalog(evidence.catalog, "public", true);
-        assert.deepEqual(evidence.catalog, freshCatalog);
         assert.deepEqual(comparableTables(evidence.tables), comparableTables(before.tables));
         assert.deepEqual(
           evidence.catalog.functions.map(({ function_name, function_body }) => ({
@@ -897,131 +968,144 @@ const program = Effect.scoped(
           })),
         );
         assert.deepEqual(triggerTargets(evidence.tables), triggerTargets(before.tables));
-        yield* assertImmutableMutations(afterClient);
-        yield* pgQuery(afterClient, "SET search_path TO auth, public");
-        yield* pgQuery(
-          afterClient,
-          "CREATE TABLE auth.content_articles (article_id bigint NOT NULL)",
-        );
-        yield* pgQuery(afterClient, "INSERT INTO auth.content_articles VALUES (1)");
 
-        const readInventory = Effect.forEach(inventory, (table) =>
-          query(afterClient, `SELECT count(*)::text AS count FROM public."${table}"`).pipe(
-            Effect.map((value) => ({ table, value })),
-          ),
-        );
-
-        const authFirst = yield* readInventory;
-        yield* pgQuery(afterClient, "SET search_path TO public");
-        const publicFirst = yield* readInventory;
-        assert.deepEqual(authFirst, publicFirst);
-        yield* pgQuery(afterClient, "DROP TABLE auth.content_articles");
-        yield* pgQuery(afterClient, "SET search_path TO auth, public");
-
-        return evidence;
+        return evidence.catalog;
       }),
-    );
+  );
 
-    yield* runRegisteredMigrations(upgradeUrl);
+  yield* runRegisteredMigrations(upgradeUrl);
 
-    yield* pgWithClient(upgradePool, (secondClient) =>
-      Effect.gen(function* () {
-        const afterSecond: SchemaEvidence = {
-          catalog: yield* catalogEvidence(secondClient),
-          tables: yield* evidenceForSchema(secondClient, "public"),
-        };
+  const after = yield* withSession(upgradeUrl, "schema-boundary-upgrade-after", (afterClient) =>
+    Effect.gen(function* () {
+      const evidence: SchemaEvidence = {
+        catalog: yield* catalogEvidence(afterClient),
+        tables: yield* evidenceForSchema(afterClient, "public"),
+      };
 
-        assertCatalog(afterSecond.catalog, "public", true);
-        assert.deepEqual(afterSecond.catalog, after.catalog);
-        assert.deepEqual(comparableTables(afterSecond.tables), comparableTables(after.tables));
-      }),
-    );
+      assertCatalog(evidence.catalog, "public", true);
+      assert.deepEqual(evidence.catalog, freshCatalog);
+      yield* assertImmutableMutations(afterClient);
+      yield* query(afterClient, "SET search_path TO auth, public");
+      yield* query(afterClient, "CREATE TABLE auth.content_articles (article_id bigint NOT NULL)");
+      yield* query(afterClient, "INSERT INTO auth.content_articles VALUES (1)");
 
-    yield* runHistoricalSources(collisionPool);
+      const readInventory = Effect.forEach(inventory, (table) =>
+        query(afterClient, `SELECT count(*)::text AS count FROM public."${table}"`).pipe(
+          Effect.map((value) => ({ table, value })),
+        ),
+      );
 
-    yield* pgWithClient(collisionPool, (collisionClient) =>
-      Effect.gen(function* () {
-        yield* pgQuery(
-          collisionClient,
-          "CREATE TABLE public.content_articles (article_id bigint NOT NULL)",
-        );
-        yield* pgQuery(
-          collisionClient,
-          `
-          CREATE FUNCTION public.prevent_content_publication_audit_mutation()
-          RETURNS trigger LANGUAGE plpgsql AS $$
-          BEGIN RETURN NEW; END;
-          $$;
-        `,
-        );
-      }),
-    );
+      const authFirst = yield* readInventory;
+      yield* query(afterClient, "SET search_path TO public");
+      const publicFirst = yield* readInventory;
+      assert.deepEqual(authFirst, publicFirst);
+      yield* query(afterClient, "DROP TABLE auth.content_articles");
+      yield* query(afterClient, "SET search_path TO auth, public");
 
-    const collision = yield* Effect.exit(runRegisteredMigrations(collisionUrl));
-    assert.ok(Exit.isFailure(collision), "the colliding migration must fail");
+      return evidence;
+    }),
+  );
 
-    yield* pgWithClient(collisionPool, (rollbackClient) =>
-      Effect.gen(function* () {
-        const rollback = yield* catalogEvidence(rollbackClient);
-        assert.deepEqual(
-          rollback.relations
-            .filter(({ schema_name }) => schema_name === "auth")
-            .map(({ table_name }) => table_name)
-            .sort(),
-          [...inventory].sort(),
-        );
-        assert.deepEqual(
-          rollback.relations
-            .filter(({ schema_name }) => schema_name === "public")
-            .map(({ table_name }) => table_name)
-            .sort(),
-          ["content_articles"],
-        );
-        assert.deepEqual(
-          rollback.functions
-            .map(({ function_name, schema_name }) => ({ function_name, schema_name }))
-            .sort((left, right) =>
-              `${left.function_name}.${left.schema_name}`.localeCompare(
-                `${right.function_name}.${right.schema_name}`,
-              ),
+  yield* runRegisteredMigrations(upgradeUrl);
+
+  yield* withSession(upgradeUrl, "schema-boundary-upgrade-second", (secondClient) =>
+    Effect.gen(function* () {
+      const afterSecond: SchemaEvidence = {
+        catalog: yield* catalogEvidence(secondClient),
+        tables: yield* evidenceForSchema(secondClient, "public"),
+      };
+
+      assertCatalog(afterSecond.catalog, "public", true);
+      assert.deepEqual(afterSecond.catalog, after.catalog);
+      assert.deepEqual(comparableTables(afterSecond.tables), comparableTables(after.tables));
+    }),
+  );
+
+  yield* runHistoricalSources(collisionUrl);
+
+  yield* withSession(collisionUrl, "schema-boundary-collision-seed", (collisionClient) =>
+    Effect.gen(function* () {
+      yield* query(
+        collisionClient,
+        "CREATE TABLE public.content_articles (article_id bigint NOT NULL)",
+      );
+      yield* query(
+        collisionClient,
+        `
+        CREATE FUNCTION public.prevent_content_publication_audit_mutation()
+        RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN RETURN NEW; END;
+        $$;
+                `,
+      );
+    }),
+  );
+
+  const collision = yield* Effect.exit(runRegisteredMigrations(collisionUrl));
+  assert.ok(Exit.isFailure(collision), "the colliding migration must fail");
+
+  yield* withSession(collisionUrl, "schema-boundary-collision-rollback", (rollbackClient) =>
+    Effect.gen(function* () {
+      const rollback = yield* catalogEvidence(rollbackClient);
+      assert.deepEqual(
+        rollback.relations
+          .filter(({ schema_name }) => schema_name === "auth")
+          .map(({ table_name }) => table_name)
+          .sort(),
+        [...inventory].sort(),
+      );
+      assert.deepEqual(
+        rollback.relations
+          .filter(({ schema_name }) => schema_name === "public")
+          .map(({ table_name }) => table_name)
+          .sort(),
+        ["content_articles"],
+      );
+      assert.deepEqual(
+        rollback.functions
+          .map(({ function_name, schema_name }) => ({ function_name, schema_name }))
+          .sort((left, right) =>
+            `${left.function_name}.${left.schema_name}`.localeCompare(
+              `${right.function_name}.${right.schema_name}`,
             ),
-          [
-            { function_name: "prevent_content_publication_audit_mutation", schema_name: "auth" },
-            { function_name: "prevent_content_publication_audit_mutation", schema_name: "public" },
-            {
-              function_name: "prevent_recruitment_interview_lifecycle_mutation",
-              schema_name: "auth",
-            },
-            {
-              function_name: "prevent_recruitment_interview_question_snapshot_mutation",
-              schema_name: "auth",
-            },
-          ],
-        );
-        assert.equal(
-          rollback.functions.filter(
-            ({ function_name, schema_name }) =>
-              function_name === "prevent_content_publication_audit_mutation" &&
-              schema_name === "public",
-          ).length,
-          1,
-        );
-      }),
-    );
+          ),
+        [
+          { function_name: "prevent_content_publication_audit_mutation", schema_name: "auth" },
+          { function_name: "prevent_content_publication_audit_mutation", schema_name: "public" },
+          {
+            function_name: "prevent_recruitment_interview_lifecycle_mutation",
+            schema_name: "auth",
+          },
+          {
+            function_name: "prevent_recruitment_interview_question_snapshot_mutation",
+            schema_name: "auth",
+          },
+        ],
+      );
+      assert.equal(
+        rollback.functions.filter(
+          ({ function_name, schema_name }) =>
+            function_name === "prevent_content_publication_audit_mutation" &&
+            schema_name === "public",
+        ).length,
+        1,
+      );
+    }),
+  );
 
-    const evidence = yield* jsonText({
-      passed: true,
-      inventory,
-      fresh: freshCatalog,
-      upgradeBefore: before.catalog,
-      upgradeAfter: after.catalog,
-      collisionRollback: true,
-      normalRuntimeEvidence,
-    });
+  const evidence = yield* jsonText({
+    passed: true,
+    inventory,
+    fresh: freshCatalog,
+    upgradeBefore: before.catalog,
+    upgradeAtBoundary: atBoundary,
+    upgradeAfter: after.catalog,
+    collisionRollback: true,
+    normalRuntimeEvidence,
+  });
 
-    yield* Effect.sync(() => process.stdout.write(`${evidence}\n`));
-  }),
-);
+  yield* Effect.sync(() => process.stdout.write(`${evidence}\n`));
+});
 
 void Effect.runPromise(program.pipe(Effect.provide(TestPlatform))).catch((cause: unknown) => {
   process.stderr.write(`${String(cause)}\n`);

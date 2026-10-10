@@ -835,20 +835,23 @@ const resolverRequirements: Partial<
   ],
 };
 
-export const SCOPE_RESOLVERS = Schema.decodeUnknownSync(
-  Schema.Record(
-    Schema.Literals(SCOPE_RESOLVER_IDS),
-    Schema.Struct({
-      selection: Schema.Literals(["AllMatching", "ExactlyOne"]),
-      requirements: Schema.Array(RequirementId),
-      contextSchema: Schema.declare(
-        (schema): schema is RequirementContextSchema =>
-          schema === ReceiptRequirementContextSchema ||
-          schema === InvitationRequirementContextSchema ||
-          schema === GenericRequirementContextSchema,
-      ),
-    }),
+export const SCOPE_RESOLVERS = flow(
+  Schema.decodeUnknownResult(
+    Schema.Record(
+      Schema.Literals(SCOPE_RESOLVER_IDS),
+      Schema.Struct({
+        selection: Schema.Literals(["AllMatching", "ExactlyOne"]),
+        requirements: Schema.Array(RequirementId),
+        contextSchema: Schema.declare(
+          (schema): schema is RequirementContextSchema =>
+            schema === ReceiptRequirementContextSchema ||
+            schema === InvitationRequirementContextSchema ||
+            schema === GenericRequirementContextSchema,
+        ),
+      }),
+    ),
   ),
+  Result.getOrThrow,
 )(
   Object.fromEntries(
     SCOPE_RESOLVER_IDS.map((id) => {
@@ -1111,7 +1114,10 @@ const accessSpecIssue = (spec: AccessSpec): string | undefined => {
 const DeclaredAccessSpec = AccessSpecSchema.pipe(Schema.check(Schema.makeFilter(accessSpecIssue)));
 
 export const makeAccessSpec = flow(
-  Schema.decodeUnknownSync(DeclaredAccessSpec, { onExcessProperty: "error" }),
+  flow(
+    Schema.decodeUnknownResult(DeclaredAccessSpec, { onExcessProperty: "error" }),
+    Result.getOrThrow,
+  ),
   (decoded): AccessSpec => {
     const requirementKeys = decoded.requirements.map(stableRequirementKey);
 
@@ -1170,7 +1176,7 @@ export const normalizeScope = (scope: Scope): Scope => {
 };
 
 export const decodeGrant = flow(
-  Schema.decodeUnknownSync(GrantSchema, { onExcessProperty: "error" }),
+  flow(Schema.decodeUnknownResult(GrantSchema, { onExcessProperty: "error" }), Result.getOrThrow),
   (grant): Grant => {
     return { ...grant, scope: normalizeScope(grant.scope) };
   },
@@ -1248,7 +1254,10 @@ export const evaluateRequirement = (
     return RequirementResult.Failed({ id: requirement.id, reason: "InvalidParameters" });
   }
 
-  const parameters = Schema.decodeSync(registration.parameterSchema)(requirement.parameters);
+  const parameters = flow(
+    Schema.decodeResult(registration.parameterSchema),
+    Result.getOrThrow,
+  )(requirement.parameters);
 
   const evaluation = registration.evaluate(parameters, principal, context);
 

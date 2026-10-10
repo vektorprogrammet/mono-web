@@ -1,6 +1,7 @@
 import { startDisposablePostgres } from "@monoweb/postgres";
 import { Database } from "@vektorprogrammet/database";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
+import { NativeDatabaseStartupOptions } from "@vektorprogrammet/database/search-path";
 import { Context, Effect, Layer, ManagedRuntime } from "effect";
 import { afterAll, beforeAll } from "vitest";
 import { TestPlatform } from "../src/test/platform.js";
@@ -12,7 +13,7 @@ const buildIsolated = <A, E>(layer: Layer.Layer<A, E>) =>
   );
 
 /** Starts the cluster and opens two independent sessions on its `postgres` database. */
-const startCluster = Effect.gen(function* () {
+const startCluster = Effect.gen(function*() {
   const cluster = yield* Effect.acquireRelease(
     Effect.promise(() => startDisposablePostgres({ listen: "socket" })),
     (started) => Effect.promise(() => started.stop()),
@@ -25,6 +26,7 @@ const startCluster = Effect.gen(function* () {
       database,
       username: "postgres",
       maxConnections: 1,
+      startupOptions: NativeDatabaseStartupOptions,
     }).pipe(Layer.provide(TestPlatform), Layer.orDie);
 
   const health = Database.use((sql) => sql.health);
@@ -35,7 +37,7 @@ const startCluster = Effect.gen(function* () {
 
   // Migrates once per cluster; fixtures clone it instead of replaying every migration.
   const template = yield* Effect.cached(
-    Effect.gen(function* () {
+    Effect.gen(function*() {
       const name = "backend_fixture_template";
       yield* Effect.provide(
         Database.use((sql) => sql`CREATE DATABASE ${sql(name)}`),
@@ -49,7 +51,7 @@ const startCluster = Effect.gen(function* () {
 
   let databaseSequence = 0;
 
-  const createDatabase = Effect.gen(function* () {
+  const createDatabase = Effect.gen(function*() {
     const source = yield* template;
     const name = `backend_fixture_${++databaseSequence}`;
     yield* Effect.provide(
@@ -72,7 +74,7 @@ const startCluster = Effect.gen(function* () {
 class BackendCluster extends Context.Service<
   BackendCluster,
   Effect.Success<typeof startCluster>
->()("apps/backend/test/BackendCluster") {}
+>()("apps/backend/test/BackendCluster") { }
 
 /**
  * Independent PostgreSQL sessions on a private Unix socket, with no TCP listener. The cluster

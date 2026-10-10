@@ -1,5 +1,4 @@
-import { randomUUID } from "node:crypto";
-import { flow, Predicate, Effect, Schema, Struct } from "effect";
+import { Crypto, flow, Predicate, Effect, Schema, Struct } from "effect";
 import {
   canonicalJsonValue,
   canonicalJsonBytes,
@@ -282,7 +281,7 @@ const executeAuthorizedReceiptSettlementWithSql = (
   sql: DatabaseOperations,
   command: ReceiptSettlementCommandRequest,
   authorization: SettlementAuthorization,
-): Effect.Effect<ReceiptSettlementTransactionResult, ReceiptSettlementFailure> =>
+): Effect.Effect<ReceiptSettlementTransactionResult, ReceiptSettlementFailure, Crypto.Crypto> =>
   Effect.gen(function* () {
     const commandEnvelope = {
       schema: "ReceiptSettlementCommandRequest/v1" as const,
@@ -413,7 +412,9 @@ const executeAuthorizedReceiptSettlementWithSql = (
     }
 
     const settlement: ReceiptSettlementEvidence = {
-      settlementId: ReceiptSettlementId.make(randomUUID()),
+      settlementId: ReceiptSettlementId.make(
+        yield* Crypto.Crypto.use((crypto) => crypto.randomUUIDv4).pipe(Effect.orDie),
+      ),
       receiptId: current.receiptId,
       amountOre: current.amountOre,
       currency: current.currency,
@@ -528,7 +529,11 @@ const executeAuthorizedReceiptSettlementWithSql = (
 export const recordReceiptSettlement = (
   input: typeof ReceiptSettlementCommandRequestSchema.Encoded,
   principalInput: ReceiptCommandPrincipal,
-): Effect.Effect<ReceiptSettlementTransactionResult, ReceiptSettlementFailure, Database> =>
+): Effect.Effect<
+  ReceiptSettlementTransactionResult,
+  ReceiptSettlementFailure,
+  Database | Crypto.Crypto
+> =>
   Effect.gen(function* () {
     const sql = yield* Database;
 

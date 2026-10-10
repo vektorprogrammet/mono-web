@@ -1,3 +1,7 @@
+/**
+ * EX-0024: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 /** Generated native HttpApi binding for staff content and public news. */
 import { DomainId, Scope } from "@vektorprogrammet/domain/authz";
 import {
@@ -13,7 +17,7 @@ import {
   unpublishArticle as unpublishArticleEndpoint,
 } from "@vektorprogrammet/http-api";
 import { Effect, Option } from "effect";
-import type { HttpApiGroup } from "effect/unstable/httpapi";
+import type { HttpApiGroup } from "effect/http-api";
 import {
   ContentApiHandlers as GeneratedContentApiHandlers,
   type ContentGuards,

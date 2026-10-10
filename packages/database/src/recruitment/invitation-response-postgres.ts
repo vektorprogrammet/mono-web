@@ -1,4 +1,5 @@
 import { Admissions, type AdmissionsOperations } from "@vektorprogrammet/domain/admissions";
+import { invitationOpen } from "./invitation-open.js";
 import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
 import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import { Database, type DatabaseOperations } from "../service.js";
@@ -124,7 +125,7 @@ const readInvitationRow = (
       ON schedule.interview_id = invitation.interview_id
       AND schedule.schedule_revision = invitation.schedule_revision
     WHERE invitation.capability_sha256 = ${capabilitySha256}
-      AND invitation.superseded_at IS NULL
+      AND ${invitationOpen(sql)}
   `.pipe(
     Effect.flatMap((rows) =>
       rows[0] === undefined
@@ -170,7 +171,7 @@ const lockInvitationRow = (
       ON schedule.interview_id = invitation.interview_id
       AND schedule.schedule_revision = invitation.schedule_revision
     WHERE invitation.capability_sha256 = ${capabilitySha256}
-      AND invitation.superseded_at IS NULL
+      AND ${invitationOpen(sql)}
     FOR UPDATE OF invitation
   `.pipe(
     Effect.flatMap((rows) =>
@@ -289,7 +290,7 @@ const recordInvitationResponse = (
       : undefined;
 
     const updated = yield* sql<{ readonly responseRevision: number }>`
-      UPDATE recruitment_invitations
+      UPDATE recruitment_invitations AS invitation
       SET response_state = ${responseState},
         response_message = ${responseMessage},
         responded_at = ${respondedAt},
@@ -297,7 +298,7 @@ const recordInvitationResponse = (
       WHERE invitation_id = ${row.invitationId}
         AND response_state = 'Pending'
         AND response_revision = 0
-        AND superseded_at IS NULL
+        AND ${invitationOpen(sql)}
       RETURNING response_revision AS "responseRevision"
     `.pipe(
       Effect.catchTag("SqlError", (cause) =>

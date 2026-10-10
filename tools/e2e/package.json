@@ -19,7 +19,7 @@
     "@vektorprogrammet/http-api": "workspace:*",
     "effect": "catalog:effect-v4",
     "mysql2": "^3.15.3",
-    "pg": "8"
+    "pg": "catalog:effect-v4"
   },
   "devDependencies": {
     "@types/node": "^22",

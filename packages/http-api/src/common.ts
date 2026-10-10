@@ -1,10 +1,14 @@
 /**
+ * EX-0022: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+/**
  * Shared security, middleware, annotation, and error contracts for the native API.
  *
  * @since 0.1.0
  */
 import type { HttpOperationMetadata } from "@effx/runtime";
-import { HttpApiMiddleware, HttpApiSecurity, OpenApi } from "effect/unstable/httpapi";
+import { HttpApiMiddleware, HttpApiSecurity, OpenApi } from "effect/http-api";
 import { problemStatusResponse, problemUnion } from "./http-semantics.js";
 
 /**

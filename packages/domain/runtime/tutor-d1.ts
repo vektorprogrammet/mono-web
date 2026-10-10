@@ -1,4 +1,8 @@
-import { SqlError } from "effect/unstable/sql/SqlError";
+/**
+ * EX-0020: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+import { SqlError } from "effect/sql/SqlError";
 import * as D1Client from "@effect/sql-d1/D1Client";
 import { Data, Record, flow, Result, Predicate, Effect, Schema } from "effect";
 import { canonicalJsonBytes, canonicalJson, sha256Hex } from "../src/shared-kernel/index.js";
@@ -294,7 +298,7 @@ const decodeCanonicalJson = (field: string) =>
   flow(
     normalizeBlob,
     Effect.flatMap((bytes) =>
-      Effect.gen(function* () {
+      Effect.gen(function*() {
         const text = yield* Effect.try({
           try: () => new TextDecoder("utf-8", { fatal: true }).decode(bytes),
           catch: () =>
@@ -340,7 +344,7 @@ const decodeCanonicalJson = (field: string) =>
 const decodeStoredCommand = flow(
   decodeCanonicalJson("command_bytes"),
   Effect.flatMap((decoded) =>
-    Effect.gen(function* () {
+    Effect.gen(function*() {
       const command = yield* decodeConductInterviewV1(decoded.value).pipe(
         Effect.mapError(
           () =>
@@ -368,7 +372,7 @@ const decodeStoredCommand = flow(
 const decodeStoredDescriptor = flow(
   decodeCanonicalJson("descriptor_bytes"),
   Effect.flatMap((decoded) =>
-    Effect.gen(function* () {
+    Effect.gen(function*() {
       const descriptor = yield* Schema.decodeUnknownEffect(DescriptorSchema, {
         onExcessProperty: "error",
       })(decoded.value).pipe(
@@ -402,7 +406,7 @@ const readHead = (
   d1: D1Client.D1Client,
   stream: StreamKey,
 ): Effect.Effect<StreamHead | undefined, TutorD1Failure> =>
-  Effect.gen(function* () {
+  Effect.gen(function*() {
     const rows = yield* queryRows<StreamHead>(d1, HEAD_LOOKUP_SQL, streamBinds(stream));
 
     if (rows.length === 0) return undefined;
@@ -445,7 +449,7 @@ const eventDecoderKeys = new Set([
 ]);
 
 const indexedStream = (row: ReplayEventRow): Effect.Effect<StreamKey, D1IntegrityError> =>
-  Effect.gen(function* () {
+  Effect.gen(function*() {
     if (
       !Predicate.isString(row.person_id) ||
       !Predicate.isString(row.department_id) ||
@@ -473,7 +477,7 @@ const decodeReplayEvent = (
   row: ReplayEventRow,
   index: number,
 ): Effect.Effect<EventEnvelopeV1, D1IntegrityError> =>
-  Effect.gen(function* () {
+  Effect.gen(function*() {
     const rowStream = yield* indexedStream(row);
 
     if (!streamEqual(rowStream, requestedStream)) {
@@ -551,7 +555,7 @@ export const validateReplayRows = (
   requestedStream: StreamKey,
   rows: ReadonlyArray<ReplayEventRow>,
 ): Effect.Effect<ReplayResult, TutorD1Failure> =>
-  Effect.gen(function* () {
+  Effect.gen(function*() {
     const events: Array<EventEnvelopeV1> = [];
 
     for (const [index, row] of rows.entries()) {
@@ -582,7 +586,7 @@ const readStream = (
   d1: D1Client.D1Client,
   stream: StreamKey,
 ): Effect.Effect<ReplayResult, TutorD1Failure> =>
-  Effect.gen(function* () {
+  Effect.gen(function*() {
     const rows = yield* queryRows<ReplayEventRow>(d1, REPLAY_SQL, streamBinds(stream));
 
     return yield* validateReplayRows(stream, rows);
@@ -592,7 +596,7 @@ const readReceipt = (
   d1: D1Client.D1Client,
   commandId: string,
 ): Effect.Effect<StoredReceipt | undefined, TutorD1Failure> =>
-  Effect.gen(function* () {
+  Effect.gen(function*() {
     const rows = yield* queryRows<{
       readonly command_id: string;
       readonly command_bytes: unknown;
@@ -702,7 +706,7 @@ const classifyBatchFailure = (
   expectedHead: StreamHead,
   original: D1BatchError,
 ): Effect.Effect<D1AppendResult, TutorD1Failure> =>
-  Effect.gen(function* () {
+  Effect.gen(function*() {
     const commandBytes = canonicalJsonBytes(command);
     const competingReceipt = yield* readReceipt(d1, command.commandId);
 
@@ -748,7 +752,7 @@ const appendAccepted = (
 ): Effect.Effect<D1AppendResult, TutorD1Failure> => {
   let preflightHead: StreamHead | undefined;
 
-  return Effect.gen(function* () {
+  return Effect.gen(function*() {
     const command = yield* decodeConductInterviewV1(input);
     const commandBytes = canonicalJsonBytes(command);
     const prior = yield* readReceipt(d1, command.commandId);
@@ -866,7 +870,7 @@ const appendAccepted = (
     }) satisfies D1AcceptedAppend;
   }).pipe(
     Effect.catchTag("D1BatchError", (error) =>
-      Effect.gen(function* () {
+      Effect.gen(function*() {
         const command = yield* decodeConductInterviewV1(input);
 
         if (preflightHead === undefined) return yield* error;
@@ -877,7 +881,7 @@ const appendAccepted = (
   );
 };
 
-export const tutorD1Store = Effect.gen(function* () {
+export const tutorD1Store = Effect.gen(function*() {
   const d1 = yield* D1Client.D1Client;
 
   return {

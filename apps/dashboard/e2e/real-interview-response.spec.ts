@@ -496,7 +496,20 @@ const runCommandWithFreshReadGate = async (
   const commandResponse = waitForBridgeResponse(page, responseCase.operation);
 
   try {
-    await page.getByRole("button", { name: responseCase.actionLabel, exact: true }).click();
+    const messageInput = page.getByLabel("Melding", { exact: true });
+    await messageInput.focus();
+    await expect(messageInput).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(page.getByRole("button", { name: "Bekreft intervjutid", exact: true })).toBeFocused();
+
+    if (responseCase.operation !== "confirmInvitation") {
+      await page.keyboard.press("Tab");
+      await expect(page.getByRole("button", { name: "Avvis intervju", exact: true })).toBeFocused();
+    }
+
+    if (responseCase.operation === "requestNewInvitationTime") await page.keyboard.press("Tab");
+    await expect(page.getByRole("button", { name: responseCase.actionLabel, exact: true })).toBeFocused();
+    await page.keyboard.press("Enter");
     const command = await commandResponse;
 
     if (command.status() !== 204) {
@@ -658,6 +671,13 @@ test.describe("Native recruitment invitation response", () => {
           await expect(page.getByText(responseCase.room, { exact: true })).toBeVisible();
           await expect(page.getByText(responseCase.campus, { exact: true })).toBeVisible();
           await expect(page.getByText("Venter på svar", { exact: true })).toBeVisible();
+          const messageInput = page.getByLabel("Melding", { exact: true });
+          await messageInput.focus();
+          await expect(messageInput).toBeFocused();
+          await page.keyboard.press("Tab");
+          await expect(page.getByRole("button", { name: "Bekreft intervjutid", exact: true })).toBeFocused();
+          await page.keyboard.press("Shift+Tab");
+          await expect(messageInput).toBeFocused();
           tabs.push({ responseCase, capability, page, initialEtag: initialResource.etag });
 
           if (responseCase.key === "accepted") {
@@ -758,12 +778,16 @@ test.describe("Native recruitment invitation response", () => {
 
           if (responseCase.key === "requested-new-time") {
             const operationsBeforeClientValidation = observation.bridgeOperations.length;
-            await page.getByRole("button", { name: responseCase.actionLabel, exact: true }).click();
+            const newTimeButton = page.getByRole("button", { name: responseCase.actionLabel, exact: true });
+            await newTimeButton.focus();
+            await expect(newTimeButton).toBeFocused();
+            await page.keyboard.press("Space");
             await expect(
               page.getByRole("alert").filter({
                 hasText: "Skriv en melding før du ber om nytt tidspunkt.",
               }),
             ).toBeVisible();
+            await expect(newTimeButton).toBeFocused();
             await page.waitForTimeout(100);
 
             if (observation.bridgeOperations.length !== operationsBeforeClientValidation) {
@@ -782,12 +806,15 @@ test.describe("Native recruitment invitation response", () => {
             }
 
             const operationsBeforeCapabilityMessage = observation.bridgeOperations.length;
-            await page.getByRole("button", { name: responseCase.actionLabel, exact: true }).click();
+            await newTimeButton.focus();
+            await expect(newTimeButton).toBeFocused();
+            await page.keyboard.press("Enter");
             await expect(
               page.getByRole("alert").filter({
                 hasText: "Meldingen inneholder innhold som ikke er tillatt.",
               }),
             ).toBeVisible();
+            await expect(newTimeButton).toBeFocused();
             await page.waitForTimeout(100);
 
             if (observation.bridgeOperations.length !== operationsBeforeCapabilityMessage) {

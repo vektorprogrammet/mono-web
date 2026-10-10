@@ -1,4 +1,8 @@
 /**
+ * EX-0028: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+/**
  * Golden team-application journey for the behavior in `docs/system.md#team-applications`.
  *
  * Boots a private PostgreSQL cluster, a loopback mail provider, the native Bun
@@ -13,7 +17,7 @@
 import { join } from "node:path";
 import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import { Crypto, Effect, Exit, FileSystem, Path, Scope, Stdio, Terminal } from "effect";
-import type { ChildProcessSpawner } from "effect/unstable/process";
+import type { ChildProcessSpawner } from "effect/process";
 import {
   runTeamApplicationBrowser,
   teamApplicationCheckpoints,

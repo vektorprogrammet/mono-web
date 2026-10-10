@@ -2,6 +2,7 @@ import type { HttpAccessAnnotationSpec } from "@effx/runtime";
 import { type SCOPE_RESOLVER_IDS } from "@vektorprogrammet/domain/authz";
 import { Predicate, Schema } from "effect";
 import { accessSpecAnnotations, anonymousNativeAccess, personNativeAccess } from "./access.js";
+import { decodeDeclaredOrThrow } from "./declaration-decoding.js";
 import { ProfileCurrentPerson } from "./profile-effx-adapters.js";
 
 /** The exported identities bind each declared resolver to its current authority projection. */
@@ -201,7 +202,7 @@ const AdmissionsAccess = Schema.Struct({
   ),
 );
 
-const decodeAdmissionsAccess = Schema.decodeUnknownSync(AdmissionsAccess, {
+const decodeAdmissionsAccess = decodeDeclaredOrThrow(AdmissionsAccess, {
   onExcessProperty: "error",
 });
 

@@ -1,4 +1,6 @@
 import { Admissions, type AdmissionsOperations } from "@vektorprogrammet/domain/admissions";
+import { invitationOpen } from "./invitation-open.js";
+import { dispatchInvitationDelivery } from "./invitation-delivery-admission.js";
 import { Database, type DatabaseOperations } from "../service.js";
 import {
   markOutboxDelivered,
@@ -65,7 +67,7 @@ const ClaimedInvitationRowSchema = Schema.Struct({
 
 interface CanonicalInvitationEnvelopeRow {
   readonly envelopeSha256: string | null;
-  readonly superseded: boolean;
+  readonly open: boolean;
   readonly staffingRevisionCount: number;
   readonly receiptCommandId: string;
   readonly receiptCommandSha256: string;
@@ -97,7 +99,7 @@ interface CanonicalInvitationEnvelopeRow {
 
 const CanonicalInvitationEnvelopeRowSchema = Schema.Struct({
   envelopeSha256: Schema.NullOr(Schema.String),
-  superseded: Schema.Boolean,
+  open: Schema.Boolean,
   staffingRevisionCount: Schema.Int,
   receiptCommandId: RecruitmentInvitationOutboxRequestSchema.fields.commandId,
   receiptCommandSha256: Schema.String,
@@ -292,7 +294,7 @@ const validateEnvelope = <E>(
     const canonicalRows = yield* sql<CanonicalInvitationEnvelopeRow>`
       SELECT
         receipt.envelope_sha256 AS "envelopeSha256",
-        invitation.superseded_at IS NOT NULL AS superseded,
+        (${invitationOpen(sql)}) AS open,
         (SELECT count(*)::integer FROM public.recruitment_staffing_history h WHERE h.interview_id=interview.interview_id AND h.revision > receipt.schedule_revision) AS "staffingRevisionCount",
         receipt.command_id AS "receiptCommandId",
         receipt.command_sha256 AS "receiptCommandSha256",
@@ -342,7 +344,7 @@ const validateEnvelope = <E>(
       INNER JOIN recruitment_invitations AS invitation
         ON invitation.invitation_id = outbox.invitation_id
       WHERE outbox.effect_id = ${row.effectId}
-      FOR SHARE OF receipt, interview, schedule, invitation
+      FOR SHARE OF receipt, schedule
     `.pipe(
       Effect.catchTag("SqlError", (cause) =>
         Effect.fail(persistenceError("read canonical invitation envelope", cause)),
@@ -361,8 +363,7 @@ const validateEnvelope = <E>(
       canonicalRows[0]?.receiptCommandJson,
     );
 
-    if (canonicalRows[0]?.superseded === true)
-      return yield* reject("SupersededRecruitmentInvitation");
+    if (canonicalRows[0]?.open === false) return undefined;
 
     const decodedObservation = yield* decodeForClaim(RecruitmentScheduleObservationSchema)(
       canonicalRows[0]?.receiptObservationJson,
@@ -503,7 +504,7 @@ const claimInTransaction = (
           AND EXISTS (
             SELECT 1 FROM recruitment_invitations AS invitation
             WHERE invitation.invitation_id = outbox.invitation_id
-              AND invitation.superseded_at IS NULL
+              AND ${invitationOpen(sql)}
           )
         ORDER BY outbox.attempts ASC, receipt.committed_at ASC,
           outbox.command_id ASC, outbox.ordinal ASC
@@ -527,7 +528,7 @@ const claimInTransaction = (
         AND EXISTS (
           SELECT 1 FROM recruitment_invitations AS invitation
           WHERE invitation.invitation_id = outbox.invitation_id
-            AND invitation.superseded_at IS NULL
+            AND ${invitationOpen(sql)}
         )
       RETURNING
         outbox.effect_id AS "effectId",
@@ -550,9 +551,23 @@ const claimInTransaction = (
 
     if (rawRow === undefined) return undefined;
 
-    return yield* validateEnvelope(sql, admissions, profile, rawRow, claimId, (tag) =>
+    const claim = yield* validateEnvelope(sql, admissions, profile, rawRow, claimId, (tag) =>
       quarantineAndSkip(sql, rawRow, tag),
     );
+
+    if (claim === undefined)
+      yield* releaseOutboxClaim(
+        sql,
+        invitationOutbox,
+        rawRow,
+        "InvalidatedRecruitmentInvitation",
+      ).pipe(
+        Effect.catchTag("SqlError", (cause) =>
+          Effect.fail(persistenceError("release invalidated invitation claim", cause)),
+        ),
+      );
+
+    return claim;
   });
 
 export const sealInterviewInvitationEnvelopes = (interviewId: string) =>
@@ -568,7 +583,7 @@ export const sealInterviewInvitationEnvelopes = (interviewId: string) =>
     FROM public.recruitment_invitation_outbox outbox JOIN public.recruitment_schedule_command_receipts receipt ON receipt.command_id=outbox.command_id
     WHERE outbox.interview_id=${interviewId} AND outbox.status IN ('Pending','Failed','Processing') AND receipt.envelope_sha256 IS NULL
       AND EXISTS (SELECT 1 FROM public.recruitment_invitations invitation
-        WHERE invitation.invitation_id=outbox.invitation_id AND invitation.superseded_at IS NULL)
+        WHERE invitation.invitation_id=outbox.invitation_id AND ${invitationOpen(sql)})
     ORDER BY outbox.effect_id FOR UPDATE OF outbox`;
 
     for (const row of rows)
@@ -677,19 +692,34 @@ export const deliverNextRecruitmentInvitation = (
       return Effect.gen(function* () {
         const gateway = yield* NotificationGateway;
 
-        return yield* gateway.deliverInterviewInvitation(claim.request).pipe(
-          Effect.matchEffect({
-            onFailure: (failure) =>
-              failRecruitmentInvitation(claim, failure._tag).pipe(
-                Effect.as(
-                  RecruitmentInvitationDeliveryResult.Failed({ claim, failureTag: failure._tag }),
-                ),
-              ),
-            onSuccess: (evidence) =>
-              completeRecruitmentInvitation(claim, evidence).pipe(
-                Effect.as(RecruitmentInvitationDeliveryResult.Delivered({ claim, evidence })),
-              ),
-          }),
+        return yield* Database.use((sql) =>
+          dispatchInvitationDelivery(
+            sql,
+            invitationOutbox,
+            claim,
+            gateway.deliverInterviewInvitation(claim.request).pipe(
+              Effect.matchEffect({
+                onFailure: (failure) =>
+                  failRecruitmentInvitation(claim, failure._tag).pipe(
+                    Effect.as(
+                      RecruitmentInvitationDeliveryResult.Failed({
+                        claim,
+                        failureTag: failure._tag,
+                      }),
+                    ),
+                  ),
+                onSuccess: (evidence) =>
+                  completeRecruitmentInvitation(claim, evidence).pipe(
+                    Effect.as(RecruitmentInvitationDeliveryResult.Delivered({ claim, evidence })),
+                  ),
+              }),
+            ),
+            RecruitmentInvitationDeliveryResult.Idle(),
+          ),
+        ).pipe(
+          Effect.catchTag(["SqlError", "SchemaError"], (cause) =>
+            Effect.fail(persistenceError("admit invitation delivery", cause)),
+          ),
         );
       });
     },

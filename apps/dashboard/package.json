@@ -95,7 +95,7 @@
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.13.12",
     "@effect/vitest": "catalog:effect-v4",
-    "@foldkit/vite-plugin": "0.24.0",
+    "@foldkit/vite-plugin": "0.26.1",
     "@monoweb/postgres": "workspace:*",
     "@playwright/test": "^1.51.1",
     "@react-router/dev": "^8.3.0",
@@ -105,7 +105,7 @@
     "@vektorprogrammet/backend": "workspace:*",
     "@vektorprogrammet/domain": "workspace:*",
     "happy-dom": "^20.12.0",
-    "pg": "8",
+    "pg": "catalog:effect-v4",
     "typescript": "7.0.2",
     "vite": "^8.0.7",
     "vitest": "catalog:effect-v4"

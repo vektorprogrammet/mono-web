@@ -1,4 +1,5 @@
-import { Effect, Encoding, Result, Schema } from "effect";
+import { Effect, Result, Schema } from "effect";
+import { Base64 } from "effect/encoding";
 import { ReceiptDecodeError } from "./errors.js";
 import { ReceiptId } from "./schema.js";
 import { isRfc3339Instant } from "../time.js";
@@ -41,7 +42,7 @@ export type ReceiptPage<A> = {
 };
 
 export const encodeReceiptCursor = (position: ReceiptCursorPosition): string =>
-  Encoding.encodeBase64(JSON.stringify(["receipt-v1", position.timestamp, position.receiptId]));
+  Base64.encode(JSON.stringify(["receipt-v1", position.timestamp, position.receiptId]));
 
 export const decodeReceiptCursor = (
   cursor: string,
@@ -49,7 +50,7 @@ export const decodeReceiptCursor = (
   Effect.gen(function* () {
     yield* Schema.decodeEffect(ReceiptCursor)(cursor);
 
-    const text = yield* Encoding.decodeBase64String(cursor).pipe(
+    const text = yield* Base64.decodeString(cursor).pipe(
       Result.match({ onSuccess: Effect.succeed, onFailure: Effect.fail }),
     );
 

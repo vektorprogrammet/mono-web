@@ -1,3 +1,7 @@
+/**
+ * EX-0024: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import {
   deliverNextSchoolServiceNotification,
   recoverStaleSchoolServiceNotifications,
@@ -8,7 +12,7 @@ import {
   type SchoolServiceNotificationRequest,
 } from "@vektorprogrammet/domain/placements";
 import { DateTime, Predicate, Duration, Effect } from "effect";
-import { HttpClient } from "effect/unstable/http";
+import { HttpClient } from "effect/http";
 import { deliverJson } from "../delivery/http.js";
 import { pollForever } from "../worker-support.js";
 

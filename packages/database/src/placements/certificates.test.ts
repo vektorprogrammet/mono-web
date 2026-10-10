@@ -1,4 +1,8 @@
 /**
+ * EX-0021: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+/**
  * Falsifiers of days served and certificates on PostgreSQL (docs/specs/certificates-days-served.md):
  * what counts as a day, what a certificate lists, attributable append-only history, recorded
  * issues with stable content hashes, the issuer rules of journey 3, derived board seats, and the
@@ -6,7 +10,7 @@
  */
 import { expect, layer } from "@effect/vitest";
 import { DateTime, Effect, Exit, Layer, Option } from "effect";
-import { ConstraintError } from "effect/unstable/sql/SqlError";
+import { ConstraintError } from "effect/sql/SqlError";
 import { DelegationArea, DelegationCommand } from "@vektorprogrammet/domain/authz";
 import {
   BoardRosterSeat,
@@ -191,6 +195,11 @@ const seedOrganization = Database.use((sql) =>
     yield* sql`INSERT INTO admission_period_semesters (semester_id,start_at,end_at) VALUES
       (${spring},'2026-01-01T00:00:00Z','2026-08-01T00:00:00Z'),
       (${autumn},'2026-08-01T00:00:00Z','2026-12-31T00:00:00Z')`;
+    yield* sql`INSERT INTO admission_period_departments(department_id,name) VALUES(${trondheim},'Certificate admission')`;
+    yield* sql`INSERT INTO admission_periods(admission_period_id,department_id,semester_id,start_at,end_at,last_command_id) VALUES('cert-period',${trondheim},${autumn},'2026-08-01T00:00:00Z','2026-12-31T00:00:00Z','cert-seed')`;
+    yield* sql`INSERT INTO admission_period_fields_of_study(field_of_study_id,department_id,name) VALUES('cert-field',${trondheim},'Math')`;
+    yield* sql`INSERT INTO recruitment_interview_schemas(interview_schema_id,name,question_count) VALUES('cert-schema','Certificate placement interview',1)`;
+    yield* sql`INSERT INTO recruitment_interview_schema_questions(interview_schema_id,question_id,ordinal,prompt,kind,alternatives) VALUES('cert-schema','explanation',0,'Explain how you would help a pupil.','text','[]'::jsonb)`;
     yield* sql`INSERT INTO schools_directory_schools
       (school_id,name,contact_person,email,phone,language,active) OVERRIDING SYSTEM VALUE VALUES
       (${lade},'Lade skole','Kontakt','lade@example.invalid','12345678','Norwegian',true),
@@ -259,6 +268,25 @@ const seedService = Database.use((sql) =>
         [person.bo, [[lade, "Wednesday", "1", "4"]]],
         [person.styretMember, [[lade, "Thursday", "1", "5"]]],
       ] as const) {
+        // Request must be backed by this assistant's completed, uncancelled Ja conduct.
+        // All admission and placement facts commit together in this fixture transaction.
+        const applicationId = personId + "-application";
+        const applicantId = personId + "-applicant";
+        const interviewId = applicationId + "-interview";
+        const at = DateTime.makeUnsafe(serviceNow);
+        const assignedAt = DateTime.formatIso(DateTime.add(at, { hours: -2 }));
+        const scheduledAt = DateTime.formatIso(DateTime.add(at, { hours: -1 }));
+        yield* sql`INSERT INTO admission_applicants(applicant_id,normalized_email,email,first_name,last_name,phone,gender,field_of_study_id,year_of_study) SELECT ${applicantId},${personId + "@example.invalid"},${personId + "@example.invalid"},first_name,last_name,'12345678',0,'cert-field',2 FROM person_profiles WHERE person_id=${personId}`;
+        yield* sql`INSERT INTO admission_applications(application_id,applicant_id,admission_period_id,department_id,field_of_study_id,year_of_study,submitted_at) VALUES(${applicationId},${applicantId},'cert-period',${trondheim},'cert-field',2,${DateTime.formatIso(DateTime.add(at, { hours: -3 }))})`;
+        yield* sql`INSERT INTO recruitment_interviews(interview_id,application_id,department_id,interviewer_person_id,interview_schema_id,assigned_by_person_id,assigned_at,revision) VALUES(${interviewId},${applicationId},${trondheim},${person.coordinator},'cert-schema',${person.coordinator},${assignedAt},2)`;
+        yield* sql`INSERT INTO recruitment_interview_question_snapshots(interview_id,question_id,ordinal,prompt,kind,alternatives) SELECT ${interviewId},question_id,ordinal,prompt,kind,alternatives FROM recruitment_interview_schema_questions WHERE interview_schema_id='cert-schema'`;
+        yield* sql`INSERT INTO recruitment_interview_schedules(interview_id,scheduled_at,room,campus,message,scheduled_by_person_id,committed_at,schedule_revision) VALUES(${interviewId},${scheduledAt},'A1','Synthetic campus','Welcome',${person.coordinator},${assignedAt},1)`;
+        yield* sql`INSERT INTO recruitment_invitations(invitation_id,interview_id,schedule_revision,capability_sha256,response_state,response_revision,responded_at,created_at) VALUES(${interviewId + "-invitation"},${interviewId},1,repeat(md5(${interviewId}),2),'Accepted',1,${assignedAt},${assignedAt})`;
+        yield* sql`INSERT INTO recruitment_invitation_response_audit(invitation_id,interview_id,schedule_revision,response_revision,response_state,responded_at) VALUES(${interviewId + "-invitation"},${interviewId},1,1,'Accepted',${assignedAt})`;
+        yield* sql`INSERT INTO recruitment_interview_conducts(interview_id,answers,explanatory_power,role_model,suitability,finalized_by_person_id,finalized_at,interview_revision,recommendation) VALUES(${interviewId},'[{"questionId":"explanation","answer":"Work through a concrete example with the pupil."}]'::jsonb,7,8,9,${person.coordinator},${serviceNow},2,'Ja')`;
+        yield* sql`INSERT INTO applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at) VALUES(${applicationId + "-account-invitation"},${applicationId},${applicantId},repeat(md5(${applicationId}),2),'2026-12-31T00:00:00Z','Claimed',${person.coordinator},${serviceNow})`;
+        yield* sql`INSERT INTO applicant_account_links(applicant_id,person_id,linked_at,invitation_id) VALUES(${applicantId},${personId},${serviceNow},${applicationId + "-account-invitation"})`;
+
         const pending = yield* mutateAffiliation(
           yield* readOwnAffiliation(personId, trondheim),
           "Request",

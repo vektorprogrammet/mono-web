@@ -1,9 +1,12 @@
 /** Recruitment command handlers: invitation responses, assignment, scheduling, correction, finalize, and cancel. */
+import { Database } from "@vektorprogrammet/database";
+import { AdvisoryLockKey, lockAdvisory } from "@vektorprogrammet/database/advisory-lock";
 import type { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
 import { ResourceId, ResourceKind, Scope } from "@vektorprogrammet/domain/authz";
 import type { PersonId } from "@vektorprogrammet/domain/organization";
 import {
   Recruitment,
+  RecruitmentPersistenceError,
   RecruitmentAssignmentCommandId,
   RecruitmentCancellationCommandId,
   RecruitmentConductCommandId,
@@ -13,34 +16,28 @@ import {
   type RecruitmentInterviewId,
 } from "@vektorprogrammet/domain/recruitment";
 import {
-  AssignApplicantEndpoint,
-  CancelInterviewEndpoint,
+  cancelInterview as cancelInterviewEndpoint,
   CancelInterviewRequest,
   CancelInterviewResponse,
-  ConfirmInvitationEndpoint,
   ConfirmInvitationPayload,
-  CorrectInterviewAssessmentEndpoint,
+  correctInterviewAssessment as correctInterviewAssessmentEndpoint,
   CorrectInterviewAssessmentRequest,
   CorrectInterviewAssessmentResponse,
   CreateApplicationInterviewRequest,
-  FinalizeInterviewEndpoint,
+  finalizeInterview as finalizeInterviewEndpoint,
   FinalizeInterviewRequest,
   FinalizeInterviewResponse,
   InvitationRejectInput,
   InvitationRequestNewTimeInput,
   RecruitmentInterviewResource,
-  RejectInvitationEndpoint,
-  RequestNewInvitationTimeEndpoint,
-  ScheduleInterviewEndpoint,
+  scheduleInterview as scheduleInterviewEndpoint,
   ScheduleInterviewRequest,
   ScheduleInterviewResponse,
-  reflectAccessSpec,
 } from "@vektorprogrammet/http-api";
 import { isProblem, Problem } from "@vektorprogrammet/http-api/http-semantics";
-import { Effect, Option, Predicate, Schema } from "effect";
+import { Effect, Predicate, Schema } from "effect";
 import { currentInstant, resolveRequestPersonAuthorityInTransaction } from "../authority.js";
 import {
-  authorizePerson,
   commandOutcomeResponse,
   commandReceiptProblems,
   decodeRequest,
@@ -65,12 +62,13 @@ import {
   type CanonicalSemanticRequest,
   type CredentialSubject,
 } from "../http-semantics.js";
-import {
-  applicationContext,
-  authorizeInvitationOperation,
-  interviewAuthorizationInTransaction,
-} from "./http-access.js";
+import { applicationContext, interviewAuthorizationInTransaction } from "./http-access.js";
 import type { RecruitmentApiHttpOptions } from "./http-context.js";
+import {
+  authorizeAt,
+  type RecruitmentPersonAuthorize,
+  type RecruitmentInvitationAuthorize,
+} from "./http-guard.js";
 import { invitationCapability, readRecruitmentBody } from "./http-decode.js";
 import {
   admissionPeriodProblems,
@@ -87,7 +85,7 @@ import { interviewETag, invitationETag } from "./http-representation.js";
  * receipt, then the command, all in one serializable transaction that is
  * retried once after a lost race.
  */
-const executeCommand = <CommandId, EPrepare, RPrepare, EExecute>(input: {
+const executeCommand = <CommandId, EPrepare, RPrepare, EExecute, RExecute = never>(input: {
   readonly request: Request;
   readonly operationId: string;
   readonly routeTemplate: string;
@@ -99,7 +97,7 @@ const executeCommand = <CommandId, EPrepare, RPrepare, EExecute>(input: {
       readonly credentialSubject: CredentialSubject;
       readonly execute: (
         commandId: NoInfer<CommandId>,
-      ) => Effect.Effect<Response, EExecute, Recruitment>;
+      ) => Effect.Effect<Response, EExecute, Recruitment | RExecute>;
     },
     EPrepare,
     RPrepare
@@ -166,10 +164,11 @@ const interviewCommandResponse = (
 const respondToInvitation = <E, R, RActor>(
   request: Request,
   input: RecruitmentApiHttpOptions<RActor>,
-  endpoint:
-    | typeof ConfirmInvitationEndpoint
-    | typeof RejectInvitationEndpoint
-    | typeof RequestNewInvitationTimeEndpoint,
+  operation:
+    | "recruitment.confirmInvitation"
+    | "recruitment.rejectInvitation"
+    | "recruitment.requestNewInvitationTime",
+  authorize: RecruitmentInvitationAuthorize,
   readTransition: Effect.Effect<RecruitmentInvitationTransition, E, R>,
 ) =>
   Effect.gen(function* () {
@@ -179,23 +178,50 @@ const respondToInvitation = <E, R, RActor>(
     const transition = yield* readTransition;
     const now = yield* currentInstant(input.config.now);
 
-    const source = yield* Recruitment.use((service) =>
-      service.readInvitationSnapshot(capability),
-    ).pipe(Effect.map((snapshot) => snapshot.source));
+    const updated = yield* Database.use((sql) =>
+      sql.withTransaction(
+        Effect.gen(function* () {
+          const selected = yield* Recruitment.use((service) =>
+            service.readInvitationSnapshot(capability),
+          );
 
-    yield* authorizeInvitationOperation({
-      spec: Option.getOrThrow(reflectAccessSpec(endpoint)),
-      source,
-      authorizationInstant: now,
-    });
+          yield* lockAdvisory(
+            sql,
+            AdvisoryLockKey.recruitmentInterview(selected.source.interviewId),
+          );
 
-    // An answered invitation fails as already responded, whatever its validator.
-    if (source.responseState === "Pending") {
-      yield* requireCurrentETag(invitationETag(source), ifMatch);
-    }
+          // Read again after the decision fence: preflight selection grants no authority.
+          const source = yield* Recruitment.use((service) =>
+            service.readInvitationSnapshot(capability),
+          ).pipe(Effect.map((snapshot) => snapshot.source));
 
-    const updated = yield* Recruitment.use((service) =>
-      service.transitionInvitation({ capability, transition, now }),
+          yield* authorizeAt(authorize, {
+            kind: "Invitation",
+            operation,
+            source,
+            authorizationInstant: now,
+          });
+
+          // An answered invitation fails as already responded, whatever its validator.
+          if (source.responseState === "Pending") {
+            yield* requireCurrentETag(invitationETag(source), ifMatch);
+          }
+
+          return yield* Recruitment.use((service) =>
+            service.transitionInvitation({ capability, transition, now }),
+          );
+        }),
+      ),
+    ).pipe(
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(
+          new RecruitmentPersistenceError({
+            operation: "invitation HTTP transition",
+            message: String(cause),
+            cause,
+          }),
+        ),
+      ),
     );
 
     return new Response(null, {
@@ -222,11 +248,16 @@ const respondToInvitation = <E, R, RActor>(
   );
 
 /** Accepts one invitation. */
-export const confirmInvitation = <R>(request: Request, input: RecruitmentApiHttpOptions<R>) =>
+export const confirmInvitation = <R>(
+  request: Request,
+  input: RecruitmentApiHttpOptions<R>,
+  authorize: RecruitmentInvitationAuthorize,
+) =>
   respondToInvitation(
     request,
     input,
-    ConfirmInvitationEndpoint,
+    "recruitment.confirmInvitation",
+    authorize,
     readRecruitmentBody(request, input.config.maxBodyBytes).pipe(
       Effect.flatMap((body) =>
         Schema.decodeUnknownEffect(ConfirmInvitationPayload)(body, { onExcessProperty: "error" }),
@@ -242,11 +273,16 @@ export const confirmInvitation = <R>(request: Request, input: RecruitmentApiHttp
   );
 
 /** Rejects one invitation with an optional message. */
-export const rejectInvitation = <R>(request: Request, input: RecruitmentApiHttpOptions<R>) =>
+export const rejectInvitation = <R>(
+  request: Request,
+  input: RecruitmentApiHttpOptions<R>,
+  authorize: RecruitmentInvitationAuthorize,
+) =>
   respondToInvitation(
     request,
     input,
-    RejectInvitationEndpoint,
+    "recruitment.rejectInvitation",
+    authorize,
     readRecruitmentBody(request, input.config.maxBodyBytes).pipe(
       Effect.flatMap(decodeRequest(InvitationRejectInput)),
       Effect.map((body) =>
@@ -261,11 +297,13 @@ export const rejectInvitation = <R>(request: Request, input: RecruitmentApiHttpO
 export const requestNewInvitationTime = <R>(
   request: Request,
   input: RecruitmentApiHttpOptions<R>,
+  authorize: RecruitmentInvitationAuthorize,
 ) =>
   respondToInvitation(
     request,
     input,
-    RequestNewInvitationTimeEndpoint,
+    "recruitment.requestNewInvitationTime",
+    authorize,
     readRecruitmentBody(request, input.config.maxBodyBytes).pipe(
       Effect.flatMap(decodeRequest(InvitationRequestNewTimeInput)),
       Effect.map((body) =>
@@ -278,6 +316,7 @@ export const createApplicationInterview = <R>(
   request: Request,
   applicationId: typeof PublicApplicationIdSchema.Type,
   input: RecruitmentApiHttpOptions<R>,
+  authorize: RecruitmentPersonAuthorize,
 ) => {
   const presentation = personPresentation(request);
 
@@ -314,9 +353,11 @@ export const createApplicationInterview = <R>(
           id: ResourceId.make(applicationId),
         };
 
-        yield* authorizePerson(
-          {
-            spec: Option.getOrThrow(reflectAccessSpec(AssignApplicantEndpoint)),
+        yield* authorizeAt(authorize, {
+          kind: "Person",
+          operation: "recruitment.createApplicationInterview",
+          request,
+          input: {
             credential: authorization.credential,
             personId: actor.personId,
             resolution: {
@@ -341,20 +382,21 @@ export const createApplicationInterview = <R>(
             grantScopes: [Scope.Resource({ resource })],
             now: authorization.authorizationInstant,
           },
-          presentation,
-        );
+        });
 
         return {
           credentialSubject: `Person:${actor.personId}` as const,
           execute: (commandId: RecruitmentAssignmentCommandId) =>
             Effect.gen(function* () {
+              const interviewId = yield* input.config.nextInterviewId;
+
               const result = yield* Recruitment.use((service) =>
                 service.assignApplicant(
                   { commandId, applicationId, ...body },
                   {
                     actor,
                     now: authorization.authorizationInstant,
-                    interviewId: input.config.nextInterviewId(),
+                    interviewId,
                   },
                 ),
               );
@@ -404,6 +446,7 @@ export const scheduleInterview = <R>(
   request: Request,
   interviewId: RecruitmentInterviewId,
   input: RecruitmentApiHttpOptions<R>,
+  authorize: RecruitmentPersonAuthorize,
 ) =>
   Effect.gen(function* () {
     yield* requireNoQuery(request);
@@ -425,9 +468,10 @@ export const scheduleInterview = <R>(
         const authorization = yield* interviewAuthorizationInTransaction(
           request,
           interviewId,
-          ScheduleInterviewEndpoint,
+          scheduleInterviewEndpoint,
           true,
           input,
+          authorize,
         );
 
         return {
@@ -435,6 +479,9 @@ export const scheduleInterview = <R>(
           execute: (commandId: RecruitmentScheduleCommandId) =>
             Effect.gen(function* () {
               yield* requireCurrentETag(interviewETag(authorization.source), ifMatch);
+
+              const invitationId = yield* input.config.nextInvitationId;
+              const responseCapability = yield* input.config.nextResponseCapability;
 
               const { observation } = yield* Recruitment.use((service) =>
                 service.scheduleInterview(
@@ -447,8 +494,8 @@ export const scheduleInterview = <R>(
                   {
                     actor: authorization.actor,
                     now: authorization.authorizationInstant,
-                    invitationId: input.config.nextInvitationId(),
-                    responseCapability: input.config.nextResponseCapability(),
+                    invitationId,
+                    responseCapability,
                   },
                 ),
               );
@@ -488,6 +535,7 @@ export const correctInterviewAssessment = <R>(
   request: Request,
   interviewId: RecruitmentInterviewId,
   input: RecruitmentApiHttpOptions<R>,
+  authorize: RecruitmentPersonAuthorize,
 ) =>
   Effect.gen(function* () {
     yield* requireNoQuery(request);
@@ -509,9 +557,10 @@ export const correctInterviewAssessment = <R>(
         const authorization = yield* interviewAuthorizationInTransaction(
           request,
           interviewId,
-          CorrectInterviewAssessmentEndpoint,
+          correctInterviewAssessmentEndpoint,
           false,
           input,
+          authorize,
         );
 
         return {
@@ -570,6 +619,7 @@ export const finalizeInterview = <R>(
   request: Request,
   interviewId: RecruitmentInterviewId,
   input: RecruitmentApiHttpOptions<R>,
+  authorize: RecruitmentPersonAuthorize,
 ) =>
   Effect.gen(function* () {
     yield* requireNoQuery(request);
@@ -588,9 +638,10 @@ export const finalizeInterview = <R>(
         const authorization = yield* interviewAuthorizationInTransaction(
           request,
           interviewId,
-          FinalizeInterviewEndpoint,
+          finalizeInterviewEndpoint,
           false,
           input,
+          authorize,
         );
 
         return {
@@ -648,6 +699,7 @@ export const cancelInterview = <R>(
   request: Request,
   interviewId: RecruitmentInterviewId,
   input: RecruitmentApiHttpOptions<R>,
+  authorize: RecruitmentPersonAuthorize,
 ) =>
   Effect.gen(function* () {
     yield* requireNoQuery(request);
@@ -666,9 +718,10 @@ export const cancelInterview = <R>(
         const authorization = yield* interviewAuthorizationInTransaction(
           request,
           interviewId,
-          CancelInterviewEndpoint,
+          cancelInterviewEndpoint,
           false,
           input,
+          authorize,
         );
 
         return {

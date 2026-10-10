@@ -1,32 +1,22 @@
+/**
+ * EX-0021: native stable SQL carries upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+import { withIdentityRequestCancellation } from "./password-recovery.js";
+import { Cause } from "effect";
 import type { AuthEngine } from "./auth-engine.js";
-import {
-  DatabasePgPool,
-  pgQuery,
-  pgTransaction,
-  pgWithClient,
-  type PgQueryError,
-} from "./pg-pool.js";
 import { NativeAuthEngine } from "./auth-engine.js";
 import {
   CredentialOutcomeSchema,
   CredentialMechanismSchema,
   PrincipalSchema,
 } from "@vektorprogrammet/domain/authz";
-import { createHash, randomBytes, randomUUID, timingSafeEqual, webcrypto } from "node:crypto";
-import {
-  Types,
-  flow,
-  Layer,
-  Predicate,
-  Context,
-  Data,
-  DateTime,
-  Effect,
-  Result,
-  Schema,
-} from "effect";
-import type { SqlError } from "effect/unstable/sql/SqlError";
-import type { Pool, PoolClient, QueryResultRow } from "pg";
+import { SecretEquality, SecretEqualityLive, type WebCryptoSubtle } from "./web-crypto.js";
+import { sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
+import { Crypto } from "effect";
+import { Types, Layer, Predicate, Context, Data, DateTime, Effect, Result, Schema } from "effect";
+import type { SqlError } from "effect/sql/SqlError";
+import type * as SqlClient from "effect/sql/SqlClient";
 import {
   CredentialEvidenceRef,
   ServicePrincipalId,
@@ -34,6 +24,7 @@ import {
 } from "@vektorprogrammet/domain/authz";
 import { PersonId } from "@vektorprogrammet/domain/organization";
 import { Database } from "./service.js";
+import { AdvisoryLockKey, lockAdvisory } from "./advisory-lock.js";
 import type { IdentityRequestContext } from "@vektorprogrammet/domain/identity";
 import {
   NativeAccessTokenClaimsSchema,
@@ -41,6 +32,7 @@ import {
   OAUTH_NATIVE_API_RESOURCE,
   OAUTH_REFRESH_TOKEN_PREFIX,
   OAuthClientManifestSchema,
+  OAuthClientKindSchema,
   hashOAuthClientSecret,
   hashOAuthToken,
   oauthIssuer,
@@ -130,7 +122,7 @@ export type OAuthReleaseHandler = (
 export type OAuthIntrospectionHandler = (
   request: Request,
   context: IdentityRequestContext,
-) => Effect.Effect<Response, OAuthExchangeFailure | PgQueryError | Schema.SchemaError>;
+) => Effect.Effect<Response, OAuthExchangeFailure | SqlError | Schema.SchemaError>;
 
 export interface OAuthClientOperatorService {
   readonly provision: (
@@ -170,31 +162,35 @@ type OAuthEngineBoundary = Pick<AuthEngine, "handler" | "$context"> & {
   readonly api: Pick<AuthEngine["api"], "signJWT">;
 };
 
-interface TokenStateRow extends QueryResultRow {
-  readonly jti: string;
-  readonly family_id: string | null;
-  readonly client_id: string;
-  readonly principal_kind: "Person" | "ServicePrincipal";
-  readonly person_id: string | null;
-  readonly service_principal_id: string | null;
-  readonly session_id: string | null;
-  readonly issued_at: Date;
-  readonly expires_at: Date;
-  readonly revoked_at: Date | null;
-  readonly client_kind: OAuthClientKind;
-  readonly client_disabled: boolean | null;
-  readonly secret_expires_at: Date | null;
-  readonly client_scopes: ReadonlyArray<string> | null;
-  readonly client_credentials_scopes: ReadonlyArray<string> | null;
-  readonly service_state: "Active" | "Disabled" | null;
-  readonly session_expires_at: Date | null;
-  readonly family_revoked_at: Date | null;
-  readonly family_inactivity_expires_at: Date | null;
-  readonly family_absolute_expires_at: Date | null;
-  readonly consent_live: boolean;
-  readonly public_key: string;
-  readonly key_alg: string | null;
-}
+const TokenStateRowSchema = Schema.Struct({
+  jti: Schema.String,
+  family_id: Schema.NullOr(Schema.String),
+  client_id: Schema.String,
+  principal_kind: Schema.Literals(["Person", "ServicePrincipal"]),
+  person_id: Schema.NullOr(Schema.String),
+  service_principal_id: Schema.NullOr(Schema.String),
+  session_id: Schema.NullOr(Schema.String),
+  issued_at: Schema.Date,
+  expires_at: Schema.Date,
+  revoked_at: Schema.NullOr(Schema.Date),
+  client_kind: OAuthClientKindSchema,
+  client_disabled: Schema.NullOr(Schema.Boolean),
+  secret_expires_at: Schema.NullOr(Schema.Date),
+  client_scopes: Schema.NullOr(Schema.Array(Schema.String)),
+  client_credentials_scopes: Schema.NullOr(Schema.Array(Schema.String)),
+  service_state: Schema.NullOr(Schema.Literals(["Active", "Disabled"])),
+  session_expires_at: Schema.NullOr(Schema.Date),
+  family_revoked_at: Schema.NullOr(Schema.Date),
+  family_inactivity_expires_at: Schema.NullOr(Schema.Date),
+  family_absolute_expires_at: Schema.NullOr(Schema.Date),
+  consent_live: Schema.Boolean,
+  public_key: Schema.String,
+  key_alg: Schema.NullOr(Schema.String),
+});
+
+type TokenStateRow = typeof TokenStateRowSchema.Type;
+
+const decodeTokenStateRows = Schema.decodeUnknownEffect(Schema.Array(TokenStateRowSchema));
 
 interface DecodedNativeJwt {
   readonly header: typeof NativeAccessTokenHeaderSchema.Type;
@@ -203,31 +199,51 @@ interface DecodedNativeJwt {
   readonly signature: Uint8Array;
 }
 
-interface ClientAuthorityRow extends QueryResultRow {
-  readonly client_id: string;
-  readonly client_kind: OAuthClientKind;
-  readonly service_principal_id: string | null;
-  readonly secret_expires_at: Date | null;
-  readonly disabled: boolean | null;
-  readonly client_secret: string | null;
-  readonly redirect_uris: ReadonlyArray<string>;
-  readonly scopes: ReadonlyArray<string> | null;
-  readonly client_credentials_scopes: ReadonlyArray<string> | null;
-  readonly token_endpoint_auth_method: string | null;
-  readonly grant_types: ReadonlyArray<string> | null;
-  readonly require_pkce: boolean | null;
-}
+const ClientAuthorityRowSchema = Schema.Struct({
+  client_id: Schema.String,
+  client_kind: OAuthClientKindSchema,
+  service_principal_id: Schema.NullOr(Schema.String),
+  secret_expires_at: Schema.NullOr(Schema.Date),
+  disabled: Schema.NullOr(Schema.Boolean),
+  client_secret: Schema.NullOr(Schema.String),
+  redirect_uris: Schema.Array(Schema.String),
+  scopes: Schema.NullOr(Schema.Array(Schema.String)),
+  client_credentials_scopes: Schema.NullOr(Schema.Array(Schema.String)),
+  token_endpoint_auth_method: Schema.NullOr(Schema.String),
+  grant_types: Schema.NullOr(Schema.Array(Schema.String)),
+  require_pkce: Schema.NullOr(Schema.Boolean),
+});
 
-interface RefreshLookupRow extends QueryResultRow {
-  readonly authorization_code_id: string | null;
-  readonly client_id: string;
-  readonly session_id: string | null;
-  readonly user_id: string;
-  readonly revoked: Date | null;
-  readonly rotated_at: Date | null;
-  readonly expires_at: Date;
-  readonly family_id: string | null;
-}
+type ClientAuthorityRow = typeof ClientAuthorityRowSchema.Type;
+
+const decodeClientAuthorityRows = Schema.decodeUnknownEffect(
+  Schema.Array(ClientAuthorityRowSchema),
+);
+
+const RefreshLookupRowSchema = Schema.Struct({
+  authorization_code_id: Schema.NullOr(Schema.String),
+  client_id: Schema.String,
+  session_id: Schema.NullOr(Schema.String),
+  user_id: Schema.String,
+  revoked: Schema.NullOr(Schema.Date),
+  rotated_at: Schema.NullOr(Schema.Date),
+  expires_at: Schema.Date,
+  family_id: Schema.NullOr(Schema.String),
+});
+
+type RefreshLookupRow = typeof RefreshLookupRowSchema.Type;
+
+const decodeRefreshLookupRows = Schema.decodeUnknownEffect(Schema.Array(RefreshLookupRowSchema));
+
+const decodeRefreshFamilyRows = Schema.decodeUnknownEffect(
+  Schema.Array(
+    Schema.Struct({
+      revoked_at: Schema.NullOr(Schema.Date),
+      inactivity_expires_at: Schema.Date,
+      absolute_expires_at: Schema.Date,
+    }),
+  ),
+);
 
 const AccessTokenResponseSchema = Schema.Struct({
   access_token: Schema.String,
@@ -238,15 +254,13 @@ const AccessTokenResponseSchema = Schema.Struct({
   scope: Schema.optional(Schema.String),
 });
 
-const decodeHeaderJson = (text: string) =>
-  Schema.decodeSync(Schema.fromJsonString(NativeAccessTokenHeaderSchema))(text, {
-    onExcessProperty: "error",
-  });
+const decodeHeaderJson = Schema.decodeEffect(Schema.fromJsonString(NativeAccessTokenHeaderSchema), {
+  onExcessProperty: "error",
+});
 
-const decodeClaimsJson = (text: string) =>
-  Schema.decodeSync(Schema.fromJsonString(NativeAccessTokenClaimsSchema))(text, {
-    onExcessProperty: "error",
-  });
+const decodeClaimsJson = Schema.decodeEffect(Schema.fromJsonString(NativeAccessTokenClaimsSchema), {
+  onExcessProperty: "error",
+});
 
 const decodeUnknownRecordJson = Schema.decodeEffect(
   Schema.fromJsonString(Schema.Record(Schema.String, Schema.Json)),
@@ -267,7 +281,7 @@ const base64UrlBytes = (value: string): Uint8Array => {
   return bytes;
 };
 
-const decodeJwt = (token: string): DecodedNativeJwt => {
+const decodeJwtParts = (token: string) => {
   if (token.length === 0 || token.length > TOKEN_INPUT_LIMIT) {
     throw new TypeError("bounded bearer required");
   }
@@ -285,8 +299,8 @@ const decodeJwt = (token: string): DecodedNativeJwt => {
     throw new TypeError("compact JWT required");
   }
 
-  const header = decodeHeaderJson(new TextDecoder().decode(base64UrlBytes(encodedHeader)));
-  const claims = decodeClaimsJson(new TextDecoder().decode(base64UrlBytes(encodedPayload)));
+  const header = new TextDecoder().decode(base64UrlBytes(encodedHeader));
+  const claims = new TextDecoder().decode(base64UrlBytes(encodedPayload));
 
   return {
     header,
@@ -296,58 +310,99 @@ const decodeJwt = (token: string): DecodedNativeJwt => {
   };
 };
 
+const decodeJwt = Effect.fnUntraced(function* (
+  token: string,
+): Effect.fn.Return<DecodedNativeJwt, OAuthExchangeFailure | Schema.SchemaError> {
+  const parts = yield* Effect.try({
+    try: () => decodeJwtParts(token),
+    catch: (cause) => new OAuthExchangeFailure({ message: "malformed compact JWT", cause }),
+  });
+
+  const header = yield* decodeHeaderJson(parts.header);
+  const claims = yield* decodeClaimsJson(parts.claims);
+
+  return { header, claims, signingInput: parts.signingInput, signature: parts.signature };
+});
+
 /** Decodes a provider-issued compact JWT; a token outside the native shape fails the exchange. */
 const decodeIssuedJwt = (token: string) =>
-  Effect.try({
-    try: () => decodeJwt(token),
-    catch: (cause) =>
-      new OAuthExchangeFailure({ message: "provider issued a malformed token", cause }),
-  });
+  decodeJwt(token).pipe(
+    Effect.mapError(
+      (cause) => new OAuthExchangeFailure({ message: "provider issued a malformed token", cause }),
+    ),
+  );
 
-const verifyJwtSignature = (decoded: DecodedNativeJwt, publicKey: string) =>
+/** The WebCrypto verifications of the OAuth flows, imported once from the injected provider. */
+export interface OAuthWebCryptoService {
+  /** Verifies the ES256 signature of a decoded compact JWT under the JWK text `publicKey`. */
+  readonly verifyJwtSignature: (
+    decoded: Pick<DecodedNativeJwt, "signingInput" | "signature">,
+    publicKey: string,
+  ) => Effect.Effect<boolean, OAuthExchangeFailure | Schema.SchemaError>;
+  /** Whether `presented` equals `expected`, without a timing channel (see `SecretEquality`). */
+  readonly digestsEqual: (expected: string, presented: string) => Effect.Effect<boolean>;
+}
+
+class OAuthWebCrypto extends Context.Service<OAuthWebCrypto, OAuthWebCryptoService>()(
+  "@vektorprogrammet/database/OAuthWebCrypto",
+) {}
+
+/**
+ * Builds the OAuth WebCrypto verifications over `subtle`, the provider of the composition root.
+ *
+ * The comparison of digests is that of the `SecretEquality` of the layer, whose per-process key is
+ * imported once; every method requires nothing.
+ */
+export const makeOAuthWebCrypto = Effect.fn("OAuthWebCrypto.make")(function* (
+  subtle: WebCryptoSubtle,
+): Effect.fn.Return<OAuthWebCryptoService, never, SecretEquality> {
+  const secretEquality = yield* SecretEquality;
+
+  return {
+    digestsEqual: secretEquality.equal,
+    verifyJwtSignature: (decoded, publicKey) =>
+      Effect.gen(function* () {
+        const publicJwk = yield* decodeUnknownRecordJson(publicKey);
+
+        const verificationKey = yield* Effect.tryPromise({
+          try: () =>
+            subtle.importKey("jwk", publicJwk, { name: "ECDSA", namedCurve: "P-256" }, false, [
+              "verify",
+            ]),
+          catch: (cause) => new OAuthExchangeFailure({ message: "signing key is unusable", cause }),
+        });
+
+        return yield* Effect.tryPromise({
+          try: () =>
+            subtle.verify(
+              { name: "ECDSA", hash: "SHA-256" },
+              verificationKey,
+              decoded.signature,
+              decoded.signingInput,
+            ),
+          catch: (cause) => new OAuthExchangeFailure({ message: "signature check failed", cause }),
+        });
+      }),
+  };
+});
+
+const verifyIssuedJwtSignature = (pool: SqlClient.SqlClient, decoded: DecodedNativeJwt) =>
   Effect.gen(function* () {
-    const publicJwk = yield* decodeUnknownRecordJson(publicKey);
+    const selected = yield* pool.unsafe<{
+      readonly public_key: string;
+      readonly alg: string | null;
+    }>(`SELECT "publicKey" AS public_key, alg FROM auth.jwks WHERE id = $1`, [decoded.header.kid]);
 
-    const verificationKey = yield* Effect.tryPromise({
-      try: () =>
-        webcrypto.subtle.importKey(
-          "jwk",
-          publicJwk,
-          { name: "ECDSA", namedCurve: "P-256" },
-          false,
-          ["verify"],
-        ),
-      catch: (cause) => new OAuthExchangeFailure({ message: "signing key is unusable", cause }),
-    });
-
-    return yield* Effect.tryPromise({
-      try: () =>
-        webcrypto.subtle.verify(
-          { name: "ECDSA", hash: "SHA-256" },
-          verificationKey,
-          decoded.signature,
-          decoded.signingInput,
-        ),
-      catch: (cause) => new OAuthExchangeFailure({ message: "signature check failed", cause }),
-    });
-  });
-
-const verifyIssuedJwtSignature = (pool: Pool, decoded: DecodedNativeJwt) =>
-  Effect.gen(function* () {
-    const selected = yield* pgQuery<{ readonly public_key: string; readonly alg: string | null }>(
-      pool,
-      `SELECT "publicKey" AS public_key, alg FROM auth.jwks WHERE id = $1`,
-      [decoded.header.kid],
-    );
-
-    const key = selected.rows[0];
+    const key = selected[0];
 
     if (key === undefined || key.alg !== "ES256") return false;
 
-    return yield* verifyJwtSignature(decoded, key.public_key);
+    const webCrypto = yield* OAuthWebCrypto;
+
+    return yield* webCrypto.verifyJwtSignature(decoded, key.public_key);
   });
 
-const refreshTokenDigest = (token: string): string | undefined => {
+const refreshTokenDigest = Effect.fnUntraced(function* (token: string) {
   if (
     !token.startsWith(OAUTH_REFRESH_TOKEN_PREFIX) ||
     token.length === OAUTH_REFRESH_TOKEN_PREFIX.length
@@ -355,8 +410,8 @@ const refreshTokenDigest = (token: string): string | undefined => {
     return undefined;
   }
 
-  return hashOAuthToken(token.slice(OAUTH_REFRESH_TOKEN_PREFIX.length), "refresh_token");
-};
+  return yield* hashOAuthToken(token.slice(OAUTH_REFRESH_TOKEN_PREFIX.length), "refresh_token");
+});
 
 const bearerFromRequest = (request: Request) => {
   const value = request.headers.get("authorization");
@@ -372,48 +427,49 @@ const bearerFromRequest = (request: Request) => {
 const hasBetterAuthCookie = (request: Request): boolean =>
   /(?:^|;\s*)(?:__Secure-)?better-auth\.session_token=/u.test(request.headers.get("cookie") ?? "");
 
-const constantDigestEqual = (left: string, right: string): boolean => {
-  const leftBytes = Buffer.from(left, "utf8");
-  const rightBytes = Buffer.from(right, "utf8");
-
-  return leftBytes.length === rightBytes.length && timingSafeEqual(leftBytes, rightBytes);
-};
-
-const selectTokenState = (pool: Pool, claims: NativeAccessTokenClaims, kid: string) =>
-  pgQuery<TokenStateRow>(
-    pool,
-    `SELECT state.*, binding.client_kind, binding.secret_expires_at,
-            client.disabled AS client_disabled, client.scopes AS client_scopes,
-            client."clientCredentialsScopes" AS client_credentials_scopes,
-            principal.state AS service_state, session."expiresAt" AS session_expires_at,
-            family.revoked_at AS family_revoked_at,
-            family.inactivity_expires_at AS family_inactivity_expires_at,
-            family.absolute_expires_at AS family_absolute_expires_at,
-            CASE WHEN state.principal_kind = 'Person' THEN EXISTS (
-              SELECT 1 FROM auth."oauthConsent" consent
-              WHERE consent."clientId" = state.client_id
-                AND consent."userId" = state.person_id
-                AND consent.resources ? $3
-                AND consent.scopes ? 'native-api'
-                AND ($4 <> 'native-api offline_access' OR consent.scopes ? 'offline_access')
-            ) ELSE TRUE END AS consent_live,
-            jwks."publicKey" AS public_key, jwks.alg AS key_alg
-       FROM auth.oauth_access_token_state state
-       JOIN auth.oauth_client_bindings binding ON binding.client_id = state.client_id
-       JOIN auth."oauthClient" client ON client."clientId" = state.client_id
-       JOIN auth.jwks jwks ON jwks.id = $2
-       LEFT JOIN public.service_principals principal
-         ON principal.service_principal_id = state.service_principal_id
-       LEFT JOIN auth.usable_human_sessions session ON session.id = state.session_id
-       LEFT JOIN auth.oauth_refresh_families family ON family.family_id = state.family_id
-      WHERE state.jti = $1`,
-    [claims.jti, kid, OAUTH_NATIVE_API_RESOURCE, claims.scope],
-  ).pipe(Effect.map((result) => result.rows[0]));
+const selectTokenState = (
+  pool: SqlClient.SqlClient,
+  claims: NativeAccessTokenClaims,
+  kid: string,
+) =>
+  pool
+    .unsafe<TokenStateRow>(
+      `SELECT state.*, binding.client_kind, binding.secret_expires_at,
+          client.disabled AS client_disabled, client.scopes AS client_scopes,
+          client."clientCredentialsScopes" AS client_credentials_scopes,
+          principal.state AS service_state, session."expiresAt" AS session_expires_at,
+          family.revoked_at AS family_revoked_at,
+          family.inactivity_expires_at AS family_inactivity_expires_at,
+          family.absolute_expires_at AS family_absolute_expires_at,
+          CASE WHEN state.principal_kind = 'Person' THEN EXISTS (
+            SELECT 1 FROM auth."oauthConsent" consent
+            WHERE consent."clientId" = state.client_id
+              AND consent."userId" = state.person_id
+              AND consent.resources ? $3
+              AND consent.scopes ? 'native-api'
+              AND ($4 <> 'native-api offline_access' OR consent.scopes ? 'offline_access')
+          ) ELSE TRUE END AS consent_live,
+          jwks."publicKey" AS public_key, jwks.alg AS key_alg
+     FROM auth.oauth_access_token_state state
+     JOIN auth.oauth_client_bindings binding ON binding.client_id = state.client_id
+     JOIN auth."oauthClient" client ON client."clientId" = state.client_id
+     JOIN auth.jwks jwks ON jwks.id = $2
+     LEFT JOIN public.service_principals principal
+       ON principal.service_principal_id = state.service_principal_id
+     LEFT JOIN auth.usable_human_sessions session ON session.id = state.session_id
+     LEFT JOIN auth.oauth_refresh_families family ON family.family_id = state.family_id
+    WHERE state.jti = $1`,
+      [claims.jti, kid, OAUTH_NATIVE_API_RESOURCE, claims.scope],
+    )
+    .pipe(
+      Effect.flatMap(decodeTokenStateRows),
+      Effect.map((result) => result[0]),
+    );
 
 const selectTokenStateInTransaction = (
   claims: NativeAccessTokenClaims,
   kid: string,
-): Effect.Effect<TokenStateRow | undefined, SqlError, Database> =>
+): Effect.Effect<TokenStateRow | undefined, SqlError | Schema.SchemaError, Database> =>
   Database.use((sql) =>
     sql<TokenStateRow>`
       SELECT state.*, binding.client_kind, binding.secret_expires_at,
@@ -442,7 +498,10 @@ const selectTokenStateInTransaction = (
         LEFT JOIN auth.usable_human_sessions session ON session.id = state.session_id
         LEFT JOIN auth.oauth_refresh_families family ON family.family_id = state.family_id
        WHERE state.jti = ${claims.jti}
-    `.pipe(Effect.map((rows) => rows[0])),
+    `.pipe(
+      Effect.flatMap(decodeTokenStateRows),
+      Effect.map((rows) => rows[0]),
+    ),
   );
 
 const canonicalClientScopes = (
@@ -479,7 +538,7 @@ const resolveOAuthCredential = <E, R>(
   now: DateTime.Utc,
   lookup: TokenStateLookup<E, R>,
   config: OAuthProviderRuntimeConfig,
-): Effect.Effect<CredentialOutcome, never, R> =>
+): Effect.Effect<CredentialOutcome, never, R | OAuthWebCrypto> =>
   Effect.gen(function* () {
     const bearer = bearerFromRequest(request);
 
@@ -494,7 +553,7 @@ const resolveOAuthCredential = <E, R>(
     }
 
     const token = bearer.token;
-    const decodedJwt = Result.try(() => decodeJwt(token));
+    const decodedJwt = yield* Effect.result(decodeJwt(token));
 
     if (Result.isFailure(decodedJwt)) {
       return CredentialOutcomeSchema.cases.Rejected.make({ reason: "Malformed" });
@@ -524,9 +583,11 @@ const resolveOAuthCredential = <E, R>(
       return CredentialOutcomeSchema.cases.Rejected.make({ reason: "Invalid" });
     }
 
-    const signatureValid = yield* verifyJwtSignature(decoded, state.public_key).pipe(
-      Effect.orElseSucceed(() => false),
-    );
+    const webCrypto = yield* OAuthWebCrypto;
+
+    const signatureValid = yield* webCrypto
+      .verifyJwtSignature(decoded, state.public_key)
+      .pipe(Effect.orElseSucceed(() => false));
 
     if (!signatureValid) return CredentialOutcomeSchema.cases.Rejected.make({ reason: "Invalid" });
 
@@ -617,8 +678,9 @@ const resolveOAuthCredential = <E, R>(
   });
 
 export const makeOAuthCredentialAuthorityService = (
-  pool: Pool,
+  pool: SqlClient.SqlClient,
   config: OAuthProviderRuntimeConfig,
+  webCrypto: OAuthWebCryptoService,
 ): OAuthCredentialAuthorityService => ({
   resolve: (request, expected, now) =>
     Effect.flatMap(now === undefined ? DateTime.now : Effect.succeed(now), (instant) =>
@@ -629,11 +691,11 @@ export const makeOAuthCredentialAuthorityService = (
         (claims, kid) => selectTokenState(pool, claims, kid),
         config,
       ),
-    ),
+    ).pipe(Effect.provideService(OAuthWebCrypto, webCrypto)),
   resolveInTransaction: (request, expected, now) =>
     Effect.flatMap(now === undefined ? DateTime.now : Effect.succeed(now), (instant) =>
       resolveOAuthCredential(request, expected, instant, selectTokenStateInTransaction, config),
-    ),
+    ).pipe(Effect.provideService(OAuthWebCrypto, webCrypto)),
 });
 
 const sanitizedRequestContext = (context: IdentityRequestContext) => ({
@@ -657,7 +719,7 @@ const encodeAuditDetails = Schema.encodeEffect(
 );
 
 const appendAudit = (
-  client: PoolClient,
+  client: SqlClient.SqlClient,
   input: {
     readonly eventKind: string;
     readonly clientId?: string;
@@ -675,15 +737,13 @@ const appendAudit = (
   Effect.gen(function* () {
     const details = yield* encodeAuditDetails(input.details ?? {});
 
-    yield* pgQuery(
-      client,
+    yield* client.unsafe(
       `INSERT INTO auth.oauth_security_audit (
-       event_id, occurred_at, event_kind, client_id, family_id, jti,
-       subject_person_id, subject_service_principal_id, actor_principal,
-       request_correlation, source_ip, user_agent, details
-     ) VALUES ($1, date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)`,
+     event_id, occurred_at, event_kind, client_id, family_id, jti,
+     subject_person_id, subject_service_principal_id, actor_principal,
+     request_correlation, source_ip, user_agent, details
+         ) VALUES (gen_random_uuid()::text, date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb)`,
       [
-        randomUUID(),
         input.eventKind,
         input.clientId ?? null,
         input.familyId ?? null,
@@ -719,89 +779,90 @@ const validateRedirect = (value: string): void => {
   }
 };
 
-const validateManifest = flow(
-  Schema.decodeUnknownSync(OAuthClientManifestSchema, { onExcessProperty: "error" }),
-  (manifest) => {
-    if (
-      !/^[A-Za-z0-9._~-]{1,128}$/u.test(manifest.clientId) ||
-      manifest.name.trim() !== manifest.name ||
-      manifest.name.length === 0 ||
-      manifest.name.length > 160
-    ) {
-      throw new TypeError("client identifier or name is invalid");
-    }
+const decodeManifest = Schema.decodeUnknownEffect(OAuthClientManifestSchema, {
+  onExcessProperty: "error",
+});
 
-    if (new Set(manifest.redirectUris).size !== manifest.redirectUris.length) {
-      throw new TypeError("redirect URIs must be unique");
-    }
+const validateManifest = (manifest: OAuthClientManifest) => {
+  if (
+    !/^[A-Za-z0-9._~-]{1,128}$/u.test(manifest.clientId) ||
+    manifest.name.trim() !== manifest.name ||
+    manifest.name.length === 0 ||
+    manifest.name.length > 160
+  ) {
+    throw new TypeError("client identifier or name is invalid");
+  }
 
-    for (const redirect of manifest.redirectUris) validateRedirect(redirect);
+  if (new Set(manifest.redirectUris).size !== manifest.redirectUris.length) {
+    throw new TypeError("redirect URIs must be unique");
+  }
 
-    const delegated =
-      manifest.clientKind === "DelegatedPublic" || manifest.clientKind === "DelegatedConfidential";
+  for (const redirect of manifest.redirectUris) validateRedirect(redirect);
 
-    const scopesCanonical =
-      manifest.scopes.length === 1 && manifest.scopes[0] === "native-api"
-        ? true
-        : manifest.scopes.length === 2 &&
-          manifest.scopes[0] === "native-api" &&
-          manifest.scopes[1] === "offline_access";
+  const delegated =
+    manifest.clientKind === "DelegatedPublic" || manifest.clientKind === "DelegatedConfidential";
 
-    if (delegated !== manifest.redirectUris.length > 0 || (delegated && !scopesCanonical)) {
-      throw new TypeError("delegated client redirects or scopes are invalid");
-    }
-
-    if (
-      manifest.clientKind === "Service" &&
-      !(
-        manifest.redirectUris.length === 0 &&
-        manifest.scopes.length === 1 &&
+  const scopesCanonical =
+    manifest.scopes.length === 1 && manifest.scopes[0] === "native-api"
+      ? true
+      : manifest.scopes.length === 2 &&
         manifest.scopes[0] === "native-api" &&
-        manifest.servicePrincipalId !== undefined &&
-        manifest.servicePrincipalName !== undefined
-      )
-    ) {
-      throw new TypeError("service client manifest is invalid");
-    }
+        manifest.scopes[1] === "offline_access";
 
-    if (
-      manifest.clientKind === "ResourceServer" &&
-      !(
-        manifest.redirectUris.length === 0 &&
-        manifest.scopes.length === 0 &&
-        manifest.servicePrincipalId === undefined &&
-        manifest.servicePrincipalName === undefined
-      )
-    ) {
-      throw new TypeError("resource-server client manifest is invalid");
-    }
+  if (delegated !== manifest.redirectUris.length > 0 || (delegated && !scopesCanonical)) {
+    throw new TypeError("delegated client redirects or scopes are invalid");
+  }
 
-    if (
-      manifest.clientKind !== "Service" &&
-      (manifest.servicePrincipalId !== undefined || manifest.servicePrincipalName !== undefined)
-    ) {
-      throw new TypeError("only a service client can bind a service principal");
-    }
-
-    if (
+  if (
+    manifest.clientKind === "Service" &&
+    !(
+      manifest.redirectUris.length === 0 &&
+      manifest.scopes.length === 1 &&
+      manifest.scopes[0] === "native-api" &&
       manifest.servicePrincipalId !== undefined &&
-      !/^[A-Za-z0-9._~-]{1,128}$/u.test(manifest.servicePrincipalId)
-    ) {
-      throw new TypeError("service-principal identifier is invalid");
-    }
+      manifest.servicePrincipalName !== undefined
+    )
+  ) {
+    throw new TypeError("service client manifest is invalid");
+  }
 
-    if (
-      manifest.servicePrincipalName !== undefined &&
-      (manifest.servicePrincipalName.trim() !== manifest.servicePrincipalName ||
-        manifest.servicePrincipalName.length === 0 ||
-        manifest.servicePrincipalName.length > 160)
-    ) {
-      throw new TypeError("service-principal name is invalid");
-    }
+  if (
+    manifest.clientKind === "ResourceServer" &&
+    !(
+      manifest.redirectUris.length === 0 &&
+      manifest.scopes.length === 0 &&
+      manifest.servicePrincipalId === undefined &&
+      manifest.servicePrincipalName === undefined
+    )
+  ) {
+    throw new TypeError("resource-server client manifest is invalid");
+  }
 
-    return manifest;
-  },
-);
+  if (
+    manifest.clientKind !== "Service" &&
+    (manifest.servicePrincipalId !== undefined || manifest.servicePrincipalName !== undefined)
+  ) {
+    throw new TypeError("only a service client can bind a service principal");
+  }
+
+  if (
+    manifest.servicePrincipalId !== undefined &&
+    !/^[A-Za-z0-9._~-]{1,128}$/u.test(manifest.servicePrincipalId)
+  ) {
+    throw new TypeError("service-principal identifier is invalid");
+  }
+
+  if (
+    manifest.servicePrincipalName !== undefined &&
+    (manifest.servicePrincipalName.trim() !== manifest.servicePrincipalName ||
+      manifest.servicePrincipalName.length === 0 ||
+      manifest.servicePrincipalName.length > 160)
+  ) {
+    throw new TypeError("service-principal name is invalid");
+  }
+
+  return manifest;
+};
 
 const requireOperatorExecution = (execution: OAuthOperatorExecution): void => {
   if (execution.target.trim().length === 0 || execution.authority !== "operator") {
@@ -864,26 +925,28 @@ const operatorFailure =
           cause,
         });
 
-const selectActiveSigningKeys = (pool: Pool) =>
-  pgQuery<{ readonly id: string }>(
-    pool,
-    `SELECT id FROM auth.jwks
-        WHERE COALESCE(alg, '') = 'ES256'
-          AND ("expiresAt" IS NULL OR "expiresAt" > CURRENT_TIMESTAMP)
-        ORDER BY "createdAt" DESC`,
-  );
+const selectActiveSigningKeys = (pool: SqlClient.SqlClient) =>
+  pool.unsafe<{ readonly id: string }>(`SELECT id FROM auth.jwks
+      WHERE COALESCE(alg, '') = 'ES256'
+        AND ("expiresAt" IS NULL OR "expiresAt" > CURRENT_TIMESTAMP)
+      ORDER BY "createdAt" DESC`);
 
 export const makeOAuthClientOperatorService = (
-  pool: Pool,
+  pool: SqlClient.SqlClient,
   engine: OAuthEngineBoundary,
+  crypto: Crypto.Crypto,
 ): OAuthClientOperatorService => ({
   provision: (unsafeManifest, execution) =>
     Effect.gen(function* () {
+      const decodedManifest = yield* decodeManifest(unsafeManifest).pipe(
+        Effect.mapError(operatorFailure("provision")),
+      );
+
       const manifest = yield* Effect.try({
         try: () => {
           requireOperatorExecution(execution);
 
-          return validateManifest(unsafeManifest);
+          return validateManifest(decodedManifest);
         },
         catch: operatorFailure("provision"),
       });
@@ -898,10 +961,19 @@ export const makeOAuthClientOperatorService = (
       }
 
       const confidential = manifest.clientKind !== "DelegatedPublic";
-      const rawSecret = confidential ? randomBytes(32).toString("base64url") : undefined;
+
+      const rawSecret = confidential
+        ? Buffer.from(yield* crypto.randomBytes(32)).toString("base64url")
+        : undefined;
+
       const clientSecret = rawSecret === undefined ? undefined : `vkr_cs_${rawSecret}`;
 
-      const storedSecret = rawSecret === undefined ? null : hashOAuthClientSecret(rawSecret);
+      const storedSecret =
+        rawSecret === undefined
+          ? null
+          : yield* hashOAuthClientSecret(rawSecret).pipe(
+              Effect.provideService(Crypto.Crypto, crypto),
+            );
 
       const instant = yield* DateTime.now;
       const now = DateTime.toDateUtc(instant);
@@ -931,24 +1003,24 @@ export const makeOAuthClientOperatorService = (
           }),
         catch: operatorFailure("provision"),
       });
-      yield* pgTransaction(pool, (client) =>
+      yield* pool.withTransaction(
         Effect.gen(function* () {
+          const client = pool;
+
           if (manifest.clientKind === "Service") {
-            yield* pgQuery(
-              client,
+            yield* client.unsafe(
               `INSERT INTO public.service_principals (
-             service_principal_id, name, state, revision, created_at, updated_at
-           ) VALUES ($1, $2, 'Active', 0, $3, $3)`,
+                     service_principal_id, name, state, revision, created_at, updated_at
+                   ) VALUES ($1, $2, 'Active', 0, $3, $3)`,
               [manifest.servicePrincipalId, manifest.servicePrincipalName, now],
             );
           }
 
-          yield* pgQuery(
-            client,
+          yield* client.unsafe(
             `INSERT INTO auth.oauth_client_bindings (
-           client_id, client_kind, service_principal_id, secret_expires_at,
-           revision, created_at, updated_at
-         ) VALUES ($1, $2, $3, $4, 0, $5, $5)`,
+                 client_id, client_kind, service_principal_id, secret_expires_at,
+                 revision, created_at, updated_at
+               ) VALUES ($1, $2, $3, $4, 0, $5, $5)`,
             [
               manifest.clientId,
               manifest.clientKind,
@@ -989,30 +1061,31 @@ export const makeOAuthClientOperatorService = (
       });
 
       if (execution.dryRun) return { clientId };
-      const rawSecret = randomBytes(32).toString("base64url");
+      const rawSecret = Buffer.from(yield* crypto.randomBytes(32)).toString("base64url");
       const secret = `vkr_cs_${rawSecret}`;
 
-      const digest = hashOAuthClientSecret(rawSecret);
+      const digest = yield* hashOAuthClientSecret(rawSecret).pipe(
+        Effect.provideService(Crypto.Crypto, crypto),
+      );
 
-      yield* pgTransaction(pool, (client) =>
+      yield* pool.withTransaction(
         Effect.gen(function* () {
-          yield* pgQuery(client, "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
-            clientId,
-          ]);
+          const client = pool;
 
-          const updated = yield* pgQuery(
-            client,
+          yield* lockAdvisory(client, AdvisoryLockKey.oauthClient(clientId));
+
+          const updated = yield* client.unsafe(
             `UPDATE auth."oauthClient" provider
-            SET "clientSecret" = $2, "updatedAt" = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC')
-           FROM auth.oauth_client_bindings binding
-          WHERE provider."clientId" = $1
-            AND binding.client_id = provider."clientId"
-            AND binding.client_kind <> 'DelegatedPublic'
-            AND COALESCE(provider.disabled, false) = false`,
+      SET "clientSecret" = $2, "updatedAt" = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC')
+                 FROM auth.oauth_client_bindings binding
+                WHERE provider."clientId" = $1
+      AND binding.client_id = provider."clientId"
+      AND binding.client_kind <> 'DelegatedPublic'
+      AND COALESCE(provider.disabled, false) = false RETURNING provider."clientId"`,
             [clientId, digest],
           );
 
-          if (updated.rowCount !== 1) {
+          if (updated.length !== 1) {
             return yield* new OAuthClientOperatorError({
               operation: "rotateSecret",
               message: "live confidential client not found",
@@ -1020,14 +1093,13 @@ export const makeOAuthClientOperatorService = (
             });
           }
 
-          yield* pgQuery(
-            client,
+          yield* client.unsafe(
             `UPDATE auth.oauth_client_bindings
-            SET secret_expires_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC')
-                  + make_interval(secs => $2),
-                revision = revision + 1,
-                updated_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC')
-          WHERE client_id = $1`,
+      SET secret_expires_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC')
+            + make_interval(secs => $2),
+          revision = revision + 1,
+          updated_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC')
+                WHERE client_id = $1`,
             [clientId, CLIENT_SECRET_LIFETIME_MS / 1_000],
           );
           yield* appendAudit(client, {
@@ -1049,20 +1121,19 @@ export const makeOAuthClientOperatorService = (
       });
 
       if (execution.dryRun) return;
-      yield* pgTransaction(pool, (client) =>
+      yield* pool.withTransaction(
         Effect.gen(function* () {
-          yield* pgQuery(client, "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
-            clientId,
-          ]);
+          const client = pool;
 
-          const updated = yield* pgQuery(
-            client,
+          yield* lockAdvisory(client, AdvisoryLockKey.oauthClient(clientId));
+
+          const updated = yield* client.unsafe(
             `UPDATE auth."oauthClient" SET disabled = true, "updatedAt" = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC')
-          WHERE "clientId" = $1 AND COALESCE(disabled, false) = false`,
+                WHERE "clientId" = $1 AND COALESCE(disabled, false) = false RETURNING "clientId"`,
             [clientId],
           );
 
-          if (updated.rowCount !== 1) {
+          if (updated.length !== 1) {
             return yield* new OAuthClientOperatorError({
               operation: "disableClient",
               message: "live OAuth client not found",
@@ -1070,18 +1141,16 @@ export const makeOAuthClientOperatorService = (
             });
           }
 
-          yield* pgQuery(
-            client,
+          yield* client.unsafe(
             `UPDATE auth.oauth_access_token_state SET revoked_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'),
-           revocation_reason = 'client-disabled'
-         WHERE client_id = $1 AND revoked_at IS NULL`,
+                 revocation_reason = 'client-disabled'
+               WHERE client_id = $1 AND revoked_at IS NULL`,
             [clientId],
           );
-          yield* pgQuery(
-            client,
+          yield* client.unsafe(
             `UPDATE auth.oauth_refresh_families SET revoked_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'),
-           revocation_reason = 'client-disabled'
-         WHERE client_id = $1 AND revoked_at IS NULL`,
+                 revocation_reason = 'client-disabled'
+               WHERE client_id = $1 AND revoked_at IS NULL`,
             [clientId],
           );
           yield* appendAudit(client, {
@@ -1101,16 +1170,17 @@ export const makeOAuthClientOperatorService = (
       });
 
       if (execution.dryRun) return;
-      yield* pgTransaction(pool, (client) =>
+      yield* pool.withTransaction(
         Effect.gen(function* () {
-          const selected = yield* pgQuery<{ readonly client_id: string }>(
-            client,
+          const client = pool;
+
+          const selected = yield* client.unsafe<{ readonly client_id: string }>(
             `SELECT client_id FROM auth.oauth_client_bindings
-          WHERE service_principal_id = $1 FOR UPDATE`,
+                WHERE service_principal_id = $1 FOR UPDATE`,
             [servicePrincipalId],
           );
 
-          const binding = selected.rows[0];
+          const binding = selected[0];
 
           if (binding === undefined) {
             return yield* new OAuthClientOperatorError({
@@ -1120,24 +1190,21 @@ export const makeOAuthClientOperatorService = (
             });
           }
 
-          yield* pgQuery(
-            client,
+          yield* client.unsafe(
             `UPDATE public.service_principals
-            SET state = 'Disabled', revision = revision + 1, updated_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC')
-          WHERE service_principal_id = $1 AND state = 'Active'`,
+      SET state = 'Disabled', revision = revision + 1, updated_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC')
+                WHERE service_principal_id = $1 AND state = 'Active'`,
             [servicePrincipalId],
           );
-          yield* pgQuery(
-            client,
+          yield* client.unsafe(
             `UPDATE auth."oauthClient" SET disabled = true, "updatedAt" = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC')
-          WHERE "clientId" = $1`,
+                WHERE "clientId" = $1`,
             [binding.client_id],
           );
-          yield* pgQuery(
-            client,
+          yield* client.unsafe(
             `UPDATE auth.oauth_access_token_state
-            SET revoked_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'), revocation_reason = 'service-principal-disabled'
-          WHERE service_principal_id = $1 AND revoked_at IS NULL`,
+      SET revoked_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'), revocation_reason = 'service-principal-disabled'
+                WHERE service_principal_id = $1 AND revoked_at IS NULL`,
             [servicePrincipalId],
           );
           yield* appendAudit(client, {
@@ -1159,7 +1226,7 @@ export const makeOAuthClientOperatorService = (
 
       const selected = yield* selectActiveSigningKeys(pool);
 
-      if (selected.rows.length > 1) {
+      if (selected.length > 1) {
         return yield* new OAuthClientOperatorError({
           operation: "bootstrapSigningKey",
           message: "multiple active ES256 signing keys",
@@ -1167,7 +1234,7 @@ export const makeOAuthClientOperatorService = (
         });
       }
 
-      if (selected.rows[0] !== undefined) return { keyId: selected.rows[0].id };
+      if (selected[0] !== undefined) return { keyId: selected[0].id };
 
       if (execution.dryRun) return {};
       yield* Effect.tryPromise({
@@ -1182,9 +1249,9 @@ export const makeOAuthClientOperatorService = (
 
       const created = yield* selectActiveSigningKeys(pool);
 
-      const [key] = created.rows;
+      const [key] = created;
 
-      if (created.rows.length !== 1 || key === undefined) {
+      if (created.length !== 1 || key === undefined) {
         return yield* new OAuthClientOperatorError({
           operation: "bootstrapSigningKey",
           message: "signing key bootstrap did not create exactly one key",
@@ -1192,8 +1259,8 @@ export const makeOAuthClientOperatorService = (
         });
       }
 
-      yield* pgTransaction(pool, (client) =>
-        appendAudit(client, {
+      yield* pool.withTransaction(
+        appendAudit(pool, {
           eventKind: "oauth-signing-key-rotated",
           actorPrincipal: "operator",
           requestCorrelation: execution.requestCorrelation,
@@ -1214,15 +1281,14 @@ export const makeOAuthClientOperatorService = (
 
       const cutoff = now ?? (yield* DateTime.now);
 
-      const result = yield* pgQuery(
-        pool,
+      const result = yield* pool.unsafe(
         `DELETE FROM auth.jwks
-        WHERE "expiresAt" IS NOT NULL
-          AND "expiresAt" + interval '15 minutes' <= $1`,
+      WHERE "expiresAt" IS NOT NULL
+        AND "expiresAt" + interval '15 minutes' <= $1 RETURNING id`,
         [DateTime.toDateUtc(cutoff)],
       );
 
-      return result.rowCount ?? 0;
+      return result.length;
     }).pipe(Effect.mapError(operatorFailure("retireSigningKeys"))),
 });
 
@@ -1236,9 +1302,10 @@ const clientAuthoritySql = `SELECT binding.client_id, binding.client_kind, bindi
        JOIN auth."oauthClient" client ON client."clientId" = binding.client_id
       WHERE binding.client_id = $1`;
 
-const readClientAuthority = (pool: Pool, clientId: string) =>
-  pgQuery<ClientAuthorityRow>(pool, clientAuthoritySql, [clientId]).pipe(
-    Effect.map((result) => result.rows[0]),
+const readClientAuthority = (pool: SqlClient.SqlClient, clientId: string) =>
+  pool.unsafe<ClientAuthorityRow>(clientAuthoritySql, [clientId]).pipe(
+    Effect.flatMap(decodeClientAuthorityRows),
+    Effect.map((result) => result[0]),
   );
 
 /** The HTTP Basic client credential of `request`; malformed percent-encoding fails. */
@@ -1263,12 +1330,13 @@ const basicClientCredential = (request: Request) =>
   });
 
 const authorizeTokenClient = (
-  pool: Pool,
+  pool: SqlClient.SqlClient,
   request: Request,
   form: URLSearchParams,
   now: DateTime.Utc,
 ) =>
   Effect.gen(function* () {
+    const webCrypto = yield* OAuthWebCrypto;
     const basic = yield* basicClientCredential(request);
     const formClientId = form.get("client_id");
     const clientId = basic?.clientId ?? formClientId;
@@ -1292,10 +1360,10 @@ const authorizeTokenClient = (
       !basic.secret.startsWith("vkr_cs_") ||
       client.token_endpoint_auth_method !== "client_secret_basic" ||
       client.client_secret === null ||
-      !constantDigestEqual(
-        hashOAuthClientSecret(basic.secret.slice("vkr_cs_".length)),
+      !(yield* webCrypto.digestsEqual(
         client.client_secret,
-      )
+        yield* hashOAuthClientSecret(basic.secret.slice("vkr_cs_".length)),
+      ))
     ) {
       return undefined;
     }
@@ -1303,8 +1371,13 @@ const authorizeTokenClient = (
     return client;
   });
 
-const authorizeOAuthIntrospectionClient = (pool: Pool, request: Request, now: DateTime.Utc) =>
+const authorizeOAuthIntrospectionClient = (
+  pool: SqlClient.SqlClient,
+  request: Request,
+  now: DateTime.Utc,
+) =>
   Effect.gen(function* () {
+    const webCrypto = yield* OAuthWebCrypto;
     const basic = yield* basicClientCredential(request);
 
     if (basic === undefined) return false;
@@ -1320,22 +1393,21 @@ const authorizeOAuthIntrospectionClient = (pool: Pool, request: Request, now: Da
       client.secret_expires_at.getTime() <= DateTime.toEpochMillis(now) ||
       client.scopes?.length !== 0 ||
       !basic.secret.startsWith("vkr_cs_") ||
-      !constantDigestEqual(
-        hashOAuthClientSecret(basic.secret.slice("vkr_cs_".length)),
+      !(yield* webCrypto.digestsEqual(
         client.client_secret,
-      )
+        yield* hashOAuthClientSecret(basic.secret.slice("vkr_cs_".length)),
+      ))
     ) {
       return false;
     }
 
-    const linked = yield* pgQuery(
-      pool,
+    const linked = yield* pool.unsafe(
       `SELECT 1 FROM auth."oauthClientResource"
-      WHERE "clientId" = $1 AND "resourceId" = $2`,
+    WHERE "clientId" = $1 AND "resourceId" = $2`,
       [client.client_id, OAUTH_NATIVE_API_RESOURCE],
     );
 
-    return linked.rowCount === 1;
+    return linked.length === 1;
   });
 
 const requestText = (request: Request) =>
@@ -1386,7 +1458,12 @@ const inactiveIntrospectionResponse = (): Response =>
   );
 
 export const makeOAuthInternalIntrospectionHandler =
-  (engine: OAuthEngineBoundary, pool: Pool): OAuthIntrospectionHandler =>
+  (
+    engine: OAuthEngineBoundary,
+    pool: SqlClient.SqlClient,
+    webCrypto: OAuthWebCryptoService,
+    crypto: Crypto.Crypto,
+  ): OAuthIntrospectionHandler =>
   (request, context) =>
     Effect.gen(function* () {
       const pathname = new URL(request.url).pathname;
@@ -1397,16 +1474,18 @@ export const makeOAuthInternalIntrospectionHandler =
 
       // The rejection answers inactive even when its audit row cannot be written.
       const reject = (reason: string) =>
-        pgTransaction(pool, (transaction) =>
-          appendAudit(transaction, {
-            eventKind: "oauth-introspection-rejected",
-            actorPrincipal: "resource-server",
-            requestCorrelation: context.requestCorrelation,
-            sourceIp: sanitizedRequestContext(context).sourceIp,
-            userAgent: sanitizedRequestContext(context).userAgent,
-            details: { denial_category: reason },
-          }),
-        ).pipe(Effect.ignore, Effect.map(inactiveIntrospectionResponse));
+        pool
+          .withTransaction(
+            appendAudit(pool, {
+              eventKind: "oauth-introspection-rejected",
+              actorPrincipal: "resource-server",
+              requestCorrelation: context.requestCorrelation,
+              sourceIp: sanitizedRequestContext(context).sourceIp,
+              userAgent: sanitizedRequestContext(context).userAgent,
+              details: { denial_category: reason },
+            }),
+          )
+          .pipe(Effect.ignore, Effect.map(inactiveIntrospectionResponse));
 
       if (
         request.headers.get("cookie") !== null ||
@@ -1441,57 +1520,56 @@ export const makeOAuthInternalIntrospectionHandler =
         return inactiveIntrospectionResponse();
       }
 
-      const tracked = yield* pgQuery(
-        pool,
+      const tracked = yield* pool.unsafe(
         `SELECT 1
-         FROM auth.oauth_access_token_state state
-         JOIN auth.oauth_client_bindings binding ON binding.client_id = state.client_id
-         JOIN auth."oauthClient" client ON client."clientId" = state.client_id
-         LEFT JOIN public.service_principals principal
-           ON principal.service_principal_id = state.service_principal_id
-         LEFT JOIN auth.usable_human_sessions session ON session.id = state.session_id
-         LEFT JOIN auth.oauth_refresh_families family ON family.family_id = state.family_id
-        WHERE state.jti = $1
-          AND state.client_id = $2
-          AND state.revoked_at IS NULL
-          AND state.issued_at <= CURRENT_TIMESTAMP
-          AND CURRENT_TIMESTAMP < state.expires_at
-          AND COALESCE(client.disabled, false) = false
-          AND (binding.secret_expires_at IS NULL OR CURRENT_TIMESTAMP < binding.secret_expires_at)
-          AND EXISTS (
-            SELECT 1 FROM auth."oauthClientResource" linked
-             WHERE linked."clientId" = state.client_id
-               AND linked."resourceId" = $5
-          )
-          AND (
-            (binding.client_kind = 'Service' AND $6 = 'native-api')
-            OR
-            (binding.client_kind IN ('DelegatedPublic', 'DelegatedConfidential')
-             AND $6 IN ('native-api', 'native-api offline_access'))
-          )
-          AND (
-            (state.principal_kind = 'Person'
-             AND state.person_id = $3
-             AND state.session_id IS NOT DISTINCT FROM $4
-             AND session.id IS NOT NULL
-             AND CURRENT_TIMESTAMP < session."expiresAt"
-             AND EXISTS (
-               SELECT 1 FROM auth."oauthConsent" consent
-                WHERE consent."clientId" = state.client_id
-                  AND consent."userId" = state.person_id
-             )
-             AND (family.family_id IS NULL OR (
-               family.revoked_at IS NULL
-               AND CURRENT_TIMESTAMP < family.inactivity_expires_at
-               AND CURRENT_TIMESTAMP < family.absolute_expires_at
-             )))
-            OR
-            (state.principal_kind = 'ServicePrincipal'
-             AND state.service_principal_id IS NOT NULL
-             AND principal.state = 'Active'
-             AND state.client_id = $3
-             AND $4::text IS NULL)
-          )`,
+       FROM auth.oauth_access_token_state state
+       JOIN auth.oauth_client_bindings binding ON binding.client_id = state.client_id
+       JOIN auth."oauthClient" client ON client."clientId" = state.client_id
+       LEFT JOIN public.service_principals principal
+         ON principal.service_principal_id = state.service_principal_id
+       LEFT JOIN auth.usable_human_sessions session ON session.id = state.session_id
+       LEFT JOIN auth.oauth_refresh_families family ON family.family_id = state.family_id
+      WHERE state.jti = $1
+        AND state.client_id = $2
+        AND state.revoked_at IS NULL
+        AND state.issued_at <= CURRENT_TIMESTAMP
+        AND CURRENT_TIMESTAMP < state.expires_at
+        AND COALESCE(client.disabled, false) = false
+        AND (binding.secret_expires_at IS NULL OR CURRENT_TIMESTAMP < binding.secret_expires_at)
+        AND EXISTS (
+          SELECT 1 FROM auth."oauthClientResource" linked
+           WHERE linked."clientId" = state.client_id
+             AND linked."resourceId" = $5
+        )
+        AND (
+          (binding.client_kind = 'Service' AND $6 = 'native-api')
+          OR
+          (binding.client_kind IN ('DelegatedPublic', 'DelegatedConfidential')
+           AND $6 IN ('native-api', 'native-api offline_access'))
+        )
+        AND (
+          (state.principal_kind = 'Person'
+           AND state.person_id = $3
+           AND state.session_id IS NOT DISTINCT FROM $4
+           AND session.id IS NOT NULL
+           AND CURRENT_TIMESTAMP < session."expiresAt"
+           AND EXISTS (
+             SELECT 1 FROM auth."oauthConsent" consent
+              WHERE consent."clientId" = state.client_id
+                AND consent."userId" = state.person_id
+           )
+           AND (family.family_id IS NULL OR (
+             family.revoked_at IS NULL
+             AND CURRENT_TIMESTAMP < family.inactivity_expires_at
+             AND CURRENT_TIMESTAMP < family.absolute_expires_at
+           )))
+          OR
+          (state.principal_kind = 'ServicePrincipal'
+           AND state.service_principal_id IS NOT NULL
+           AND principal.state = 'Active'
+           AND state.client_id = $3
+           AND $4::text IS NULL)
+        )`,
         [
           parsed.jti,
           parsed.client_id,
@@ -1502,7 +1580,7 @@ export const makeOAuthInternalIntrospectionHandler =
         ],
       );
 
-      if (tracked.rowCount !== 1) return inactiveIntrospectionResponse();
+      if (tracked.length !== 1) return inactiveIntrospectionResponse();
 
       const allowed = [
         "active",
@@ -1528,7 +1606,10 @@ export const makeOAuthInternalIntrospectionHandler =
         status: 200,
         headers: { "cache-control": "no-store", pragma: "no-cache" },
       });
-    });
+    }).pipe(
+      Effect.provideService(OAuthWebCrypto, webCrypto),
+      Effect.provideService(Crypto.Crypto, crypto),
+    );
 
 const invalidOAuthResponse = (status: number, error: string): Response =>
   Response.json(
@@ -1544,21 +1625,27 @@ const invalidOAuthResponse = (status: number, error: string): Response =>
  * whatever `use` does; the client returns to the pool afterwards.
  */
 const withSessionAdvisoryLock = <A, E, R>(
-  pool: Pool,
+  pool: SqlClient.SqlClient,
   key: string,
   use: Effect.Effect<A, E, R>,
-): Effect.Effect<A, E | PgQueryError, R> =>
-  pgWithClient(pool, (client) =>
-    pgQuery(client, "SELECT pg_advisory_lock(hashtextextended($1, 0))", [key]).pipe(
-      Effect.andThen(use),
-      Effect.ensuring(
-        Effect.ignore(pgQuery(client, "SELECT pg_advisory_unlock(hashtextextended($1, 0))", [key])),
-      ),
-    ),
+): Effect.Effect<A, E | SqlError, R> =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const connection = yield* pool.reserve;
+      yield* Effect.acquireRelease(
+        connection.execute("SELECT pg_advisory_lock(hashtextextended($1, 0))", [key], undefined),
+        () =>
+          connection
+            .execute("SELECT pg_advisory_unlock(hashtextextended($1, 0))", [key], undefined)
+            .pipe(Effect.orDie),
+      );
+
+      return yield* use;
+    }),
   );
 
 const insertIssuedToken = (
-  transaction: PoolClient,
+  transaction: SqlClient.SqlClient,
   claims: NativeAccessTokenClaims,
   client: ClientAuthorityRow,
   familyId: string | null,
@@ -1567,12 +1654,11 @@ const insertIssuedToken = (
   Effect.gen(function* () {
     const requestContext = sanitizedRequestContext(context);
 
-    yield* pgQuery(
-      transaction,
+    yield* transaction.unsafe(
       `INSERT INTO auth.oauth_access_token_state (
-         jti, family_id, client_id, principal_kind, person_id,
-         service_principal_id, session_id, issued_at, expires_at
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, to_timestamp($8), to_timestamp($9))`,
+       jti, family_id, client_id, principal_kind, person_id,
+       service_principal_id, session_id, issued_at, expires_at
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, to_timestamp($8), to_timestamp($9))`,
       [
         claims.jti,
         familyId,
@@ -1624,17 +1710,16 @@ interface OpenedRefreshFamily {
  * Opens a refresh family at the issue instant of its first token. Migration 0077 defines its
  * windows, which its checks enforce.
  */
-export const openRefreshFamily = (transaction: PoolClient, family: OpenedRefreshFamily) =>
-  pgQuery(
-    transaction,
+export const openRefreshFamily = (transaction: SqlClient.SqlClient, family: OpenedRefreshFamily) =>
+  transaction.unsafe(
     `INSERT INTO auth.oauth_refresh_families (
-       family_id, authorization_code_id, client_id, person_id, session_id,
-       created_at, last_used_at, inactivity_expires_at, absolute_expires_at
-     ) VALUES (
-       $1, $2, $3, $4, $5, $6, $6,
-       auth.oauth_refresh_inactivity_expires_at($6, auth.oauth_refresh_absolute_expires_at($6)),
-       auth.oauth_refresh_absolute_expires_at($6)
-     )`,
+     family_id, authorization_code_id, client_id, person_id, session_id,
+     created_at, last_used_at, inactivity_expires_at, absolute_expires_at
+   ) VALUES (
+     $1, $2, $3, $4, $5, $6, $6,
+     auth.oauth_refresh_inactivity_expires_at($6, auth.oauth_refresh_absolute_expires_at($6)),
+     auth.oauth_refresh_absolute_expires_at($6)
+   )`,
     [
       family.familyId,
       family.authorizationCodeId,
@@ -1646,59 +1731,61 @@ export const openRefreshFamily = (transaction: PoolClient, family: OpenedRefresh
   );
 
 /** Records a refresh at `usedAt`, the issue instant of the new token in epoch seconds. */
-export const recordRefreshFamilyUse = (transaction: PoolClient, familyId: string, usedAt: number) =>
-  pgQuery(
-    transaction,
+export const recordRefreshFamilyUse = (
+  transaction: SqlClient.SqlClient,
+  familyId: string,
+  usedAt: number,
+) =>
+  transaction.unsafe(
     `UPDATE auth.oauth_refresh_families
-        SET last_used_at = to_timestamp($2),
-            inactivity_expires_at =
-              auth.oauth_refresh_inactivity_expires_at(to_timestamp($2), absolute_expires_at)
-      WHERE family_id = $1 AND revoked_at IS NULL`,
+      SET last_used_at = to_timestamp($2),
+          inactivity_expires_at =
+            auth.oauth_refresh_inactivity_expires_at(to_timestamp($2), absolute_expires_at)
+    WHERE family_id = $1 AND revoked_at IS NULL`,
     [familyId, usedAt],
   );
 
 const initialCodeExchange = (
   engine: OAuthEngineBoundary,
-  pool: Pool,
+  pool: SqlClient.SqlClient,
   request: Request,
   form: URLSearchParams,
   client: ClientAuthorityRow,
   context: IdentityRequestContext,
   config: OAuthProviderRuntimeConfig,
+  crypto: Crypto.Crypto,
 ) =>
   Effect.gen(function* () {
     const code = form.get("code");
 
     if (code === null) return invalidOAuthResponse(400, "invalid_request");
-    const codeDigest = hashOAuthToken(code, "authorization_code");
+    const codeDigest = yield* hashOAuthToken(code, "authorization_code");
 
     return yield* withSessionAdvisoryLock(
       pool,
       `oauth-code:${codeDigest}`,
       Effect.gen(function* () {
-        const replay = yield* pgQuery<{ readonly family_id: string }>(
-          pool,
+        const replay = yield* pool.unsafe<{ readonly family_id: string }>(
           `SELECT family_id FROM auth.oauth_refresh_families WHERE authorization_code_id = $1`,
           [codeDigest],
         );
 
-        const replayed = replay.rows[0];
+        const replayed = replay[0];
 
         if (replayed !== undefined) {
-          yield* pgTransaction(pool, (transaction) =>
+          yield* pool.withTransaction(
             Effect.gen(function* () {
-              yield* pgQuery(
-                transaction,
+              const transaction = pool;
+              yield* transaction.unsafe(
                 `UPDATE auth.oauth_refresh_families SET revoked_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'),
-             revocation_reason = 'code-replay'
-           WHERE family_id = $1 AND revoked_at IS NULL`,
+                       revocation_reason = 'code-replay'
+                     WHERE family_id = $1 AND revoked_at IS NULL`,
                 [replayed.family_id],
               );
-              yield* pgQuery(
-                transaction,
+              yield* transaction.unsafe(
                 `UPDATE auth.oauth_access_token_state SET revoked_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'),
-             revocation_reason = 'code-replay'
-           WHERE family_id = $1 AND revoked_at IS NULL`,
+                       revocation_reason = 'code-replay'
+                     WHERE family_id = $1 AND revoked_at IS NULL`,
                 [replayed.family_id],
               );
               yield* appendAudit(transaction, {
@@ -1734,7 +1821,7 @@ const initialCodeExchange = (
         }
 
         const family = {
-          familyId: randomUUID(),
+          familyId: yield* crypto.randomUUIDv4,
           authorizationCodeId: codeDigest,
           clientId: client.client_id,
           personId: decoded.claims.sub,
@@ -1742,8 +1829,9 @@ const initialCodeExchange = (
           issuedAt: DateTime.makeUnsafe(decoded.claims.iat * 1_000),
         };
 
-        yield* pgTransaction(pool, (transaction) =>
+        yield* pool.withTransaction(
           Effect.gen(function* () {
+            const transaction = pool;
             yield* openRefreshFamily(transaction, family);
             yield* insertIssuedToken(transaction, decoded.claims, client, family.familyId, context);
           }),
@@ -1756,7 +1844,7 @@ const initialCodeExchange = (
 
 const refreshExchange = (
   engine: OAuthEngineBoundary,
-  pool: Pool,
+  pool: SqlClient.SqlClient,
   request: Request,
   form: URLSearchParams,
   client: ClientAuthorityRow,
@@ -1767,24 +1855,25 @@ const refreshExchange = (
     const refreshToken = form.get("refresh_token");
 
     if (refreshToken === null) return invalidOAuthResponse(400, "invalid_request");
-    const digest = refreshTokenDigest(refreshToken);
+    const digest = yield* refreshTokenDigest(refreshToken);
 
     if (digest === undefined) return invalidOAuthResponse(400, "invalid_grant");
 
-    const before = yield* pgQuery<RefreshLookupRow>(
-      pool,
-      `SELECT token."authorizationCodeId" AS authorization_code_id,
-            token."clientId" AS client_id, token."sessionId" AS session_id,
-            token."userId" AS user_id, token.revoked, token."rotatedAt" AS rotated_at,
-            token."expiresAt" AS expires_at, family.family_id
-       FROM auth."oauthRefreshToken" token
-       LEFT JOIN auth.oauth_refresh_families family
-         ON family.authorization_code_id = token."authorizationCodeId"
-      WHERE token.token = $1`,
-      [digest],
-    );
+    const before = yield* pool
+      .unsafe<RefreshLookupRow>(
+        `SELECT token."authorizationCodeId" AS authorization_code_id,
+          token."clientId" AS client_id, token."sessionId" AS session_id,
+          token."userId" AS user_id, token.revoked, token."rotatedAt" AS rotated_at,
+          token."expiresAt" AS expires_at, family.family_id
+     FROM auth."oauthRefreshToken" token
+     LEFT JOIN auth.oauth_refresh_families family
+       ON family.authorization_code_id = token."authorizationCodeId"
+    WHERE token.token = $1`,
+        [digest],
+      )
+      .pipe(Effect.flatMap(decodeRefreshLookupRows));
 
-    const lookup = before.rows[0];
+    const lookup = before[0];
 
     if (
       lookup === undefined ||
@@ -1800,33 +1889,35 @@ const refreshExchange = (
       pool,
       `oauth-family:${lookup.authorization_code_id}`,
       Effect.gen(function* () {
-        const reread = yield* pgQuery<RefreshLookupRow>(
-          pool,
-          `SELECT token."authorizationCodeId" AS authorization_code_id,
-              token."clientId" AS client_id, token."sessionId" AS session_id,
-              token."userId" AS user_id, token.revoked, token."rotatedAt" AS rotated_at,
-              token."expiresAt" AS expires_at, family.family_id
-         FROM auth."oauthRefreshToken" token
-         LEFT JOIN auth.oauth_refresh_families family
-           ON family.authorization_code_id = token."authorizationCodeId"
-        WHERE token.token = $1`,
-          [digest],
-        );
+        const reread = yield* pool
+          .unsafe<RefreshLookupRow>(
+            `SELECT token."authorizationCodeId" AS authorization_code_id,
+            token."clientId" AS client_id, token."sessionId" AS session_id,
+            token."userId" AS user_id, token.revoked, token."rotatedAt" AS rotated_at,
+            token."expiresAt" AS expires_at, family.family_id
+                 FROM auth."oauthRefreshToken" token
+                 LEFT JOIN auth.oauth_refresh_families family
+         ON family.authorization_code_id = token."authorizationCodeId"
+                WHERE token.token = $1`,
+            [digest],
+          )
+          .pipe(Effect.flatMap(decodeRefreshLookupRows));
 
-        const current = reread.rows[0];
+        const current = reread[0];
 
-        const family = yield* pgQuery<{
-          readonly revoked_at: Date | null;
-          readonly inactivity_expires_at: Date;
-          readonly absolute_expires_at: Date;
-        }>(
-          pool,
-          `SELECT revoked_at, inactivity_expires_at, absolute_expires_at
-         FROM auth.oauth_refresh_families WHERE family_id = $1`,
-          [familyId],
-        );
+        const family = yield* pool
+          .unsafe<{
+            readonly revoked_at: Date | null;
+            readonly inactivity_expires_at: Date;
+            readonly absolute_expires_at: Date;
+          }>(
+            `SELECT revoked_at, inactivity_expires_at, absolute_expires_at
+                 FROM auth.oauth_refresh_families WHERE family_id = $1`,
+            [familyId],
+          )
+          .pipe(Effect.flatMap(decodeRefreshFamilyRows));
 
-        const state = family.rows[0];
+        const state = family[0];
         const now = DateTime.toEpochMillis(yield* DateTime.now);
 
         if (
@@ -1840,20 +1931,19 @@ const refreshExchange = (
           state.inactivity_expires_at.getTime() <= now ||
           state.absolute_expires_at.getTime() <= now
         ) {
-          yield* pgTransaction(pool, (transaction) =>
+          yield* pool.withTransaction(
             Effect.gen(function* () {
-              yield* pgQuery(
-                transaction,
+              const transaction = pool;
+              yield* transaction.unsafe(
                 `UPDATE auth.oauth_refresh_families SET revoked_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'),
-             revocation_reason = 'refresh-replay'
-           WHERE family_id = $1 AND revoked_at IS NULL`,
+                       revocation_reason = 'refresh-replay'
+                     WHERE family_id = $1 AND revoked_at IS NULL`,
                 [familyId],
               );
-              yield* pgQuery(
-                transaction,
+              yield* transaction.unsafe(
                 `UPDATE auth.oauth_access_token_state SET revoked_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'),
-             revocation_reason = 'refresh-replay'
-           WHERE family_id = $1 AND revoked_at IS NULL`,
+                       revocation_reason = 'refresh-replay'
+                     WHERE family_id = $1 AND revoked_at IS NULL`,
                 [familyId],
               );
               yield* appendAudit(transaction, {
@@ -1869,13 +1959,12 @@ const refreshExchange = (
           return invalidOAuthResponse(400, "invalid_grant");
         }
 
-        const usableSession = yield* pgQuery(
-          pool,
+        const usableSession = yield* pool.unsafe(
           'SELECT 1 FROM auth.usable_human_sessions WHERE id=$1 AND "userId"=$2',
           [current.session_id, current.user_id],
         );
 
-        if (usableSession.rowCount !== 1) return invalidOAuthResponse(400, "invalid_grant");
+        if (usableSession.length !== 1) return invalidOAuthResponse(400, "invalid_grant");
 
         const buffered = yield* boundedProviderResponse(engine, request);
 
@@ -1896,8 +1985,9 @@ const refreshExchange = (
           });
         }
 
-        yield* pgTransaction(pool, (transaction) =>
+        yield* pool.withTransaction(
           Effect.gen(function* () {
+            const transaction = pool;
             yield* recordRefreshFamilyUse(transaction, familyId, decoded.claims.iat);
             yield* insertIssuedToken(transaction, decoded.claims, client, familyId, context);
           }),
@@ -1910,7 +2000,7 @@ const refreshExchange = (
 
 const serviceExchange = (
   engine: OAuthEngineBoundary,
-  pool: Pool,
+  pool: SqlClient.SqlClient,
   request: Request,
   client: ClientAuthorityRow,
   context: IdentityRequestContext,
@@ -1945,19 +2035,18 @@ const serviceExchange = (
       });
     }
 
-    yield* pgTransaction(pool, (transaction) =>
-      insertIssuedToken(transaction, decoded.claims, client, null, context),
-    );
+    yield* pool.withTransaction(insertIssuedToken(pool, decoded.claims, client, null, context));
 
     return buffered.response;
   });
 
 const handleToken = (
   engine: OAuthEngineBoundary,
-  pool: Pool,
+  pool: SqlClient.SqlClient,
   request: Request,
   context: IdentityRequestContext,
   config: OAuthProviderRuntimeConfig,
+  crypto: Crypto.Crypto,
 ) =>
   Effect.gen(function* () {
     if (request.headers.get("cookie") !== null) {
@@ -2007,7 +2096,16 @@ const handleToken = (
         return invalidOAuthResponse(400, "invalid_grant");
       }
 
-      return yield* initialCodeExchange(engine, pool, request, form, client, context, config);
+      return yield* initialCodeExchange(
+        engine,
+        pool,
+        request,
+        form,
+        client,
+        context,
+        config,
+        crypto,
+      );
     }
 
     if (grantType === "refresh_token") {
@@ -2040,7 +2138,7 @@ const handleToken = (
 
 const handleRevocation = (
   engine: OAuthEngineBoundary,
-  pool: Pool,
+  pool: SqlClient.SqlClient,
   request: Request,
   context: IdentityRequestContext,
 ) =>
@@ -2067,7 +2165,7 @@ const handleRevocation = (
     if (client === undefined) return invalidOAuthResponse(401, "invalid_client");
 
     if (token.split(".").length === 3) {
-      const decodedJwt = Result.try(() => decodeJwt(token));
+      const decodedJwt = yield* Effect.result(decodeJwt(token));
 
       if (Result.isFailure(decodedJwt)) {
         return new Response(null, { status: 200, headers: { "cache-control": "no-store" } });
@@ -2083,18 +2181,19 @@ const handleRevocation = (
         return new Response(null, { status: 200, headers: { "cache-control": "no-store" } });
       }
 
-      yield* pgTransaction(pool, (transaction) =>
+      yield* pool.withTransaction(
         Effect.gen(function* () {
-          const updated = yield* pgQuery<{ readonly family_id: string | null }>(
-            transaction,
+          const transaction = pool;
+
+          const updated = yield* transaction.unsafe<{ readonly family_id: string | null }>(
             `UPDATE auth.oauth_access_token_state
-            SET revoked_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'), revocation_reason = 'explicit-access-token'
-          WHERE jti = $1 AND client_id = $2 AND revoked_at IS NULL
-          RETURNING family_id`,
+      SET revoked_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'), revocation_reason = 'explicit-access-token'
+                WHERE jti = $1 AND client_id = $2 AND revoked_at IS NULL
+                RETURNING family_id`,
             [decoded.claims.jti, client.client_id],
           );
 
-          const revoked = updated.rows[0];
+          const revoked = updated[0];
 
           if (revoked !== undefined) {
             yield* appendAudit(transaction, {
@@ -2115,7 +2214,7 @@ const handleRevocation = (
       });
     }
 
-    const refreshDigest = refreshTokenDigest(token);
+    const refreshDigest = yield* refreshTokenDigest(token);
 
     if (refreshDigest === undefined) {
       return new Response(null, {
@@ -2124,35 +2223,34 @@ const handleRevocation = (
       });
     }
 
-    yield* pgTransaction(pool, (transaction) =>
+    yield* pool.withTransaction(
       Effect.gen(function* () {
-        const family = yield* pgQuery<{ readonly family_id: string }>(
-          transaction,
+        const transaction = pool;
+
+        const family = yield* transaction.unsafe<{ readonly family_id: string }>(
           `SELECT family.family_id
-         FROM auth.oauth_refresh_families family
-         JOIN auth."oauthRefreshToken" refresh
-           ON refresh."authorizationCodeId" = family.authorization_code_id
-        WHERE refresh.token = $1
-          AND family.client_id = $2
-        FOR UPDATE OF family`,
+             FROM auth.oauth_refresh_families family
+             JOIN auth."oauthRefreshToken" refresh
+     ON refresh."authorizationCodeId" = family.authorization_code_id
+            WHERE refresh.token = $1
+    AND family.client_id = $2
+            FOR UPDATE OF family`,
           [refreshDigest, client.client_id],
         );
 
-        const owned = family.rows[0];
+        const owned = family[0];
 
         if (owned === undefined) return;
-        yield* pgQuery(
-          transaction,
+        yield* transaction.unsafe(
           `UPDATE auth.oauth_refresh_families
-          SET revoked_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'), revocation_reason = 'explicit-refresh-token'
-        WHERE family_id = $1 AND revoked_at IS NULL`,
+    SET revoked_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'), revocation_reason = 'explicit-refresh-token'
+            WHERE family_id = $1 AND revoked_at IS NULL`,
           [owned.family_id],
         );
-        yield* pgQuery(
-          transaction,
+        yield* transaction.unsafe(
           `UPDATE auth.oauth_access_token_state
-          SET revoked_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'), revocation_reason = 'explicit-refresh-token'
-        WHERE family_id = $1 AND revoked_at IS NULL`,
+    SET revoked_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'), revocation_reason = 'explicit-refresh-token'
+            WHERE family_id = $1 AND revoked_at IS NULL`,
           [owned.family_id],
         );
         yield* appendAudit(transaction, {
@@ -2181,7 +2279,7 @@ const handleRevocation = (
 
 const handleConsentWithdrawal = (
   engine: OAuthEngineBoundary,
-  pool: Pool,
+  pool: SqlClient.SqlClient,
   request: Request,
   context: IdentityRequestContext,
 ) =>
@@ -2197,6 +2295,7 @@ const handleConsentWithdrawal = (
       engine,
       new Request(new URL("/api/auth/get-session", request.url), {
         headers: { cookie: request.headers.get("cookie") ?? "" },
+        signal: request.signal,
       }),
     );
 
@@ -2213,33 +2312,32 @@ const handleConsentWithdrawal = (
 
     const personId = user.id;
 
-    const consent = yield* pgQuery<{ readonly client_id: string }>(
-      pool,
+    const consent = yield* pool.unsafe<{ readonly client_id: string }>(
       `SELECT "clientId" AS client_id FROM auth."oauthConsent"
-      WHERE id = $1 AND "userId" = $2`,
+    WHERE id = $1 AND "userId" = $2`,
       [body.id, personId],
     );
 
-    const owned = consent.rows[0];
+    const owned = consent[0];
 
     if (owned === undefined) return invalidOAuthResponse(404, "invalid_request");
 
-    yield* pgTransaction(pool, (transaction) =>
+    yield* pool.withTransaction(
       Effect.gen(function* () {
-        const families = yield* pgQuery<{ readonly family_id: string }>(
-          transaction,
+        const transaction = pool;
+
+        const families = yield* transaction.unsafe<{ readonly family_id: string }>(
           `UPDATE auth.oauth_refresh_families
-          SET revoked_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'), revocation_reason = 'consent-withdrawn'
-        WHERE client_id = $1 AND person_id = $2 AND revoked_at IS NULL
-        RETURNING family_id`,
+    SET revoked_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'), revocation_reason = 'consent-withdrawn'
+            WHERE client_id = $1 AND person_id = $2 AND revoked_at IS NULL
+            RETURNING family_id`,
           [owned.client_id, personId],
         );
 
-        yield* pgQuery(
-          transaction,
+        yield* transaction.unsafe(
           `UPDATE auth.oauth_access_token_state
-          SET revoked_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'), revocation_reason = 'consent-withdrawn'
-        WHERE client_id = $1 AND person_id = $2 AND revoked_at IS NULL`,
+    SET revoked_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'), revocation_reason = 'consent-withdrawn'
+            WHERE client_id = $1 AND person_id = $2 AND revoked_at IS NULL`,
           [owned.client_id, personId],
         );
         yield* appendAudit(transaction, {
@@ -2248,7 +2346,7 @@ const handleConsentWithdrawal = (
           personId,
           actorPrincipal: `person:${personId}`,
           requestCorrelation: context.requestCorrelation,
-          details: { affected_count: families.rowCount ?? 0 },
+          details: { affected_count: families.length },
         });
       }),
     );
@@ -2264,7 +2362,11 @@ const handleConsentWithdrawal = (
     return response;
   });
 
-const handlePublicClient = (engine: OAuthEngineBoundary, pool: Pool, request: Request) =>
+const handlePublicClient = (
+  engine: OAuthEngineBoundary,
+  pool: SqlClient.SqlClient,
+  request: Request,
+) =>
   Effect.gen(function* () {
     const clientId = new URL(request.url).searchParams.get("client_id");
 
@@ -2312,8 +2414,10 @@ const handlePublicClient = (engine: OAuthEngineBoundary, pool: Pool, request: Re
 export const makeOAuthReleaseBarrier =
   (
     engine: OAuthEngineBoundary,
-    pool: Pool,
+    pool: SqlClient.SqlClient,
     config: OAuthProviderRuntimeConfig,
+    crypto: Crypto.Crypto,
+    webCrypto: OAuthWebCryptoService,
   ): OAuthReleaseHandler =>
   (request, context) =>
     Effect.gen(function* () {
@@ -2324,7 +2428,7 @@ export const makeOAuthReleaseBarrier =
       }
 
       if (request.method === "POST" && pathname === "/api/auth/oauth2/token") {
-        return yield* handleToken(engine, pool, request, context, config);
+        return yield* handleToken(engine, pool, request, context, config, crypto);
       }
 
       if (request.method === "POST" && pathname === "/api/auth/oauth2/revoke") {
@@ -2339,7 +2443,7 @@ export const makeOAuthReleaseBarrier =
 
       if (pathname === "/api/auth/jwks" && response.ok) {
         const body = yield* responseText(response);
-        const etag = `"${createHash("sha256").update(body, "utf8").digest("base64url")}"`;
+        const etag = `"${Buffer.from(sha256Hex(new TextEncoder().encode(body)), "hex").toString("base64url")}"`;
 
         return new Response(body, {
           status: response.status,
@@ -2359,25 +2463,30 @@ export const makeOAuthReleaseBarrier =
 
       return response;
     }).pipe(
-      // The barrier answers every failure and defect of the exchange as temporarily unavailable.
-      Effect.catchCause(() =>
-        Effect.succeed(
-          Response.json(
-            { error: "temporarily_unavailable" },
-            {
-              status: 503,
-              headers: { "cache-control": "no-store", pragma: "no-cache" },
-            },
-          ),
-        ),
-      ),
+      Effect.provideService(OAuthWebCrypto, webCrypto),
+      Effect.provideService(Crypto.Crypto, crypto),
+      withIdentityRequestCancellation(request),
+      // The barrier answers exchange failures, never cancellation.
+      Effect.catchCause((cause) => {
+        if (Cause.hasInterrupts(cause)) {
+          // Expected exchange failures are transport-owned; never let typed recovery
+          // erase a mixed interruption/defect cause through native catch's first-failure lookup.
+          const interrupted = Cause.fromReasons<never>(
+            cause.reasons.filter(Predicate.or(Cause.isDieReason, Cause.isInterruptReason)),
+          );
+
+          return Effect.failCause(interrupted);
+        }
+
+        return Effect.succeed(invalidOAuthResponse(503, "temporarily_unavailable"));
+      }),
     );
 
 export const exactRedirectAccepted = (
-  pool: Pool,
+  pool: SqlClient.SqlClient,
   clientId: string,
   redirectUri: string,
-): Effect.Effect<boolean, PgQueryError> =>
+): Effect.Effect<boolean, SqlError | Schema.SchemaError> =>
   Effect.gen(function* () {
     const now = DateTime.toEpochMillis(yield* DateTime.now);
     const client = yield* readClientAuthority(pool, clientId);
@@ -2395,14 +2504,13 @@ export const exactRedirectAccepted = (
       return false;
     }
 
-    const linked = yield* pgQuery(
-      pool,
+    const linked = yield* pool.unsafe(
       `SELECT 1 FROM auth."oauthClientResource"
-      WHERE "clientId" = $1 AND "resourceId" = $2`,
+    WHERE "clientId" = $1 AND "resourceId" = $2`,
       [clientId, OAUTH_NATIVE_API_RESOURCE],
     );
 
-    return linked.rowCount === 1;
+    return linked.length === 1;
   });
 
 export class OAuthHandlers extends Context.Service<
@@ -2413,21 +2521,23 @@ export class OAuthHandlers extends Context.Service<
   }
 >()("@vektorprogrammet/database/OAuthHandlers") {}
 
-export const OAuthLive = (config: OAuthProviderRuntimeConfig) =>
+export const OAuthLive = (config: OAuthProviderRuntimeConfig, subtle: WebCryptoSubtle) =>
   Layer.effectContext(
     Effect.gen(function* () {
-      const pool = yield* DatabasePgPool;
+      const pool = yield* Database;
       const engine = yield* NativeAuthEngine;
+      const crypto = yield* Crypto.Crypto;
+      const webCrypto = yield* makeOAuthWebCrypto(subtle);
 
       return Context.make(
         OAuthCredentialAuthority,
-        makeOAuthCredentialAuthorityService(pool, config),
+        makeOAuthCredentialAuthorityService(pool, config, webCrypto),
       ).pipe(
-        Context.add(OAuthClientOperator, makeOAuthClientOperatorService(pool, engine)),
+        Context.add(OAuthClientOperator, makeOAuthClientOperatorService(pool, engine, crypto)),
         Context.add(OAuthHandlers, {
-          release: makeOAuthReleaseBarrier(engine, pool, config),
-          introspection: makeOAuthInternalIntrospectionHandler(engine, pool),
+          release: makeOAuthReleaseBarrier(engine, pool, config, crypto, webCrypto),
+          introspection: makeOAuthInternalIntrospectionHandler(engine, pool, webCrypto, crypto),
         }),
       );
     }),
-  );
+  ).pipe(Layer.provide(SecretEqualityLive(subtle)));

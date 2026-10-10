@@ -796,7 +796,8 @@ const writeInterview = (
     ),
   );
 
-const encodeAssignmentObservation = Schema.encodeSync(RecruitmentAssignmentObservationSchema);
+// A domain value that fails its own contract encoder is a broken invariant, so the failure is a defect.
+const encodeAssignmentObservation = Schema.encodeEffect(RecruitmentAssignmentObservationSchema);
 
 const writeReceipt = (
   sql: DatabaseOperations,
@@ -806,7 +807,10 @@ const writeReceipt = (
   now: string,
   digest: string,
 ): Effect.Effect<void, RecruitmentPersistenceError> =>
-  sql`
+  Effect.gen(function* () {
+    const encodedObservation = yield* encodeAssignmentObservation(observation).pipe(Effect.orDie);
+
+    yield* sql`
     INSERT INTO recruitment_assignment_command_receipts (
       command_id, command_sha256, command_json, observation_json,
       application_id, interview_id, committed_at
@@ -814,17 +818,18 @@ const writeReceipt = (
       ${command.commandId},
       ${digest},
       ${sql.json(canonicalJsonValue(command))},
-      ${sql.json(canonicalJsonValue(encodeAssignmentObservation(observation)))},
+      ${sql.json(canonicalJsonValue(encodedObservation))},
       ${interview.applicationId},
       ${interview.interviewId},
       ${now}
     )
   `.pipe(
-    Effect.asVoid,
-    Effect.catchTag("SqlError", (cause) =>
-      Effect.fail(persistenceError("write assignment receipt", cause)),
-    ),
-  );
+      Effect.asVoid,
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(persistenceError("write assignment receipt", cause)),
+      ),
+    );
+  });
 
 const writeAudit = (
   sql: DatabaseOperations,

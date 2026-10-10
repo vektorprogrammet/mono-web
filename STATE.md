@@ -10,6 +10,117 @@ Production uses the legacy PHP application. Production replacement is not author
 The legacy source is in the [vektorprogrammet](https://github.com/vektorprogrammet/vektorprogrammet) repository; the former `apps/server` continues there as branch `modernize/mono-web-server` (`908368a8`), with the same tree (`023b85bd`) as mono-web `b6438cb2`. The removal commit is `ea124143`; its parent `1277be8b` still contains `apps/server`.
 Local implementation and acceptance do not authorize production, provider, or source-data actions.
 
+The stable Effect upgrade follows [its frozen contract](docs/specs/effect-stable-v4.md). Local acceptance remains pending.
+The canonical worktree excludes unpublished dashboard Root and Worker feature sources. Historical RC proof results do not establish stable acceptance.
+The HTTP union patch and native queue extensions remain necessary. Their stable ports are not retirements.
+The approved native SQL change uses separate scoped Database and Better Auth pools. SQL migration, cancellation, and cleanup proofs remain gates.
+The compiler artifact manifest records the actual consumed source and archive hashes. A package build does not establish installed-consumer acceptance.
+Fresh committed-source checks, generated contracts, native UI/API/PostgreSQL journeys, and the immutable lift snapshot remain required.
+
+Recruitment migration 0029 has operator approval reported by the director; exact words not
+preserved. This is not verified direct operator approval. Effx commit `b88523d2a8ffcbde5c19008d649da653c26ee475` records the report under `docs/specs/0029-recruitment-migration.md`.
+The current phase is LOCAL implemented, not accepted. The source descends from the accepted Admissions integration `815a28f8`.
+Canonical declarations cover sixteen Recruitment operations and two Recruitment-owned onboarding operations.
+The project IR contains 74 operations across eleven generated groups. The complete external native contract retains 111 operations.
+These eleven groups do not represent every external API group.
+
+Identity owns the handwritten onboarding claim.
+One mixed onboarding root requires typed claim completion after the generated handlers register `readBoard` and `command`.
+The four Foldkit programs retain handwritten Command bodies over the generated SDK, directly or through the existing bridges.
+The AOT contracts and raw-handler types do not replace domain authority, transaction locks, receipts, or delivery ownership.
+The system and architecture documents describe the implemented validator, correction, frozen-outcome, and dialog policies.
+
+The third and final original full R2 diagnostic failed with `ProfileContactNotFound` during `ReadBoard`.
+The unchanged mapper returned `recruitment.unavailable`/503. The original 30-second button assertion remained red after eighteen correction stages.
+The diagnostic did not record the missing runtime Person identity. Source establishes an incomplete Returning fixture, not runtime Person attribution.
+
+The local Returning fixture repair seeds the declared primary interviewer's synthetic contact before the appointment in one transaction.
+Fixture completeness grants no business authority and permits no production fallback or change to the missing-contact refusal.
+The third diagnostic remains separate, red evidence; it does not identify a missing runtime Person.
+
+The original full R2 regression on `66d2baee91d515d6c0787d6ec4aef85ba2c23e57` reached seven outer gates and nineteen completed stages, then failed.
+The unchanged `tools/acceptance/recommendation-check.ts:3600` assertion required focus on the current Reopen action within 5,000 ms.
+Close returned 200 and staffing refreshed to Closed, but Reopen remained inactive. This is not migration acceptance or observed Chrome causality.
+The operator approved a permanent native workflow-focus repair for this next-action transition. It does not reuse the Close opener as Reopen.
+Ordinary Cancel/Escape retain native opener restoration. The system and architecture documents define the approved ownership and correlation policy.
+
+On source `66d2baee`, the native 39-case suite, canonical/parity checks, full check (16/16 tasks), and full test (21/21 tasks) passed.
+These results and every original 28-row result on that source are historical, source-specific evidence only.
+Collector omissions and repeats remain explicit external evidence incidents, not product failures.
+
+The original full R2 remains a required regression confirmation, not a fourth diagnostic or a target-only substitute.
+Its original actions, filters, selectors, 5/30-second click waits, and 5,000-ms focus assertions remain gates.
+Window privacy, 403 denials, exact no-write snapshots, corrections, mail, and frozen outcome citations remain unchanged.
+
+Acceptance requires a new clean final candidate after workflow-focus, permanent tests, and documentation integration:
+
+- New executions of all 28 original acceptance rows, including the complete original R2 journey.
+- The full 39-case HTTP regression suite, canonical contract/handler parity, and serial `just check --concurrency=1` and `just test --concurrency=1`.
+- The mounted production workflow and its full permanent focused tests: failure, release, ordinary cancellation, interruption, stale identity, replacement, real navigation, and disposal.
+- A held native Close must block replacement open/focus until its actual completion and any pending focus-cancellation completion.
+  Late old-generation completions and duplicate save responses must not arm focus or change a replacement dialog.
+- Before/after custody of the exact consumed source, served bundles/runtime, and each job's own environment.
+- Source conditions, runners, and build manifests decide which emitted or materialized artifacts each gate consumes.
+- A missing SDK dist, OpenAPI binary, or environment inventory is a gap only when evidence proves that the gate consumes it.
+  Labels alone prove neither consumption nor nonconsumption.
+- The homepage's existing build stamp is consumed evidence only. The dashboard embeds no Git HEAD stamp; a new dashboard stamp is not a gate.
+- All 195 completed outcomes from the existing persistent authority-model run and byte equality with its model source.
+
+All final-candidate gates run after integration and the new clean source freeze. Earlier focused or historical results cannot replace them.
+The two baseline and seven prototype HappyDOM tests establish a native mechanism only, not Chrome acceptance.
+
+The single `proc://recruitment-authority-model-195` run remains active. Whole-model acceptance and its completed outcomes remain pending.
+The actual Authority and contexts bytes match source `66d2baee`; final-candidate byte equality remains a gate.
+The model source digest is `ca4460362b618320f0c6a200e98be8dc0692ee37f0b1113d94cf0d5c7fc8d4e7`.
+`/srv/share/projects/effx-recruitment-0029-evidence/final66-model195-input-and-expected-obligations.json` records both actual input hashes and expected obligations.
+Partial progress does not establish SAT instance counts or completed obligations. The existing run must not receive signals or restart.
+Migrations 0083–0085 remain registered. Migration 0085 neither rounds nor rewrites historical instants.
+Historical repaired-baseline and prerequisite results remain external evidence, not final-source acceptance.
+Evidence stays in `/srv/share/projects/effx-recruitment-0029-evidence/`.
+The final manifest and operator approval receipt stay outside the repository. Acceptance requires no evidence-only commit after the source freeze.
+No generated Recruitment/onboarding cutover is accepted.
+The operator’s direct instruction was: “Forgoe the heavy job slot in place of checking the machine status for
+what resources are taken” (2026-10-04, `history://Main:253-255`). The director supplied the
+admission procedure: two readings 10 seconds apart, load below nproc, MemAvailable at least
+25% of RAM, and no swap growth. Retain top RSS/CPU processes and heavy-job attribution beside
+each job’s evidence. If admission fails, wait 60 seconds and repeat. After 15 minutes, report
+the resource holders. Admit each heavy job from its retained resource observations. Measured lead execution
+skips obsolete exclusive-flock admission under that quoted instruction, without claiming lock ownership.
+The director dropped the provisional IO-PSI gate after the operator reported a
+monitoring bug. Admission uses only load, available memory and swap growth.
+For a suite timeout, retain NVMe `io_ticks` and elapsed time around the run to
+distinguish actual disk saturation from a code failure. Staged-only formatting/lint
+hooks are light work. The existing owned Alloy run stays running.
+
+The director accepted the nine-group re-vendor prerequisite at `ac51f9aa` for LOCAL implementation only.
+The installed compiler supports typed completion of the mixed onboarding group. A missing claim remains a compile error.
+The native recipe generates contracts before handlers, without a root shim or generated-output edit.
+Prior-group byte identity, the repaired OpenAPI semantics, and SDK parity remain final-source gates.
+Delivery tests own their migrated database and native queue scope. An Idle result does not establish fixture isolation.
+Earlier prerequisite receipts and repair chronology remain outside the product tree. They do not establish final acceptance.
+The retained source-`66d2baee` aggregate receipt records historical canonical/parity, HTTP39, maintenance, check, and test results.
+It remains separate from the new final candidate and its required original acceptance rows.
+The record is `/srv/share/projects/effx-recruitment-0029-evidence/final66-aggregate-BeIa6C-receipt.json`.
+Unmerged worktrees remain retained. Cleanup requires a proven merge or explicit disposal authority.
+The credential-exposure incident is held separately. Raw installer evidence remains private and unpublished;
+token revocation is recommended but awaits the operator’s decision. No credential or transcript changes are authorized.
+Stopping verbose installs is the director’s containment order, not a quoted operator instruction.
+No mono-web main merge, push, publication, provider, or production-cutover authority is granted.
+**Retirement trigger:** after Identity migrates `claim`, the complete generated group replaces
+the transitional handwritten completion. The retained mixed-onboarding probe is outside
+the product tree in `/srv/share/projects/effx-recruitment-0029-evidence/compiler/mixed-onboarding/`.
+
+### Attribution correction (2026-10-04)
+
+Earlier Recruitment state and evidence labels credited director decisions to the operator.
+The continuation, re-vendor conditions and later R2 confirmation came from the director through
+`agent://Main`. Rulings 1–7 retain the distinct label: “operator approval reported by the
+director; exact words not preserved”. Their direct approval is not verified. The operator’s
+resource instruction is quoted in this record, while its numeric admission thresholds came
+from the director. Earlier commits and raw evidence remain unchanged. The dated evidence
+correction at `/srv/share/projects/effx-recruitment-0029-evidence/attribution-correction-2026-10-04.md`
+records those distinctions without altering test results or product behavior.
+
 Operator decisions:
 
 - The backend is a portable Bun process with PostgreSQL, not a Cloudflare Worker.
@@ -138,7 +249,7 @@ Fix an instance when a change touches it (see [AGENTS.md](AGENTS.md#construction
 - Instants: domain fields still use `Rfc3339InstantSchema`, not `Instant` (`packages/domain/src/time.ts`).
   The authority instant (M2), per-slice cutovers (M3), and deletion of the string helpers such as `compareRfc3339Instants` (M4) remain.
 - Receipt keyset cursors carry microsecond text (`packages/database/src/receipt/cursor.ts`). They stay exact because storage is millisecond; M3 moves them to `Instant`.
-- `packages/database/runtime/schema-boundary-postgres-proof-main.ts` (`proof:schema-boundary-postgres`, run by no `just` set) failed at `65e98276`, before and after its move to an Effect program, with "New interview conduct requires an explicit recommendation": its seed inserts an interview conduct without the recommendation that migration 0037 requires of every new conduct.
+- `packages/database/runtime/schema-boundary-postgres-proof-main.ts` (`proof:schema-boundary-postgres`) is run by no `just` set or hosted job, so it stayed red unnoticed: migration 0037 and the migrations after it broke its fresh seed and its comparison of the moved tables at the head. Host it as a `just proof` name and in the Tests workflow.
 - Parameters bound through raw `pg` `query` calls, `sql.in`, or `sql.unsafe` are not typed. Only the `Database` template rejects a `DateTime` argument.
   Raw calls include the identity and OAuth adapters, `packages/database/src/service-principal-grants-live.ts`, the cohort importers in `packages/database/src`,
   and `packages/database/src/placements/current-assignment-cohort.ts`.

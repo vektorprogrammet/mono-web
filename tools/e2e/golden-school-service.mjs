@@ -1,5 +1,15 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { Schema } from "effect";
+import { ApplicationAdmissionEvidence, admissionStanding } from "@vektorprogrammet/domain/admissions";
+import { Instant } from "@vektorprogrammet/domain/time";
+import { OwnAffiliationResource } from "@vektorprogrammet/http-api";
+
+const decodeEvidence = Schema.decodeUnknownSync(Schema.Array(ApplicationAdmissionEvidence));
+
+const decodeInstant = Schema.decodeUnknownSync(Instant);
+
+const decodeAffiliation = Schema.decodeUnknownSync(Schema.fromJsonString(OwnAffiliationResource));
 
 export const goldenSteps = [
   "initial",
@@ -446,10 +456,76 @@ export const createGoldenObserver = (pool, fixture, deliveries) => {
     );
     let facts;
     const connection = await pool.connect();
+    let ownAdmission;
+    let selfAffiliationResult = null;
 
     try {
       await connection.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
       const rows = async (sql) => (await connection.query(sql)).rows;
+
+      const admission = decodeEvidence(await rows(
+        `SELECT application_id AS "applicationId", admission_period_id AS "admissionPeriodId",
+          department_id AS "departmentId", semester_id AS "semesterId",
+          to_char(period_opens_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "periodOpensAt",
+          to_char(period_closes_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "periodClosesAt",
+          to_char(semester_starts_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "semesterStartsAt",
+          to_char(semester_ends_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "semesterEndsAt",
+          basis,outcome,decision_closed AS "decisionClosed",interview_completed AS "interviewCompleted",
+          interview_cancelled AS "interviewCancelled",returning_registered AS "returningRegistered",
+          linked_person_id AS "linkedPersonId" FROM application_admission_evidence ORDER BY application_id`,
+      ));
+
+      const own = admission.filter((row) => row.linkedPersonId === volunteerId);
+      assert.equal(admission.length, 3, "exactly the original two coverage applications plus the volunteer's own");
+      assert.equal(own.length, 1);
+      const [application] = own;
+      assert.deepEqual(
+        [application.applicationId, application.admissionPeriodId, application.semesterId, application.departmentId,
+          application.basis, application.outcome, application.interviewCompleted, application.interviewCancelled, application.returningRegistered, application.decisionClosed],
+        [fixture.volunteerApplicationId, fixture.volunteerPeriodId, fixture.volunteerSemesterId, departmentId,
+          "Ja", "Admitted", true, false, false, false],
+      );
+      assert.notEqual(application.semesterId, semesterId);
+
+      const at = decodeInstant((await rows(
+        "SELECT to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') AS instant",
+      ))[0].instant);
+
+      assert.equal(admissionStanding(application, at), "Admitted");
+
+      const protocol = (await connection.query(
+        `SELECT count(*)::integer AS count FROM admission_applications a
+        JOIN admission_applicants applicant USING(applicant_id)
+        JOIN applicant_account_links link USING(applicant_id)
+        JOIN recruitment_interviews i USING(application_id)
+        JOIN recruitment_interview_conducts c USING(interview_id)
+        JOIN recruitment_invitations invitation USING(interview_id)
+        WHERE a.application_id=$1 AND link.person_id=$2 AND a.normalized_email=applicant.normalized_email
+          AND i.interviewer_person_id=$3 AND i.assigned_by_person_id=$3 AND c.finalized_by_person_id=$3
+          AND i.interviewer_person_id<>link.person_id AND invitation.response_state='Accepted'
+          AND c.recommendation='Ja' AND c.explanatory_power=7 AND c.role_model=8 AND c.suitability=9
+          AND c.answers=jsonb_build_array(jsonb_build_object('questionId','school-volunteer-motivation','answer','Jeg vil bidra til matematikkundervisningen.'))
+          AND (SELECT count(*) FROM recruitment_interview_question_snapshots q WHERE q.interview_id=i.interview_id)=1
+          AND NOT EXISTS(SELECT 1 FROM recruitment_interview_cancellations x WHERE x.interview_id=i.interview_id)`,
+        [fixture.volunteerApplicationId, volunteerId, leaderId],
+      )).rows[0];
+
+      assert.equal(protocol.count, 1, "one coherent own application with complete non-self Ja protocol");
+      const coverage = admission.filter((row) => row.applicationId !== fixture.volunteerApplicationId);
+      assert.deepEqual(coverage.map((row) => [row.applicationId, row.linkedPersonId, row.admissionPeriodId, row.semesterId, row.departmentId]), [
+        [fixture.applicationId, fixture.candidateId, "golden-period", semesterId, departmentId],
+        [fixture.secondApplicationId, fixture.secondSubstituteId, "golden-period", semesterId, departmentId],
+      ]);
+      ownAdmission = {
+        linkedOwnApplications: own.length,
+        ownPeriodApplications: own.filter((row) => row.admissionPeriodId === fixture.volunteerPeriodId).length,
+        selectedHistoricalSemesterApplications: own.filter((row) => row.semesterId === semesterId).length,
+        canonicalAdmittedEvidence: own.filter((row) => admissionStanding(row, at) === "Admitted").length,
+        completeNonSelfProtocols: protocol.count,
+        ownCurrentEligibility: true,
+        historicalServiceSemesterPreserved: true,
+        originalCoverageApplications: coverage.length,
+      };
       facts = {
         affiliations: await rows(
           "SELECT * FROM organization_volunteer_affiliations ORDER BY person_id",
@@ -824,6 +900,9 @@ export const createGoldenObserver = (pool, fixture, deliveries) => {
         assert.match(body.etag, /^".+"$/);
 
         if (step === "affiliation") {
+          const result = decodeAffiliation(added[0].body);
+          selfAffiliationResult = { status: added[0].status, schemaDecoded: true, ownPersonMatches: result.personId === volunteerId, departmentMatches: result.departmentId === departmentId, affiliation: result.status, revision: result.revision };
+          assert.equal(added[0].status, 200);
           assert.deepEqual(
             [body.personId, body.status, body.revision],
             [volunteerId, "Pending", 1],
@@ -940,6 +1019,8 @@ export const createGoldenObserver = (pool, fixture, deliveries) => {
       step,
       boundary: "independent-postgresql",
       digest,
+      ownAdmission,
+      selfAffiliationResult,
       affiliation: facts.affiliations[0]?.status ?? null,
       placementId: facts.placements[0]?.placement_id ?? null,
       proposalId: facts.proposals[0]?.proposal_id ?? null,

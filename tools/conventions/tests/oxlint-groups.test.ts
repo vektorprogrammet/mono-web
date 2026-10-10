@@ -124,8 +124,12 @@ const settingsFor = (path: string) =>
   );
 
 describe("Effect language-service rules", () => {
+  // `effectNative` lists rules that `recommended` omits (only abort-controller-in-effect overlaps),
+  // so the severity guard covers the union of every preset the config switches.
   const presetRules = [
-    ...new Set([recommended, correctness].flatMap((preset) => Object.keys(preset.rules ?? {}))),
+    ...new Set(
+      [recommended, correctness, effectNative].flatMap((preset) => Object.keys(preset.rules ?? {})),
+    ),
   ];
 
   const nativeRules = Object.keys(effectNative.rules ?? {}).sort();

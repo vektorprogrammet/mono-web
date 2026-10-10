@@ -1,4 +1,5 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { allocateBase64UrlToken, allocatePrefixedUuid } from "../allocation.js";
+import { Effect, type Crypto } from "effect";
 import {
   isRfc3339Instant,
   type AdmissionPeriodId,
@@ -17,10 +18,11 @@ export interface AdmissionApiConfig {
   readonly rateLimit: PublicRateLimit;
   /** Fixed instant from `ADMISSION_FIXED_NOW`; without it, handlers read the Clock service. */
   readonly now?: () => string;
-  readonly nextAdmissionPeriodId: () => AdmissionPeriodId;
-  readonly nextApplicantId: () => ApplicantId;
-  readonly nextApplicationId: () => PublicApplicationId;
-  readonly nextActivationToken: () => string;
+  /** Each allocation draws fresh entropy from the platform `Crypto` service when it runs. */
+  readonly nextAdmissionPeriodId: Effect.Effect<AdmissionPeriodId, never, Crypto.Crypto>;
+  readonly nextApplicantId: Effect.Effect<ApplicantId, never, Crypto.Crypto>;
+  readonly nextApplicationId: Effect.Effect<PublicApplicationId, never, Crypto.Crypto>;
+  readonly nextActivationToken: Effect.Effect<string, never, Crypto.Crypto>;
 }
 
 const parsePositiveInteger = (raw: string | undefined, fallback: number, field: string): number => {
@@ -69,9 +71,15 @@ export const decodeAdmissionApiConfig = (
     maxBodyBytes,
     rateLimit: publicRateLimit(rateLimitMax, rateLimitWindow),
     now: configuredNow === undefined ? undefined : () => configuredNow,
-    nextAdmissionPeriodId: () => AdmissionPeriodIdSchema.make(`admission_period_${randomUUID()}`),
-    nextApplicantId: () => ApplicantIdSchema.make(`applicant_${randomUUID()}`),
-    nextApplicationId: () => PublicApplicationIdSchema.make(`application_${randomUUID()}`),
-    nextActivationToken: () => randomBytes(32).toString("base64url"),
+    nextAdmissionPeriodId: Effect.map(allocatePrefixedUuid("admission_period"), (id) =>
+      AdmissionPeriodIdSchema.make(id),
+    ),
+    nextApplicantId: Effect.map(allocatePrefixedUuid("applicant"), (id) =>
+      ApplicantIdSchema.make(id),
+    ),
+    nextApplicationId: Effect.map(allocatePrefixedUuid("application"), (id) =>
+      PublicApplicationIdSchema.make(id),
+    ),
+    nextActivationToken: allocateBase64UrlToken(32),
   };
 };

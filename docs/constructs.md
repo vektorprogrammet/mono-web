@@ -13,10 +13,13 @@ The JSDoc of a construct carries `@construct <category>`, a summary sentence, `@
 Tag a construct only when at least 2 modules outside its own module and the tests of its app or package import it.
 `just constructs` fails when these pages differ from the tags, when a construct lacks one of these tags or annotations, and when fewer modules import it. It lists untagged functions that 3 or more modules outside their app or package import.
 
+- [policy](constructs/policy.md): Pure domain eligibility decisions over decoded facts and an explicit instant.
+  - [`admissionStanding`](constructs/policy.md#admissionstanding): Admission standing of the application's own period and semester at one instant.
 - [http-transport](constructs/http-transport.md): Reads native HTTP requests and writes their representations: bounded JSON, preconditions, idempotency keys, entity tags, and cache headers.
   - [`encodePathIdentity`](constructs/http-transport.md#encodepathidentity): Encodes one decoded identity as an uppercase RFC 3986 path segment.
   - [`normalizeTarget`](constructs/http-transport.md#normalizetarget): Fills a route template with its encoded identities; a missing identity is a malformed request.
   - [`deriveHttpIdentity`](constructs/http-transport.md#derivehttpidentity): Derives the private storage digest and domain command ID from the identity tuple.
+  - [`withIdentityRequestCancellation`](constructs/http-transport.md#withidentityrequestcancellation): Keeps an identity request's cancellation signal attached to its native Effect fiber.
 - [http-problem](constructs/http-problem.md): Answers a native HTTP request with a declared problem: failure mapping, credential classification, authorization, and decoding.
   - [`authorizeAdmissionPerson`](constructs/http-problem.md#authorizeadmissionperson): Evaluates one admission person AccessSpec through the generated guard of its endpoint.
   - [`returningAuthorization`](constructs/http-problem.md#returningauthorization): Resolves the current person and authorizes one returning-assistant operation on that person's own profile.
@@ -49,7 +52,6 @@ Tag a construct only when at least 2 modules outside its own module and the test
   - [`ProblemBoundaryLive`](constructs/http-problem.md#problemboundarylive): The only Cause consumer.
   - [`receiptProblems`](constructs/http-problem.md#receiptproblems): The one answer for every receipt failure other than a rejected credential, including an unavailable store, Identity, or E2E barrier.
   - [`receiptCredentialProblems`](constructs/http-problem.md#receiptcredentialproblems): A credential rejected inside a receipt handler is answered from the request's own evidence.
-  - [`authorizeInvitationOperation`](constructs/http-problem.md#authorizeinvitationoperation): Authorizes the holder of an invitation's response capability.
   - [`interviewAuthorizationInTransaction`](constructs/http-problem.md#interviewauthorizationintransaction): Resolves the current person and authorizes one interview inside the caller's transaction; a rejected credential is answered from the request's evidence.
   - [`readRecruitmentBody`](constructs/http-problem.md#readrecruitmentbody): Every recruitment request body is one bounded `application/json` document.
   - [`recruitmentProblems`](constructs/http-problem.md#recruitmentproblems): The one answer for every recruitment failure.
@@ -64,6 +66,9 @@ Tag a construct only when at least 2 modules outside its own module and the test
   - [`lockAdvisory`](constructs/sql-lock.md#lockadvisory): Waits for the advisory lock on `key` until the current transaction ends.
   - [`lockPersonAuthorization`](constructs/sql-lock.md#lockpersonauthorization): Serializes one person's protected command with person-keyed authority writers.
 - [sql-lifecycle](constructs/sql-lifecycle.md): Claim-fenced row lifecycles in PostgreSQL, such as outbox claims and account access.
+  - [`lockApplicationDecisionWithSql`](constructs/sql-lifecycle.md#lockapplicationdecisionwithsql): Fences this application's decision-sensitive writes in the caller's transaction.
+  - [`readApplicationAdmissionEvidenceWithSql`](constructs/sql-lifecycle.md#readapplicationadmissionevidencewithsql): Reads decoded admission evidence from the application's own period and semester.
+  - [`withNativeAuthProvisioning`](constructs/sql-lifecycle.md#withnativeauthprovisioning): Runs one explicit native provisioning attempt through Better Auth's public endpoint context API.
   - [`accountAccessEnabled`](constructs/sql-lifecycle.md#accountaccessenabled): Whether the native account of `personId` exists and is not disabled.
   - [`outboxClaimAssignments`](constructs/sql-lifecycle.md#outboxclaimassignments): SET list for the aggregate's claim UPDATE; `targetAlias` names the updated outbox row.
   - [`markOutboxDelivered`](constructs/sql-lifecycle.md#markoutboxdelivered): Settles the claimed row as Delivered, with delivery evidence when the table records it.
@@ -71,6 +76,9 @@ Tag a construct only when at least 2 modules outside its own module and the test
   - [`quarantineOutboxClaim`](constructs/sql-lifecycle.md#quarantineoutboxclaim): Settles the claimed row as Quarantined, a terminal status, with its failure tag.
   - [`releaseOutboxClaim`](constructs/sql-lifecycle.md#releaseoutboxclaim): Returns an interrupted claim to Pending without a provider outcome; a lost claim needs none.
   - [`recoverStaleOutboxClaims`](constructs/sql-lifecycle.md#recoverstaleoutboxclaims): Recovers every Processing row claimed before `claimedBefore`.
+  - [`nativePgLayer`](constructs/sql-lifecycle.md#nativepglayer): Builds the native SQL layer with an explicit host-owned connection limit.
+  - [`AuthPoolLive`](constructs/sql-lifecycle.md#authpoollive): Builds the supported Better Auth pool with its own host-supplied capacity.
+  - [`executePostgresMigration`](constructs/sql-lifecycle.md#executepostgresmigration): Executes parsed statements sequentially on the provided native SQL client.
 - [delivery](constructs/delivery.md): Delivers committed effects to providers after the transaction.
   - [`deliverJson`](constructs/delivery.md#deliverjson): Shared acknowledged JSON transport; deliberately no retry on ambiguous acceptance.
 - [worker](constructs/worker.md): Runs background workers on the Effect clock.
@@ -80,6 +88,7 @@ Tag a construct only when at least 2 modules outside its own module and the test
   - [`receiptCursorTimestamp`](constructs/pagination.md#receiptcursortimestamp): Selects the ordering column as microsecond UTC text so cursor positions compare exactly.
   - [`receiptCursorPage`](constructs/pagination.md#receiptcursorpage): Keeps one page of the rows, encodes the next cursor when a further row was read, and drops the ordering text.
 - [digest](constructs/digest.md): Canonical JSON and SHA-256 digests that evidence and idempotency identities hash.
+  - [`SecretEqualityLive`](constructs/digest.md#secretequalitylive): Supplies constant-time comparison of raw secrets under one process-owned HMAC key.
   - [`canonicalJsonValue`](constructs/digest.md#canonicaljsonvalue): The plain JSON value of a datum, with sorted object keys and non-finite numbers as `null`.
   - [`canonicalJson`](constructs/digest.md#canonicaljson): The canonical JSON text of a datum, to hash or compare; a SQL `json` parameter takes `canonicalJsonValue` instead.
   - [`canonicalJsonBytes`](constructs/digest.md#canonicaljsonbytes): The UTF-8 bytes of the canonical JSON text of a datum.
@@ -98,3 +107,5 @@ Tag a construct only when at least 2 modules outside its own module and the test
 - [request-ledger](constructs/request-ledger.md): Classifies the requests that journey recorders observe by whole path segments: native contract operations and legacy routes.
   - [`isNativeRequest`](constructs/request-ledger.md#isnativerequest): Whether a dashboard-to-backend request stays on the native surface: an operation of the native HTTP contract or an email-password route of the identity engine.
   - [`addressesAnyRoute`](constructs/request-ledger.md#addressesanyroute): Whether a request path addresses any of the routes, each matched by whole path segments.
+- [ui-target](constructs/ui-target.md): Derives stable UI element identities and selectors from decoded model identities.
+  - [`correctionReopenTarget`](constructs/ui-target.md#correctionreopentarget): Derives the Reopen button's stable id and eligible focus selector from its interview.

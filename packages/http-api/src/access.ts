@@ -1,3 +1,7 @@
+/**
+ * EX-0022: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import {
   CredentialMechanismSchema,
   CapabilityExpressionSchema,
@@ -143,7 +147,7 @@ export const internalReceiptEvidenceAccess = (): AccessSpec =>
   });
 
 import { Match, Predicate, Context, Option, Schema } from "effect";
-import { HttpApiEndpoint, OpenApi } from "effect/unstable/httpapi";
+import { HttpApiEndpoint, OpenApi } from "effect/http-api";
 
 export const AccessSpecAnnotation = Context.Service<AccessSpec>(
   "@vektorprogrammet/http-api/AccessSpec",

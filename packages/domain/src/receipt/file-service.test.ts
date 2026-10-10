@@ -1,5 +1,5 @@
 import { expect, it } from "@effect/vitest";
-import { Schema, Effect } from "effect";
+import { Result, Schema, Effect } from "effect";
 import { ReceiptOutboxRequestSchema, receiptOutboxRequest } from "./effects.js";
 import { makeReceiptFileRecording, ReceiptFileService } from "./file-service.js";
 import type { ReceiptFile } from "./schema.js";
@@ -25,12 +25,14 @@ const fileRequest = (
   effectType: "PromoteReceiptFile" | "DeleteReceiptFile",
   file: ReceiptFile,
 ) =>
-  Schema.decodeSync(
-    Schema.Union([
-      ReceiptOutboxRequestSchema.cases.PromoteReceiptFile,
-      ReceiptOutboxRequestSchema.cases.DeleteReceiptFile,
-    ]),
-  )(receiptOutboxRequest(commandId, "receipt-1", effectType, file));
+  Result.getOrThrow(
+    Schema.decodeResult(
+      Schema.Union([
+        ReceiptOutboxRequestSchema.cases.PromoteReceiptFile,
+        ReceiptOutboxRequestSchema.cases.DeleteReceiptFile,
+      ]),
+    )(receiptOutboxRequest(commandId, "receipt-1", effectType, file)),
+  );
 
 it.effect("promotes before exact deletion and replays file effects idempotently", () => {
   const recording = makeReceiptFileRecording();

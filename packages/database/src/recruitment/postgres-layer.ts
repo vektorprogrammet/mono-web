@@ -16,6 +16,7 @@ import {
   finalizeInterview,
   cancelInterview,
   correctInterviewAssessment,
+  authorizeAssessmentCorrection,
 } from "./conduct-postgres.js";
 import {
   confirmInvitation,
@@ -44,6 +45,11 @@ export const RecruitmentLive = Layer.effect(
     const profile = yield* Profile;
 
     return Recruitment.of({
+      authorizeAssessmentCorrection: (interviewId, context) =>
+        authorizeAssessmentCorrection(interviewId, context).pipe(
+          Effect.provideService(Database, database),
+          Effect.provideService(Organization, organization),
+        ),
       prepareAssignment: (input) =>
         prepareRecruitmentAssignment(input).pipe(Effect.provideService(Database, database)),
       prepareInterview: (input) =>

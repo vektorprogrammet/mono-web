@@ -1,3 +1,7 @@
+/**
+ * EX-0029: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import assert from "node:assert/strict";
 import type * as GeneratedSdkModule from "../../packages/sdk/src/effect-client.js";
 import { addressesAnyRoute, legacyRoutes } from "../../apps/dashboard/e2e/request-routes.js";
@@ -90,8 +94,8 @@ import {
   Result,
   Schema,
 } from "effect";
-import { Etag, FetchHttpClient, HttpRouter } from "effect/unstable/http";
-import type { SqlError } from "effect/unstable/sql/SqlError";
+import { Etag, FetchHttpClient, HttpRouter } from "effect/http";
+import type { SqlError } from "effect/sql/SqlError";
 import {
   backendHttpHandler,
   decodeBackendConfig,
@@ -100,6 +104,7 @@ import {
   type BackendConfig,
 } from "@vektorprogrammet/backend";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
+import { NativeDatabaseStartupOptions } from "@vektorprogrammet/database/search-path";
 import { IdentitySnapshot } from "@vektorprogrammet/database/auth";
 import {
   databaseMigrationDefinitions,
@@ -1381,6 +1386,7 @@ const makeRehearsalRuntime = (
     url: Redacted.make(databaseUrl),
     applicationName: "spec-0067-organization-import-rehearsal",
     maxConnections: 6,
+    startupOptions: NativeDatabaseStartupOptions,
   }).pipe(Layer.provide(BunServices.layer));
 
   const observedDatabaseLayer = Layer.effect(
@@ -1437,6 +1443,8 @@ const makeRehearsalRuntime = (
     }),
   );
 
+  const requestPlatformLayer = Layer.merge(BunServices.layer, FetchHttpClient.layer);
+
   const servicesLayer = Layer.mergeAll(
     observedDatabaseLayer,
     admissionsLayer,
@@ -1455,9 +1463,8 @@ const makeRehearsalRuntime = (
     teamApplicationsLayer,
     receiptAuxiliaryLayer,
     servicePrincipalGrantLayer,
-  );
+  ).pipe(Layer.provide(requestPlatformLayer));
 
-  const requestPlatformLayer = Layer.merge(BunServices.layer, FetchHttpClient.layer);
   const platformLayer = Layer.mergeAll(requestPlatformLayer, BunHttpPlatform.layer, Etag.layer);
   const routerLayer = HttpRouter.layer;
   const httpLayer = Layer.merge(platformLayer, routerLayer);
@@ -2029,7 +2036,8 @@ const runRehearsal = async (
     );
 
     stage = "backend and strict native projections";
-    const router = await runtime.runPromise(HttpRouter.HttpRouter);
+    const backendRuntime = runtime;
+    const router = await backendRuntime.runPromise(HttpRouter.HttpRouter);
 
     const api = backendHttpHandler(
       nativeRouterWebHandler(router),
@@ -2048,7 +2056,7 @@ const runRehearsal = async (
     backendServer = Bun.serve({
       hostname: "127.0.0.1",
       port: 0,
-      fetch: (request) => Effect.runPromise(api(request)),
+      fetch: (request) => backendRuntime.runPromise(api(request)),
     });
     backendPort = backendServer.port;
     const backendOrigin = `http://127.0.0.1:${backendPort}`;

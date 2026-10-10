@@ -3,7 +3,7 @@
  * printed as text that a reader extracts, and text that no glyph covers refused by field.
  */
 import { CertificateIssue } from "@vektorprogrammet/domain/placements";
-import { Effect, FileSystem, Layer, Path, Result, Schema } from "effect";
+import { Effect, FileSystem, Layer, Path, Result, Schema, flow } from "effect";
 import { expect, layer } from "@effect/vitest";
 import { sha256Hex } from "../http-semantics.js";
 import { TestPlatform } from "../test/platform.js";
@@ -19,7 +19,10 @@ const Provenance = Schema.Struct({
 });
 
 const issue = (names: { readonly assistant: string; readonly school: string }) =>
-  Schema.decodeSync(CertificateIssue)({
+  flow(
+    Schema.decodeResult(CertificateIssue),
+    Result.getOrThrow,
+  )({
     issueId: `certificate-issue-${"a".repeat(64)}`,
     content: {
       personId: "pdf-assistant",

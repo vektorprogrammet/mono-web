@@ -1,7 +1,7 @@
 import { DepartmentId, PersonId } from "../organization/schema.js";
 import { ReceiptId, ReceiptVisualId } from "../receipt/schema.js";
 import { deny } from "./decision.js";
-import { Predicate, Schema } from "effect";
+import { Predicate, Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   ResourceKind,
@@ -197,9 +197,8 @@ describe("service-principal receipt grants", () => {
       revision: 0,
     };
 
-    const decoded = Schema.decodeUnknownSync(AuthzRuleSchema)(serviceRule, {
-      onExcessProperty: "error",
-    });
+    const decodeRule = Schema.decodeUnknownResult(AuthzRuleSchema, { onExcessProperty: "error" });
+    const decoded = Result.getOrThrow(decodeRule(serviceRule));
 
     expect(authzRuleSubjectApplies(decoded, credential.principal, instant, [])).toBe(true);
     expect(
@@ -210,30 +209,24 @@ describe("service-principal receipt grants", () => {
         [],
       ),
     ).toBe(false);
-    expect(() =>
-      Schema.decodeUnknownSync(AuthzRuleSchema)(
-        {
+    expect(
+      Result.isFailure(
+        decodeRule({
           ...serviceRule,
           effectKind: "delegate",
           params: { slot: "EconomyDepartmentApprovalGrant" },
-        },
-        { onExcessProperty: "error" },
+        }),
       ),
-    ).toThrow();
-    expect(() =>
-      Schema.decodeUnknownSync(AuthzRuleSchema)(
-        { ...serviceRule, scope: Scope.Global() },
-        { onExcessProperty: "error" },
-      ),
-    ).toThrow();
+    ).toBe(true);
+    expect(Result.isFailure(decodeRule({ ...serviceRule, scope: Scope.Global() }))).toBe(true);
   });
 
   it("composes service rule snapshots and rejects invalid requirement parameters", () => {
     const pendingGrant = grant();
     const candidate = receipt("service-receipt-approval-pending", "Pending", pendingGrant);
 
-    const pendingRule = Schema.decodeSync(AuthzRuleSchema)(
-      {
+    const pendingRule = Result.getOrThrow(
+      Schema.decodeResult(AuthzRuleSchema, { onExcessProperty: "error" })({
         ruleId: AuthzRuleId.make("service-receipt-pending-a"),
         capabilityId: "approveReceipt",
         effectKind: "requirement",
@@ -248,8 +241,7 @@ describe("service-principal receipt grants", () => {
         startAt: "2032-06-01T11:00:00.000Z",
         endAt: null,
         revision: 0,
-      },
-      { onExcessProperty: "error" },
+      }),
     );
 
     const allowed = evaluateServicePrincipalReceiptApprovalAccess(

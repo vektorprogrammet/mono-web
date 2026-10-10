@@ -1,5 +1,9 @@
-import { Effect, FileSystem, Path, Predicate, Schema } from "effect";
-import type { SqlError } from "effect/unstable/sql/SqlError";
+/**
+ * EX-0021: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+import { Effect, FileSystem, Path, Predicate, Result, Schema, flow } from "effect";
+import type { SqlError } from "effect/sql/SqlError";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import {
   decodeReviewedReceiptSnapshot,
@@ -132,11 +136,14 @@ const immutable = <T>(value: T): T => {
 
 const invalid = (code: string) => new ReceiptCohortFailure({ code });
 
-const decodeAccepted = Schema.decodeUnknownSync(AcceptedResultSchema, {
-  onExcessProperty: "error",
-});
+const decodeAccepted = flow(
+  Schema.decodeUnknownResult(AcceptedResultSchema, {
+    onExcessProperty: "error",
+  }),
+  Result.getOrThrow,
+);
 
-const encodeInsertedReceipt = Schema.encodeSync(Receipt.insert);
+const encodeInsertedReceipt = flow(Schema.encodeResult(Receipt.insert), Result.getOrThrow);
 
 const readLedger = Effect.fnUntraced(function* (
   sql: DatabaseOperations,
@@ -352,9 +359,11 @@ const validatePrepared = (
   input: readonly ReceiptImportResult[],
 ): readonly ReceiptImportResult[] => {
   const results = immutable(
-    Schema.decodeUnknownSync(Schema.Array(PreparedResultSchema))(structuredClone(input), {
-      onExcessProperty: "error",
-    }),
+    Result.getOrThrow(
+      Schema.decodeUnknownResult(Schema.Array(PreparedResultSchema))(structuredClone(input), {
+        onExcessProperty: "error",
+      }),
+    ),
   );
 
   const bySource = new Map(results.map((result) => [result.sourcePrimaryKey, result]));

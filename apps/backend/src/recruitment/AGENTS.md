@@ -70,7 +70,6 @@ No `exports` entry of [apps/backend/package.json](../../package.json) points int
 
 The shared constructs defined here. Each name links to its contract; [docs/constructs.md](../../../../docs/constructs.md) indexes them all.
 
-- [`authorizeInvitationOperation`](../../../../docs/constructs/http-problem.md#authorizeinvitationoperation) (http-problem): Authorizes the holder of an invitation's response capability.
 - [`interviewAuthorizationInTransaction`](../../../../docs/constructs/http-problem.md#interviewauthorizationintransaction) (http-problem): Resolves the current person and authorizes one interview inside the caller's transaction; a rejected credential is answered from the request's evidence.
 - [`readRecruitmentBody`](../../../../docs/constructs/http-problem.md#readrecruitmentbody) (http-problem): Every recruitment request body is one bounded `application/json` document.
 - [`recruitmentProblems`](../../../../docs/constructs/http-problem.md#recruitmentproblems) (http-problem): The one answer for every recruitment failure.
@@ -79,3 +78,15 @@ The shared constructs defined here. Each name links to its contract; [docs/const
 Local invariants, pitfalls, and recipes go below this generated part; `just guides write` keeps them.
 
 [//]: # "guide: end"
+
+## Generated HTTP bindings
+
+The declaration in `packages/http-api/src/recruitment.effx.ts` owns the sixteen Recruitment endpoints.
+The generated factory supplies one deferred guard per operation.
+
+Run each guard through `authorizeAt` at the existing authority decision point.
+For commands, keep that point inside the committing transaction and before receipt replay.
+Keep the deeper domain guards, request bounds, preconditions, receipts, and outboxes.
+Do not place Person security on the group. Invitation endpoints accept only their dedicated capability.
+
+A committed response does not prove external delivery. Delivery acknowledgement remains separate from business and HTTP receipts.

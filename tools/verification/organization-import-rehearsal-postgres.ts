@@ -1,11 +1,17 @@
+/**
+ * EX-0029: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import type { DatabaseOperations } from "@vektorprogrammet/database";
+import { executePostgresMigration } from "@vektorprogrammet/database/postgres-migration-statements";
 import {
   canonicalJsonValue,
   canonicalJsonBytes,
   sha256Hex,
 } from "@vektorprogrammet/domain/shared-kernel";
 import { Schema, Record as EffectRecord, Effect } from "effect";
-import type { SqlError } from "effect/unstable/sql/SqlError";
+import * as SqlClient from "effect/sql/SqlClient";
+import type { SqlError } from "effect/sql/SqlError";
 
 export interface StableTableProjection {
   readonly qualifiedName: string;
@@ -575,7 +581,8 @@ export const readOrganizationImportStableState = (
   });
 
 export const installOrganizationImportFailureTrigger = (sql: DatabaseOperations) =>
-  sql.unsafe(`CREATE FUNCTION public.spec_0067_fail_organization_ledger()
+  sql.withTransaction(
+    executePostgresMigration(`CREATE FUNCTION public.spec_0067_fail_organization_ledger()
 RETURNS trigger
 LANGUAGE plpgsql
 AS $function$
@@ -589,9 +596,16 @@ $function$;
 CREATE TRIGGER spec_0067_fail_organization_ledger
 BEFORE INSERT ON public.organization_import_ledger
 FOR EACH STATEMENT
-EXECUTE FUNCTION public.spec_0067_fail_organization_ledger();`);
+EXECUTE FUNCTION public.spec_0067_fail_organization_ledger();`).pipe(
+      Effect.provideService(SqlClient.SqlClient, sql),
+    ),
+  );
 
 export const removeOrganizationImportFailureTrigger = (sql: DatabaseOperations) =>
-  sql.unsafe(`DROP TRIGGER spec_0067_fail_organization_ledger
+  sql.withTransaction(
+    executePostgresMigration(`DROP TRIGGER spec_0067_fail_organization_ledger
   ON public.organization_import_ledger;
-DROP FUNCTION public.spec_0067_fail_organization_ledger();`);
+DROP FUNCTION public.spec_0067_fail_organization_ledger();`).pipe(
+      Effect.provideService(SqlClient.SqlClient, sql),
+    ),
+  );

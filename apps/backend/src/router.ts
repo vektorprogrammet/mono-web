@@ -1,3 +1,7 @@
+/**
+ * EX-0024: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { OnboardingApiHandlers } from "./onboarding/http.js";
 import { PlacementsApiHandlers } from "./placements/http.js";
 import { CertificateFontsLive } from "./placements/certificate-pdf.js";
@@ -14,9 +18,9 @@ import { type Identity, type IdentityEngineError } from "@vektorprogrammet/domai
 import { ARTICLE_SLUG_MAX_LENGTH } from "@vektorprogrammet/domain/content";
 import { ExternalNativeApi, InternalNativeApi } from "@vektorprogrammet/http-api";
 import { Problem } from "@vektorprogrammet/http-api/http-semantics";
-import { Schema, Cause, Predicate, Effect, Layer } from "effect";
-import { HttpEffect, HttpRouter, HttpServerResponse } from "effect/unstable/http";
-import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { Schema, Cause, Crypto, Predicate, Effect, Layer } from "effect";
+import { HttpEffect, HttpRouter, HttpServerResponse } from "effect/http";
+import { HttpApiBuilder } from "effect/http-api";
 import { AdmissionsApiHandlers } from "./admission/http.js";
 import { admissionActorForAuthority } from "./admission/http-context.js";
 import { AdmissionOutcomesApiHandlers } from "./admission/outcome-http.js";
@@ -87,7 +91,7 @@ export const nativeHttpRouterConfig = {
  * Answers one web request. A failure is either rendered as a response or dies, and the server
  * answers a defect as it answers a rejected handler.
  */
-export type BackendHttpHandler = (request: Request) => Effect.Effect<Response>;
+export type BackendHttpHandler<R = never> = (request: Request) => Effect.Effect<Response, never, R>;
 
 const jsonResponse = (body: Schema.Json, status = 200): Response =>
   new Response(JSON.stringify(body), {
@@ -149,7 +153,7 @@ export const ExternalNativeApiRouterLive = (
     now: options.now,
   };
 
-  const middlewareLayer = nativeHttpApiMiddlewareLayer(config.contact);
+  const middlewareLayer = nativeHttpApiMiddlewareLayer(config.contact, globalThis.crypto.subtle);
 
   const handlers = Layer.mergeAll(
     AdmissionOutcomesApiHandlers({ now: options.now }),
@@ -255,7 +259,7 @@ export const InternalNativeApiRouterLive = (
     now: options.now,
   };
 
-  const middlewareLayer = nativeHttpApiMiddlewareLayer(config.contact);
+  const middlewareLayer = nativeHttpApiMiddlewareLayer(config.contact, globalThis.crypto.subtle);
   const handlers = InternalReceiptApiHandlers(receiptOptions).pipe(Layer.provide(middlewareLayer));
 
   const internalRoutes = HttpApiBuilder.layer(InternalNativeApi).pipe(
@@ -391,10 +395,10 @@ export const backendHttpHandler =
     nativeHandler: BackendHttpHandler,
     authHandler: BackendAuthHandler,
     sessionBoundary: NativeSessionBoundaryPolicy,
-  ): BackendHttpHandler =>
+  ): BackendHttpHandler<Crypto.Crypto> =>
   (request) =>
     Effect.gen(function* () {
-      const prepared = prepareIdentityBoundaryRequest(request);
+      const prepared = yield* prepareIdentityBoundaryRequest(request);
       const pathname = new URL(prepared.request.url).pathname;
       const oauthNamespace = isOAuthProviderNamespace(pathname);
 
@@ -513,12 +517,12 @@ export const internalBackendHttpHandler = (
   nativeHandler: BackendHttpHandler,
   authHandler: BackendAuthHandler,
   allowedSourceNetworks: ReadonlyArray<string>,
-): BackendHttpHandler => {
+): BackendHttpHandler<Crypto.Crypto> => {
   const allowedSources = sourceNetworkList(allowedSourceNetworks);
 
   return (request) =>
     Effect.gen(function* () {
-      const prepared = prepareIdentityBoundaryRequest(request);
+      const prepared = yield* prepareIdentityBoundaryRequest(request);
       const pathname = new URL(prepared.request.url).pathname;
 
       if (isOAuthProviderNamespace(pathname)) {

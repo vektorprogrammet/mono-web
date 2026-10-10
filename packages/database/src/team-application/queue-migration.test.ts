@@ -1,11 +1,15 @@
+/** EX-0021: Stable SQL modules carry an upstream unstable annotation.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+import * as SqlClient from "effect/sql/SqlClient";
 import { expect, layer } from "@effect/vitest";
 import { type DisposablePostgres, startDisposablePostgres } from "@monoweb/postgres";
 import { Context, Effect, FileSystem, Layer, Path } from "effect";
-import { Pool } from "pg";
 import { type DatabaseMigrationDefinition, selectDatabaseMigration } from "../migrations.js";
-import { pgQuery } from "../pg-pool.js";
+import { executePostgresMigration } from "../postgres-migration-statements.js";
 import { TestPlatform } from "../test-support/platform.js";
-import { withPostgresTestDatabase } from "../test-support/postgres.js";
+import { postgresTestClient, withPostgresTestDatabase } from "../test-support/postgres.js";
+import { NativeDatabaseStartupOptions } from "../search-path.js";
 
 /**
  * Migrations 78 and 79 move the team application claim outbox onto its PersistedQueue: an
@@ -32,9 +36,9 @@ const commands = ["pending", "released", "failed", "processing", "settled", "can
 const claimedAt = "2026-09-26T10:00:00.000Z";
 
 /** The statements of the claim outbox, as its worker, submission, and deletion ran them. */
-const claimOutbox = (pool: Pool) => {
+const claimOutbox = (pool: SqlClient.SqlClient) => {
   const run = (statement: string, values: ReadonlyArray<unknown> = []) =>
-    pgQuery(pool, statement, values);
+    pool.unsafe(statement, values);
 
   return {
     insert: (
@@ -50,7 +54,7 @@ const claimOutbox = (pool: Pool) => {
         `INSERT INTO public.team_application_outbox (
            effect_id, effect_type, team_id, application_id, command_id, ordinal, payload_json,
            committed_at
-         ) VALUES ($1, $2, 'migration-team', $3, $4, $5, $6, $7)`,
+         ) VALUES ($1, $2, 'migration-team', $3, $4, $5, $6::jsonb, $7::timestamptz)`,
         [
           effectId,
           effectType,
@@ -100,15 +104,14 @@ const claimOutbox = (pool: Pool) => {
 const failed = `status = 'Failed', last_failure_tag = '${temporary}'`;
 
 /** Writes every outbox state through the claim outbox's own statements. */
-const seed = (pool: Pool) =>
+const seed = (pool: SqlClient.SqlClient) =>
   Effect.gen(function* () {
-    yield* pgQuery(
-      pool,
+    yield* executePostgresMigration(
       `INSERT INTO public.organization_departments (department_id, name, short_name, email, city)
-         VALUES ('migration-department', 'Trondheim', 'NTNU', 'department@example.invalid', 'Trondheim');
+       VALUES ('migration-department', 'Trondheim', 'NTNU', 'department@example.invalid', 'Trondheim');
        INSERT INTO public.organization_teams (team_id, department_id, name, email, accept_application, active)
-         VALUES ('migration-team', 'migration-department', 'IT', 'it@example.invalid', true, true);`,
-    );
+       VALUES ('migration-team', 'migration-department', 'IT', 'it@example.invalid', true, true);`,
+    ).pipe(Effect.provideService(SqlClient.SqlClient, pool));
 
     const outbox = claimOutbox(pool);
 
@@ -116,11 +119,10 @@ const seed = (pool: Pool) =>
       const applicationId = `00000000-0000-4000-8000-00000000000${index}`;
       const committedAt = `2026-09-26T09:0${index}:00.000Z`;
 
-      yield* pgQuery(
-        pool,
+      yield* pool.unsafe(
         `INSERT INTO public.team_application_command_receipts
-           (command_id, command_sha256, operation, team_id, application_id, observation_json, committed_at)
-         VALUES ($1, $2, 'SubmitTeamApplication', 'migration-team', $3, '{}', $4)`,
+         (command_id, command_sha256, operation, team_id, application_id, observation_json, committed_at)
+       VALUES ($1, $2, 'SubmitTeamApplication', 'migration-team', $3, '{}', $4)`,
         [command, "a".repeat(64), applicationId, committedAt],
       );
 
@@ -174,90 +176,83 @@ const seed = (pool: Pool) =>
   });
 
 /** Each effect's status, attempts, and failure tag, and whether it keeps its envelope. */
-const readOutbox = (pool: Pool) =>
-  pgQuery<{
+const readOutbox = (pool: SqlClient.SqlClient) =>
+  pool.unsafe<{
     readonly effect_id: string;
     readonly status: string;
     readonly attempts: number;
     readonly last_failure_tag: string | null;
     readonly envelope: boolean;
-  }>(
-    pool,
-    `SELECT effect_id, status, attempts, last_failure_tag, payload_json <> '{}'::jsonb AS envelope
-       FROM public.team_application_outbox ORDER BY committed_at, command_id, ordinal`,
-  ).pipe(Effect.map(({ rows }) => rows));
+  }>(`SELECT effect_id, status, attempts, last_failure_tag, payload_json <> '{}'::jsonb AS envelope
+     FROM public.team_application_outbox ORDER BY committed_at, command_id, ordinal`);
 
 /** The same facts through the delivery state view that replaces the claim columns. */
-const readDeliveryState = (pool: Pool) =>
-  pgQuery<{
+const readDeliveryState = (pool: SqlClient.SqlClient) =>
+  pool.unsafe<{
     readonly effect_id: string;
     readonly status: string;
     readonly attempts: number;
     readonly last_failure_tag: string | null;
     readonly envelope: boolean;
-  }>(
-    pool,
-    `SELECT state.effect_id, state.status, state.attempts, state.last_failure_tag,
-            outbox.payload_json <> '{}'::jsonb AS envelope
-       FROM public.team_application_delivery_state AS state
-       JOIN public.team_application_outbox AS outbox USING (effect_id)
-      ORDER BY state.committed_at, state.command_id, state.ordinal`,
-  ).pipe(Effect.map(({ rows }) => rows));
+  }>(`SELECT state.effect_id, state.status, state.attempts, state.last_failure_tag,
+          outbox.payload_json <> '{}'::jsonb AS envelope
+     FROM public.team_application_delivery_state AS state
+     JOIN public.team_application_outbox AS outbox USING (effect_id)
+    ORDER BY state.committed_at, state.command_id, state.ordinal`);
 
-const readQueue = (pool: Pool) =>
-  pgQuery<{
+const readQueue = (pool: SqlClient.SqlClient) =>
+  pool.unsafe<{
     readonly id: string;
     readonly element: string;
     readonly state: string;
     readonly attempts: number;
     readonly leased: boolean;
     readonly leased_since: string | null;
-  }>(
-    pool,
-    `SELECT id, element::json ->> 'effectId' AS element, state, attempts,
-            acquired_by IS NOT NULL AS leased,
-            to_char(acquired_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS leased_since
-       FROM public.effect_queue WHERE queue_name = 'team-application-notification'
-      ORDER BY sequence`,
-  ).pipe(Effect.map(({ rows }) => rows));
+  }>(`SELECT id, element::json ->> 'effectId' AS element, state, attempts,
+          acquired_by IS NOT NULL AS leased,
+          to_char(acquired_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS leased_since
+     FROM public.effect_queue WHERE queue_name = 'team-application-notification'
+    ORDER BY sequence`);
 
 /**
  * Runs one statement of the claim outbox in the database and answers the SQLSTATE that
  * rejected it or the number of rows that it changed. The error stays in the database:
  * PGlite's socket server closes a connection that reports one.
  */
-const attempt = (pool: Pool, statement: string) =>
-  pgQuery(
-    pool,
-    `CREATE OR REPLACE FUNCTION public.queue_migration_attempt(statement text) RETURNS text
-     LANGUAGE plpgsql AS $$
-     DECLARE changed integer;
-     BEGIN
-       EXECUTE statement;
-       GET DIAGNOSTICS changed = ROW_COUNT;
-       RETURN 'changed ' || changed;
-     EXCEPTION WHEN OTHERS THEN
-       RETURN 'rejected ' || SQLSTATE;
-     END $$`,
-  ).pipe(
-    Effect.andThen(
-      pgQuery<{ readonly outcome: string }>(
-        pool,
-        "SELECT public.queue_migration_attempt($1) AS outcome",
-        [statement],
+const attempt = (pool: SqlClient.SqlClient, statement: string) =>
+  pool
+    .unsafe(`CREATE OR REPLACE FUNCTION public.queue_migration_attempt(statement text) RETURNS text
+   LANGUAGE plpgsql AS $$
+   DECLARE changed integer;
+   BEGIN
+     EXECUTE statement;
+     GET DIAGNOSTICS changed = ROW_COUNT;
+     RETURN 'changed ' || changed;
+   EXCEPTION WHEN OTHERS THEN
+     RETURN 'rejected ' || SQLSTATE;
+   END $$`)
+    .pipe(
+      Effect.andThen(
+        pool.unsafe<{ readonly outcome: string }>(
+          "SELECT public.queue_migration_attempt($1) AS outcome",
+          [statement],
+        ),
       ),
-    ),
-    Effect.map(({ rows }) => rows[0]?.outcome),
-  );
+      Effect.map((rows) => rows[0]?.outcome),
+    );
 
 /** Seeds through migration 77, migrates to 78, runs the claim outbox again, and migrates to 79. */
-const upgrade = (pool: Pool) =>
+const upgrade = (pool: SqlClient.SqlClient) =>
   Effect.gen(function* () {
     yield* seed(pool);
 
     const before = yield* readOutbox(pool);
 
-    yield* pgQuery(pool, yield* readSql(move.migration));
+    yield* pool.withTransaction(
+      executePostgresMigration(yield* readSql(move.migration)).pipe(
+        Effect.provideService(SqlClient.SqlClient, pool),
+      ),
+    );
 
     const moved = yield* readDeliveryState(pool);
     const queue = yield* readQueue(pool);
@@ -300,15 +295,18 @@ const upgrade = (pool: Pool) =>
       ),
     };
 
-    yield* pgQuery(pool, "DROP FUNCTION public.queue_migration_attempt(text)");
-    yield* pgQuery(pool, yield* readSql(drop));
+    yield* pool.unsafe("DROP FUNCTION public.queue_migration_attempt(text)");
+    yield* pool.withTransaction(
+      executePostgresMigration(yield* readSql(drop)).pipe(
+        Effect.provideService(SqlClient.SqlClient, pool),
+      ),
+    );
 
-    const claimColumns = yield* pgQuery<{ readonly column_name: string }>(
-      pool,
-      `SELECT column_name FROM information_schema.columns
-        WHERE table_schema = 'public' AND table_name = 'team_application_outbox'
-          AND column_name IN ('claim_id', 'claimed_at', 'attempts')`,
-    ).pipe(Effect.map(({ rows }) => rows.map(({ column_name }) => column_name)));
+    const claimColumns = yield* pool
+      .unsafe<{ readonly column_name: string }>(`SELECT column_name FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'team_application_outbox'
+        AND column_name IN ('claim_id', 'claimed_at', 'attempts')`)
+      .pipe(Effect.map((rows) => rows.map(({ column_name }) => column_name)));
 
     return {
       before,
@@ -389,27 +387,27 @@ const clusterDatabase = (name: string, migrations: ReadonlyArray<DatabaseMigrati
     const cluster = yield* MigrationCluster;
 
     const connect = (database: string) =>
-      Effect.acquireRelease(
-        Effect.sync(
-          () =>
-            new Pool({
-              host: cluster.socketDirectory,
-              port: cluster.port,
-              user: cluster.user,
-              database,
-              max: 1,
-            }),
-        ),
-        (pool) => Effect.promise(() => pool.end()),
-      );
+      postgresTestClient({
+        host: cluster.socketDirectory,
+        port: cluster.port,
+        username: cluster.user,
+        database,
+        maxConnections: 1,
+        startupOptions: NativeDatabaseStartupOptions,
+      });
 
     const admin = yield* connect(cluster.database);
 
-    yield* pgQuery(admin, `CREATE DATABASE ${name}`);
+    yield* admin.unsafe(`CREATE DATABASE ${name}`);
 
     const pool = yield* connect(name);
 
-    for (const migration of migrations) yield* pgQuery(pool, yield* readSql(migration));
+    for (const migration of migrations)
+      yield* pool.withTransaction(
+        executePostgresMigration(yield* readSql(migration)).pipe(
+          Effect.provideService(SqlClient.SqlClient, pool),
+        ),
+      );
 
     return pool;
   });
@@ -427,15 +425,20 @@ layer(Layer.merge(migrationCluster, TestPlatform), {
         expect(yield* upgrade(pool)).toEqual(upgradeEvidence);
       }).pipe(Effect.scoped, Effect.orDie),
   );
-
-  // PGlite creates and migrates the full preceding schema inside this test, not the suite Layer.
-  it.effect(
-    "moves in-flight rows with their original ids and states, and drops the claim columns only after no worker can write them, on PGlite",
-    () =>
-      withPostgresTestDatabase(upgrade, move.preceding).pipe(
-        Effect.map((evidence) => expect(evidence).toEqual(upgradeEvidence)),
-        Effect.orDie,
-      ),
-    30_000,
-  );
 });
+
+// PGlite creates and migrates the full preceding schema inside this test, so no disposable cluster starts.
+layer(TestPlatform, { excludeTestServices: true, timeout: "120 seconds" })(
+  "team application queue migration on PGlite",
+  (it) => {
+    it.effect(
+      "moves in-flight rows with their original ids and states, and drops the claim columns only after no worker can write them, on PGlite",
+      () =>
+        withPostgresTestDatabase(upgrade, move.preceding).pipe(
+          Effect.map((evidence) => expect(evidence).toEqual(upgradeEvidence)),
+          Effect.orDie,
+        ),
+      30_000,
+    );
+  },
+);

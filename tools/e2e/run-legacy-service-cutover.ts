@@ -1,3 +1,7 @@
+/**
+ * EX-0028: required public native APIs in exact stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { selectLegacyTargetTransport } from "./legacy-database-transport";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -5,19 +9,19 @@ import process from "node:process";
 import * as BunServices from "@effect/platform-bun/BunServices";
 import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import {
-  importPersonCohort as importPersonCohortEffect,
+  importPersonCohort,
   type PersonCohortReport,
   type PersonCohortSnapshot,
 } from "@vektorprogrammet/database/person-cohort";
 import {
   decodeHistoricalServiceSnapshot,
   historicalServiceSourceRowDigest,
-  importHistoricalServiceCohort as importHistoricalServiceCohortEffect,
+  importHistoricalServiceCohort,
   type HistoricalServiceReport,
 } from "@vektorprogrammet/database/historical-service-cohort";
 import {
   decodeIdentityCohort,
-  importIdentityCohort as importIdentityCohortEffect,
+  importIdentityCohort,
   type CohortReport as IdentityCohortReport,
 } from "@vektorprogrammet/database/identity-cohort";
 import { readPrivateCohortJson } from "@vektorprogrammet/database/cohort-cli";
@@ -25,7 +29,7 @@ import { CurrentAssignmentReview } from "@vektorprogrammet/domain/placements";
 import {
   currentAssignmentImportSourceDigest,
   CurrentAssignmentFailure,
-  importReconciledCurrentAssignmentCohort as importReconciledCurrentAssignmentCohortEffect,
+  importReconciledCurrentAssignmentCohort,
   type CurrentAssignmentReport,
 } from "@vektorprogrammet/database/placements";
 import {
@@ -33,11 +37,14 @@ import {
   OrganizationReview,
 } from "@vektorprogrammet/domain/organization";
 import {
-  importReviewedOrganizationCohort as importReviewedOrganizationCohortEffect,
+  importReviewedOrganizationCohort,
   organizationImportSourceDigest,
 } from "@vektorprogrammet/database/organization";
-import { Pool, type PoolClient } from "pg";
-import { Console, Effect, flow, Predicate, Schema } from "effect";
+import { withTypedTransactionFailures } from "@vektorprogrammet/database";
+import { nativePgLayer } from "@vektorprogrammet/database/pg-pool";
+import { NativeDatabaseStartupOptions } from "@vektorprogrammet/database/search-path";
+import { SqlClient } from "effect/sql";
+import { Console, Effect, flow, Redacted, Result, Schema } from "effect";
 import {
   buildLegacyReferences,
   departmentId,
@@ -52,23 +59,6 @@ import {
   reviewLegacyOrganizationSource,
 } from "./legacy-organization-snapshot";
 import { readLegacySourceSnapshot, type LegacySourceSnapshot } from "./legacy-source-snapshot";
-
-// The cohort imports are Effects; this driver runs each one as a Promise inside its stage.
-const importPersonCohort = flow(importPersonCohortEffect, Effect.runPromise);
-
-const importHistoricalServiceCohort = flow(importHistoricalServiceCohortEffect, Effect.runPromise);
-
-const importIdentityCohort = flow(importIdentityCohortEffect, Effect.runPromise);
-
-const importReconciledCurrentAssignmentCohort = flow(
-  importReconciledCurrentAssignmentCohortEffect,
-  Effect.runPromise,
-);
-
-const importReviewedOrganizationCohort = flow(
-  importReviewedOrganizationCohortEffect,
-  Effect.runPromise,
-);
 
 const repository = "vektorprogrammet/vektorprogrammet";
 
@@ -93,33 +83,50 @@ export interface CutoverOptions {
   readonly organization: "NotRequested" | OrganizationReview;
 }
 
-type CutoverStage =
-  | "SourceRead"
-  | "TargetConnect"
-  | "ReferenceSeed"
-  | "PersonProjection"
-  | "PersonImport"
-  | "OrganizationProjection"
-  | "OrganizationImport"
-  | "CurrentAssignmentProjection"
-  | "CurrentAssignmentImport"
-  | "HistoricalProjection"
-  | "HistoricalImport"
-  | "AccountProjection"
-  | "AccountImport"
-  | "TargetCommit"
-  | "TargetRollback"
-  | "TargetClose";
+const CutoverStage = Schema.Literals([
+  "SourceRead",
+  "TargetConnect",
+  "ReferenceSeed",
+  "PersonProjection",
+  "PersonImport",
+  "OrganizationProjection",
+  "OrganizationImport",
+  "CurrentAssignmentProjection",
+  "CurrentAssignmentImport",
+  "HistoricalProjection",
+  "HistoricalImport",
+  "AccountProjection",
+  "AccountImport",
+  "TargetCommit",
+  "TargetRollback",
+  "TargetClose",
+]);
 
-export class CutoverStageFailure extends Error {
-  constructor(
-    readonly stage: CutoverStage,
-    readonly detail?: string,
-  ) {
-    super("Legacy cutover " + stage + (detail ? "/" + detail : "") + " failed; details redacted");
-    this.name = "CutoverStageFailure";
+type CutoverStage = typeof CutoverStage.Type;
+
+export class CutoverStageFailure extends Schema.TaggedError<CutoverStageFailure>()(
+  "CutoverStageFailure",
+  { stage: CutoverStage, detail: Schema.optional(Schema.String) },
+) {
+  override get message() {
+    return (
+      "Legacy cutover " +
+      this.stage +
+      (this.detail ? "/" + this.detail : "") +
+      " failed; details redacted"
+    );
   }
 }
+
+const decodeSelectedDatabase = Schema.decodeUnknownEffect(
+  Schema.Array(Schema.Struct({ database: Schema.String })),
+);
+
+const inStageEffect = <A, E, R>(stage: CutoverStage, operation: Effect.Effect<A, E, R>) =>
+  operation.pipe(Effect.mapError(() => new CutoverStageFailure({ stage })));
+
+const project = <A>(stage: CutoverStage, operation: () => A) =>
+  Effect.try({ try: operation, catch: () => new CutoverStageFailure({ stage }) });
 
 const inStage = async <A>(stage: CutoverStage, operation: () => Promise<A>): Promise<A> => {
   try {
@@ -132,7 +139,7 @@ const inStage = async <A>(stage: CutoverStage, operation: () => Promise<A>): Pro
           )?.[1]
         : undefined;
 
-    throw new CutoverStageFailure(stage, detail);
+    throw new CutoverStageFailure(detail === undefined ? { stage } : { stage, detail });
   }
 };
 
@@ -148,6 +155,7 @@ const reasons = (
 };
 
 /** Projection only: past service never creates a current school placement or attendance fact. */
+
 export const buildLegacyHistoricalSnapshot = (
   source: LegacySourceSnapshot,
   person: PersonCohortReport,
@@ -210,6 +218,7 @@ export const buildLegacyHistoricalSnapshot = (
       row.schoolId === null
     )
       return [];
+
     const person = personEvidence.get(sourceUserId(row.userId));
 
     if (!person) return [];
@@ -243,6 +252,7 @@ export const buildLegacyHistoricalSnapshot = (
 };
 
 /** Project account rows only through accepted Person reconciliation. */
+
 export const buildLegacyAccountSnapshot = (
   source: LegacySourceSnapshot,
   person: PersonCohortReport,
@@ -263,6 +273,7 @@ export const buildLegacyAccountSnapshot = (
 
   const occurrences = source.credentials.map((credential) => {
     const sourceId = String(credential.id);
+
     const user = users.get(sourceId);
 
     return {
@@ -299,6 +310,7 @@ export const buildLegacyAccountSnapshot = (
 };
 
 /** Imports all selected cohorts in one caller-owned transaction. */
+
 export const runLegacyServiceCutover = async (options: CutoverOptions) => {
   if (
     options.passwordlessPolicy !== "ProvisionRecovery" ||
@@ -390,247 +402,270 @@ export const runLegacyServiceCutover = async (options: CutoverOptions) => {
   ).slice(0, 32);
 
   const identity = { sourceRepository: repository, sourceRevision, snapshotId: options.snapshotId };
+
   const references = buildLegacyReferences(source);
 
-  const pool = new Pool({
-    connectionString: targetSelection.toString(),
-    max: 3,
-    ssl: socketPath === null ? { ca: process.env[caEnv!], rejectUnauthorized: true } : undefined,
-    application_name: "legacy-service-cohort-cutover",
+  const program = Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+
+    let lifecycleStage: CutoverStage = "TargetConnect";
+
+    return yield* withTypedTransactionFailures(sql.withTransaction)(
+      Effect.gen(function* () {
+        const selected = yield* inStageEffect(
+          "TargetConnect",
+          sql
+            .unsafe("SELECT current_database() AS database")
+            .pipe(Effect.flatMap(decodeSelectedDatabase)),
+        );
+
+        if (selected[0]?.database !== options.targetDatabase)
+          return yield* new CutoverStageFailure({ stage: "TargetConnect" });
+
+        const referenceStage = yield* inStageEffect(
+          "ReferenceSeed",
+          seedLegacyReferences(sql, identity, references),
+        );
+
+        const personSnapshot = yield* project("PersonProjection", () =>
+          buildLegacyPersonSnapshot(source.users, {
+            sourceRevision,
+            transformationRevision,
+            snapshotId: options.snapshotId,
+            attestedBy: options.attestedBy,
+          }),
+        );
+
+        const person = yield* inStageEffect(
+          "PersonImport",
+          importPersonCohort(sql, personSnapshot),
+        );
+
+        const organizationSnapshot =
+          organizationReview === undefined
+            ? undefined
+            : yield* project("OrganizationProjection", () =>
+                buildLegacyOrganizationSnapshot(
+                  source,
+                  person,
+                  personSnapshot,
+                  organizationReview,
+                  {
+                    snapshotId: options.snapshotId,
+                    transformationRevision,
+                    referenceDigest: references.referenceDigest,
+                  },
+                ),
+              );
+
+        const organization =
+          organizationSnapshot === undefined
+            ? undefined
+            : yield* inStageEffect(
+                "OrganizationImport",
+                importReviewedOrganizationCohort(sql, organizationSnapshot),
+              );
+
+        if (organization !== undefined && organization.accepted === 0)
+          return yield* new CutoverStageFailure({
+            stage: "OrganizationImport",
+            detail: "NoAcceptedAppointments",
+          });
+
+        const currentSnapshot =
+          review === undefined
+            ? undefined
+            : yield* project("CurrentAssignmentProjection", () =>
+                buildLegacyCurrentAssignmentSnapshot(source, person, personSnapshot, review, {
+                  snapshotId: options.snapshotId,
+                  transformationRevision,
+                  referenceDigest: references.referenceDigest,
+                }),
+              );
+
+        const historicalSource =
+          review === undefined
+            ? source
+            : {
+                ...source,
+                history: source.history.filter(
+                  (row) =>
+                    row.semesterId === null ||
+                    semesterId(row.semesterId) !== review.sourceSemesterId,
+                ),
+              };
+
+        let historical: HistoricalServiceReport | undefined;
+
+        if (historicalSource.history.length > 0) {
+          const historicalSnapshot = yield* project("HistoricalProjection", () =>
+            buildLegacyHistoricalSnapshot(historicalSource, person, personSnapshot, {
+              sourceRevision,
+              transformationRevision,
+              snapshotId: options.snapshotId,
+              referenceDigest: references.referenceDigest,
+            }),
+          );
+
+          historical = yield* inStageEffect(
+            "HistoricalImport",
+            importHistoricalServiceCohort(sql, historicalSnapshot),
+          );
+
+          if (historical.accepted === 0)
+            return yield* new CutoverStageFailure({
+              stage: "HistoricalImport",
+              detail: "NoAcceptedService",
+            });
+        }
+
+        const current: CurrentAssignmentReport | undefined =
+          currentSnapshot === undefined
+            ? undefined
+            : yield* inStageEffect(
+                "CurrentAssignmentImport",
+                importReconciledCurrentAssignmentCohort(sql, currentSnapshot),
+              );
+
+        if (current !== undefined && current.accepted === 0)
+          return yield* new CutoverStageFailure({
+            stage: "CurrentAssignmentImport",
+            detail: "NoAcceptedAssignments",
+          });
+
+        const accountSnapshot = yield* project("AccountProjection", () =>
+          buildLegacyAccountSnapshot(source, person, personSnapshot, {
+            snapshotId: options.snapshotId,
+            transformationRevision,
+            passwordlessPolicy: options.passwordlessPolicy,
+          }),
+        );
+
+        const accountsReport: IdentityCohortReport = yield* inStageEffect(
+          "AccountImport",
+          importIdentityCohort(sql, accountSnapshot),
+        );
+
+        lifecycleStage = "TargetCommit";
+
+        return {
+          scope:
+            organizationReview !== undefined
+              ? review === undefined
+                ? "PersonReferencesOrganizationHistoricalServiceAndAccounts"
+                : "PersonReferencesOrganizationHistoricalServiceCurrentAssignmentsAndAccounts"
+              : review === undefined
+                ? "PersonReferencesHistoricalServiceAndAccounts"
+                : "PersonReferencesHistoricalServiceCurrentAssignmentsAndAccounts",
+          organization:
+            organization === undefined || organizationReview === undefined
+              ? ("NotRequested" as const)
+              : {
+                  stage: "Reconciled" as const,
+                  asOf: organizationReview.asOf,
+                  sourceWatermark: organizationReview.sourceWatermark,
+                  input: organization.input,
+                  accepted: organization.accepted,
+                  quarantined: organization.quarantined,
+                  excluded: organization.excluded,
+                  reasons: reasons(organization.occurrences),
+                },
+          currentAssignments:
+            current === undefined || review === undefined
+              ? ("NotImported" as const)
+              : {
+                  stage: "Reconciled" as const,
+                  sourceSemesterId: review.sourceSemesterId,
+                  asOf: review.asOf,
+                  sourceWatermark: review.sourceWatermark,
+                  currentState: current.currentState,
+                  input: current.input,
+                  accepted: current.accepted,
+                  quarantined: current.quarantined,
+                  reasons: reasons(current.occurrences),
+                },
+          source: {
+            snapshotId: options.snapshotId,
+            revision: sourceRevision,
+            credentialRevision: digest(credentials),
+            transformationRevision,
+          },
+          references: {
+            stage: referenceStage,
+            departments: references.rows.departments.length,
+            semesters: references.rows.semesters.length,
+            schools: references.rows.schools.length,
+            relationships: references.rows.relationships.length,
+            digest: references.referenceDigest,
+          },
+          person: {
+            stage: person.replay ? "ExactReplay" : "Imported",
+            input: person.input,
+            accepted: person.accepted,
+            quarantined: person.quarantined,
+            reasons: reasons(person.occurrences),
+          },
+          historicalService: {
+            stage: historical === undefined ? "NotImported" : "Reconciled",
+            currentState: "Unchanged",
+            input: historical?.input ?? 0,
+            accepted: historical?.accepted ?? 0,
+            quarantined: historical?.quarantined ?? 0,
+            reasons: historical === undefined ? {} : reasons(historical.occurrences),
+          },
+          accounts: {
+            stage: "Reconciled",
+            input: accountsReport.input,
+            accepted: accountsReport.accepted,
+            credentialImported: accountsReport.occurrences.filter(
+              ({ reason }) => reason === "Imported",
+            ).length,
+            recoveryPending: accountsReport.occurrences.filter(
+              ({ reason }) => reason === "RecoveryPending",
+            ).length,
+            quarantined: accountsReport.quarantined,
+            reasons: reasons(accountsReport.occurrences),
+            dispositionFingerprint: digest(accountsReport.occurrences),
+          },
+        };
+      }).pipe(
+        Effect.tapError(() =>
+          Effect.sync(() => {
+            lifecycleStage = "TargetRollback";
+          }),
+        ),
+      ),
+    ).pipe(
+      Effect.catchTag("SqlError", () =>
+        Effect.fail(new CutoverStageFailure({ stage: lifecycleStage })),
+      ),
+    );
   });
 
-  let tx: PoolClient | undefined;
-
-  const outcome = await (async () => {
-    tx = await inStage("TargetConnect", () => pool.connect());
-    const client = tx;
-    await inStage("TargetConnect", async () => {
-      await client.query("BEGIN");
-
-      const selected = await client.query<{ database: string }>(
-        "SELECT current_database() AS database",
-      );
-
-      if (selected.rows[0]?.database !== options.targetDatabase)
-        throw new Error("Connected native database differs from explicit target");
-    });
-
-    const referenceStage = await inStage("ReferenceSeed", () =>
-      seedLegacyReferences(pool, identity, references, client),
-    );
-
-    const personSnapshot = await inStage("PersonProjection", async () =>
-      buildLegacyPersonSnapshot(source.users, {
-        sourceRevision,
-        transformationRevision,
-        snapshotId: options.snapshotId,
-        attestedBy: options.attestedBy,
-      }),
-    );
-
-    const person = await inStage("PersonImport", () =>
-      importPersonCohort(pool, personSnapshot, client),
-    );
-
-    const organizationSnapshot =
-      organizationReview === undefined
-        ? undefined
-        : await inStage("OrganizationProjection", async () =>
-            buildLegacyOrganizationSnapshot(source, person, personSnapshot, organizationReview, {
-              snapshotId: options.snapshotId,
-              transformationRevision,
-              referenceDigest: references.referenceDigest,
-            }),
-          );
-
-    const organization =
-      organizationSnapshot === undefined
-        ? undefined
-        : await inStage("OrganizationImport", () =>
-            importReviewedOrganizationCohort(pool, organizationSnapshot, client),
-          );
-
-    if (organization !== undefined && organization.accepted === 0)
-      throw new CutoverStageFailure("OrganizationImport", "NoAcceptedAppointments");
-
-    const currentSnapshot =
-      review === undefined
-        ? undefined
-        : await inStage("CurrentAssignmentProjection", async () =>
-            buildLegacyCurrentAssignmentSnapshot(source, person, personSnapshot, review, {
-              snapshotId: options.snapshotId,
-              transformationRevision,
-              referenceDigest: references.referenceDigest,
-            }),
-          );
-
-    const historicalSource =
-      review === undefined
-        ? source
-        : {
-            ...source,
-            history: source.history.filter(
-              (row) =>
-                row.semesterId === null || semesterId(row.semesterId) !== review.sourceSemesterId,
-            ),
-          };
-
-    let historical: HistoricalServiceReport | undefined;
-
-    if (historicalSource.history.length > 0) {
-      const historicalSnapshot = await inStage("HistoricalProjection", async () =>
-        buildLegacyHistoricalSnapshot(historicalSource, person, personSnapshot, {
-          sourceRevision,
-          transformationRevision,
-          snapshotId: options.snapshotId,
-          referenceDigest: references.referenceDigest,
+  const outcome = await Effect.runPromise(
+    program.pipe(
+      Effect.provide(
+        nativePgLayer({
+          url: Redacted.make(targetSelection.toString()),
+          maxConnections: 3,
+          minConnections: 0,
+          idleTimeout: "10 seconds",
+          connectionTTL: undefined,
+          prepare: false,
+          ssl:
+            socketPath === null ? { ca: process.env[caEnv!], rejectUnauthorized: true } : undefined,
+          applicationName: "legacy-service-cohort-cutover",
+          startupOptions: NativeDatabaseStartupOptions,
         }),
-      );
-
-      historical = await inStage("HistoricalImport", () =>
-        importHistoricalServiceCohort(pool, historicalSnapshot, client),
-      );
-
-      if (historical.accepted === 0)
-        throw new CutoverStageFailure("HistoricalImport", "NoAcceptedService");
-    }
-
-    const current: CurrentAssignmentReport | undefined =
-      currentSnapshot === undefined
-        ? undefined
-        : await inStage("CurrentAssignmentImport", () =>
-            importReconciledCurrentAssignmentCohort(pool, currentSnapshot, client),
-          );
-
-    if (current !== undefined && current.accepted === 0)
-      throw new CutoverStageFailure("CurrentAssignmentImport", "NoAcceptedAssignments");
-
-    const accountSnapshot = await inStage("AccountProjection", async () =>
-      buildLegacyAccountSnapshot(source, person, personSnapshot, {
-        snapshotId: options.snapshotId,
-        transformationRevision,
-        passwordlessPolicy: options.passwordlessPolicy,
-      }),
-    );
-
-    const accountsReport: IdentityCohortReport = await inStage("AccountImport", () =>
-      importIdentityCohort(pool, accountSnapshot, client),
-    );
-
-    await inStage("TargetCommit", () => client.query("COMMIT"));
-
-    return {
-      scope:
-        organizationReview !== undefined
-          ? review === undefined
-            ? "PersonReferencesOrganizationHistoricalServiceAndAccounts"
-            : "PersonReferencesOrganizationHistoricalServiceCurrentAssignmentsAndAccounts"
-          : review === undefined
-            ? "PersonReferencesHistoricalServiceAndAccounts"
-            : "PersonReferencesHistoricalServiceCurrentAssignmentsAndAccounts",
-      organization:
-        organization === undefined || organizationReview === undefined
-          ? ("NotRequested" as const)
-          : {
-              stage: "Reconciled" as const,
-              asOf: organizationReview.asOf,
-              sourceWatermark: organizationReview.sourceWatermark,
-              input: organization.input,
-              accepted: organization.accepted,
-              quarantined: organization.quarantined,
-              excluded: organization.excluded,
-              reasons: reasons(organization.occurrences),
-            },
-      currentAssignments:
-        current === undefined || review === undefined
-          ? ("NotImported" as const)
-          : {
-              stage: "Reconciled" as const,
-              sourceSemesterId: review.sourceSemesterId,
-              asOf: review.asOf,
-              sourceWatermark: review.sourceWatermark,
-              currentState: current.currentState,
-              input: current.input,
-              accepted: current.accepted,
-              quarantined: current.quarantined,
-              reasons: reasons(current.occurrences),
-            },
-      source: {
-        snapshotId: options.snapshotId,
-        revision: sourceRevision,
-        credentialRevision: digest(credentials),
-        transformationRevision,
-      },
-      references: {
-        stage: referenceStage,
-        departments: references.rows.departments.length,
-        semesters: references.rows.semesters.length,
-        schools: references.rows.schools.length,
-        relationships: references.rows.relationships.length,
-        digest: references.referenceDigest,
-      },
-      person: {
-        stage: person.replay ? "ExactReplay" : "Imported",
-        input: person.input,
-        accepted: person.accepted,
-        quarantined: person.quarantined,
-        reasons: reasons(person.occurrences),
-      },
-      historicalService: {
-        stage: historical === undefined ? "NotImported" : "Reconciled",
-        currentState: "Unchanged",
-        input: historical?.input ?? 0,
-        accepted: historical?.accepted ?? 0,
-        quarantined: historical?.quarantined ?? 0,
-        reasons: historical === undefined ? {} : reasons(historical.occurrences),
-      },
-      accounts: {
-        stage: "Reconciled",
-        input: accountsReport.input,
-        accepted: accountsReport.accepted,
-        credentialImported: accountsReport.occurrences.filter(({ reason }) => reason === "Imported")
-          .length,
-        recoveryPending: accountsReport.occurrences.filter(
-          ({ reason }) => reason === "RecoveryPending",
-        ).length,
-        quarantined: accountsReport.quarantined,
-        reasons: reasons(accountsReport.occurrences),
-        dispositionFingerprint: digest(accountsReport.occurrences),
-      },
-    };
-  })().then(
-    (report) => ({ _tag: "Success" as const, report }),
-    (error) => ({ _tag: "Failure" as const, error }),
+      ),
+      Effect.catchTag(["SqlError", "SchemaError"], () =>
+        Effect.fail(new CutoverStageFailure({ stage: "TargetConnect" })),
+      ),
+      Effect.result,
+    ),
   );
 
-  const cleanupErrors: unknown[] = [];
-
-  if (Predicate.isTagged(outcome, "Failure") && tx) {
-    const client = tx;
-    await inStage("TargetRollback", () => client.query("ROLLBACK")).catch((cleanupError) => {
-      cleanupErrors.push(cleanupError);
-    });
-  }
-
-  await inStage("TargetClose", async () => tx?.release()).catch((cleanupError) => {
-    cleanupErrors.push(cleanupError);
-  });
-  await inStage("TargetClose", () => pool.end()).catch((cleanupError) => {
-    cleanupErrors.push(cleanupError);
-  });
-
-  if (Predicate.isTagged(outcome, "Failure")) {
-    if (cleanupErrors.length === 0) throw outcome.error;
-    throw new AggregateError(
-      [outcome.error, ...cleanupErrors],
-      "Legacy cutover and cleanup failed; details redacted",
-    );
-  }
-
-  if (cleanupErrors.length > 0)
-    throw new AggregateError(cleanupErrors, "Legacy cutover cleanup failed; details redacted");
-
-  return outcome.report;
+  return Result.getOrThrow(outcome);
 };
 
 const usage =
@@ -669,7 +704,9 @@ if (import.meta.main) {
         argumentsByName["passwordless-policy"] !== "provision-recovery"
       )
         throw new Error("Required option missing");
+
       const sourceEnv = argumentsByName["source-url-env"]!;
+
       const targetEnv = argumentsByName["target-url-env"]!;
 
       if (
@@ -722,9 +759,10 @@ if (import.meta.main) {
       await Effect.runPromise(Console.log(JSON.stringify(result)));
     } catch (error) {
       // Driver and SQL exceptions can contain credentials or Person fields. No row-level diagnostics.
+
       await Effect.runPromise(
         Console.error(
-          error instanceof CutoverStageFailure
+          Schema.is(CutoverStageFailure)(error)
             ? error.message
             : "Legacy cohort cutover failed; details redacted. No completion report was issued.",
         ),

@@ -6,10 +6,20 @@ import {
   type ReceiptFile,
 } from "@vektorprogrammet/domain/receipt";
 /** Spec 0095: bounded synthetic snapshot adapter, using the Receipt importer. */
-import { createHash } from "node:crypto";
 // oxlint-disable-next-line effecttsgo/node-builtin-import -- EX-0003: Effect FileSystem.open has no O_NOFOLLOW; the snapshot reader refuses a symlink at open time
 import { constants, open } from "node:fs/promises";
-import { Data, Effect, FileSystem, Match, Option, Path, Predicate, Result, Schema } from "effect";
+import {
+  Data,
+  Effect,
+  FileSystem,
+  Match,
+  Option,
+  Path,
+  Predicate,
+  Result,
+  Schema,
+  flow,
+} from "effect";
 import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import { PersonId, DepartmentId } from "@vektorprogrammet/domain/organization";
 
@@ -67,14 +77,19 @@ export const ReceiptSnapshot = Schema.Struct({
 
 export type ReceiptSnapshot = typeof ReceiptSnapshot.Type;
 
+const digestEncoder = new TextEncoder();
+
 export const digest = (value: Uint8Array | string): string =>
-  createHash("sha256").update(value).digest("hex");
+  sha256Hex(Predicate.isString(value) ? digestEncoder.encode(value) : value);
 
 export const rowDigest = (row: Schema.Json): string => sha256Hex(canonicalJsonBytes(row));
 
-export const decodeSnapshot = Schema.decodeUnknownSync(ReceiptSnapshot, {
-  onExcessProperty: "error",
-});
+export const decodeSnapshot = flow(
+  Schema.decodeUnknownResult(ReceiptSnapshot, {
+    onExcessProperty: "error",
+  }),
+  Result.getOrThrow,
+);
 
 /** A snapshot file the importer refuses, named by the quarantine reason it records. */
 export class ReceiptSnapshotFileRejected extends Data.TaggedError("ReceiptSnapshotFileRejected")<{

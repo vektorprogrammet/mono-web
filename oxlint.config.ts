@@ -2,9 +2,9 @@ import { correctness, effectNative, recommended } from "@effect/tsgo/oxlint-pres
 import { defineConfig, type OxlintConfig } from "oxlint";
 import {
   DEFAULT_PLUGIN_NAME,
-  expandDomains,
+  effect,
   RULE_NAMES,
-  type ExpandInput,
+  type EffectConfigInput,
   type OxlintConfigFragment,
 } from "@phibkro/oxlint-effect-plugin";
 
@@ -43,6 +43,7 @@ const bunNodeModules = {
       "node:os",
       "node:path",
       "node:process",
+      "node:stream",
       "node:timers/promises",
       "node:url",
     ],
@@ -53,7 +54,6 @@ const bunNodeModules = {
 // Groups therefore use plain globs, ordered from broad sources to narrow exceptions:
 // the last matching group decides every Effect rule for a file (see `totalOverrides`).
 const effectConfig = {
-  technology: "effect-v4",
   groups: [
     {
       files: ["packages/domain/src/**/*.ts"],
@@ -132,6 +132,9 @@ const effectConfig = {
         "apps/dashboard/app/lib/preview-*.test.ts",
         "apps/dashboard/app/foldkit/content/view.test.ts",
         "apps/dashboard/app/foldkit/dated-school-service/view.test.ts",
+        "apps/dashboard/app/foldkit/dashboard/keyboard.test.ts",
+        "apps/dashboard/app/foldkit/dashboard/view.test.ts",
+        "apps/dashboard/app/foldkit/recruitment-maintenance/view.test.ts",
         "apps/dashboard/app/foldkit/schools/runtime.test.ts",
       ],
       role: "test",
@@ -146,10 +149,19 @@ const effectConfig = {
       strictness: "strict",
     },
     {
+      files: ["packages/database/src/test-support/native-pg-transport.ts"],
+      role: "runtime-adapter",
+      platform: "bun",
+      boundaries: ["external-data"],
+      strictness: "strict",
+      ruleOptions: bunNodeModules,
+    },
+    {
       // Bun runs these composition roots and the journey runtimes that they share.
       files: [
         "apps/backend/src/main.ts",
         "apps/backend/src/**/*-main.ts",
+        "packages/database/src/auth-schema-generator.config.ts",
         "tools/acceptance/password-recovery-check.ts",
         "tools/e2e/golden-harness.ts",
         "tools/e2e/golden-harness-self-test.ts",
@@ -165,6 +177,7 @@ const effectConfig = {
         "tools/verification/identity-cohort-rehearsal.ts",
         "tools/verification/organization-import-rehearsal-main.ts",
         "tools/verification/receipt-import-rehearsal.ts",
+        "tools/verification/recommendation-preupgrade-fixture.ts",
       ],
       role: "composition-root",
       platform: "bun",
@@ -185,9 +198,9 @@ const effectConfig = {
       ruleOptions: bunNodeModules,
     },
   ],
-} satisfies ExpandInput;
+} satisfies EffectConfigInput;
 
-// `expandDomains` lists only the rules that apply to a group, so a rule enabled by an earlier,
+// `effect` lists only the rules that apply to a group, so a rule enabled by an earlier,
 // broader group would stay on for files of a later group where it does not apply.
 // Turning every other plugin rule off in each override makes the last matching group total.
 const totalOverrides = (fragment: OxlintConfigFragment): OxlintConfigFragment => ({
@@ -231,12 +244,12 @@ const productImportPatterns = [
 
 const browserImportPatterns = [
   {
-    regex: "(^|/)(database|pg|postgres)(/|$)|^@effect/sql-pg($|/)|^effect/unstable/sql($|/)",
+    regex: "(^|/)(database|pg|postgres)(/|$)|^@effect/sql-pg($|/)|^effect/sql($|/)",
     message: "Browser-safe modules must not import PostgreSQL adapters.",
   },
 ];
 
-const expandedEffectConfig = totalOverrides(expandDomains(effectConfig));
+const expandedEffectConfig = totalOverrides(effect(effectConfig));
 
 export default defineConfig({
   ...expandedEffectConfig,
@@ -266,6 +279,7 @@ export default defineConfig({
     "anti-slop/no-hand-rolled-postgres": "error",
     "anti-slop/no-json-text-parameter": "error",
     "anti-slop/no-module-mocking": "error",
+    "anti-slop/no-multi-statement-unsafe": "error",
     "anti-slop/no-object-parameters": "error",
     "anti-slop/no-reduce-accumulator-copy": "error",
     "anti-slop/no-reflect-apply": "error",

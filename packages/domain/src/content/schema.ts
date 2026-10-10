@@ -1,5 +1,9 @@
+/**
+ * EX-0020: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { Schema } from "effect";
-import { Model } from "effect/unstable/schema";
+import { Model } from "effect/schema";
 import { DepartmentId, PersonId } from "../organization/schema.js";
 import { Rfc3339InstantSchema } from "../time.js";
 
@@ -15,21 +19,19 @@ const text = (maxLength: number) =>
 
 const Revision = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)));
 
-const positiveSafeInt = (brandName: string) =>
-  Schema.Int.pipe(
-    Schema.check(
-      Schema.makeFilter(Number.isSafeInteger, { message: "a safe integer" }),
-      Schema.isGreaterThan(0),
-    ),
-    Schema.brand(brandName),
-  );
+const positiveSafeInt = Schema.Int.pipe(
+  Schema.check(
+    Schema.makeFilter(Number.isSafeInteger, { message: "a safe integer" }),
+    Schema.isGreaterThan(0),
+  ),
+);
 
-export const ArticleId = positiveSafeInt("ArticleId");
+export const ArticleId = positiveSafeInt.pipe(Schema.brand("ArticleId"));
 
 export type ArticleId = typeof ArticleId.Type;
 
 /** One-based immutable sequence number issued per publish. */
-export const ArticleVersionNumber = positiveSafeInt("ArticleVersionNumber");
+export const ArticleVersionNumber = positiveSafeInt.pipe(Schema.brand("ArticleVersionNumber"));
 
 export type ArticleVersionNumber = typeof ArticleVersionNumber.Type;
 

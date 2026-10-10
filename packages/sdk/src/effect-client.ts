@@ -1,12 +1,16 @@
 /**
+ * EX-0023: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+/**
  * Effect-native client projected directly from the canonical NativeApi contract.
  *
  * @since 0.2.0
  */
 import { ExternalNativeApi } from "@vektorprogrammet/http-api";
 import { Predicate, Effect } from "effect";
-import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http";
-import { HttpApiClient } from "effect/unstable/httpapi";
+import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/http";
+import { HttpApiClient } from "effect/http-api";
 import { apiUrl } from "./config.js";
 
 /** A Cookie header value or a lazy server-side Cookie header reader. */
@@ -90,7 +94,7 @@ export const createConfiguredEffectClient = (options: ClientOptions = {}): Nativ
  *
  * A method whose endpoint takes a union of commands accepts the whole union as its payload
  * only through the patched `HttpApiEndpoint.ClientRequest` of
- * `patches/effect@4.0.0-rc.116.patch`, exception EX-0010 of docs/effect-exceptions.json.
+ * `patches/effect@4.0.0.patch`, exception EX-0010 of docs/effect-exceptions.json.
  */
 export type EffectSdk = NativeClient;
 

@@ -20,7 +20,7 @@
   "scripts": {
     "start": "bun run src/main.ts",
     "dev": "bun run --watch src/main.ts",
-    "generate": "bun x effx build --project tsconfig.effx.json --strict-access --emit=handlers",
+    "generate": "bun ../../node_modules/@effx/cli/dist/effx.js build --project tsconfig.effx.json --strict-access --emit=handlers",
     "check-types": "tsc --noEmit",
     "build": "tsc --noEmit",
     "lint": "oxlint",
@@ -28,6 +28,7 @@
   },
   "dependencies": {
     "@effect/platform-bun": "catalog:effect-v4",
+    "@noble/hashes": "catalog:effect-v4",
     "@react-email/render": "2.1.0",
     "@vektorprogrammet/database": "workspace:*",
     "@vektorprogrammet/domain": "workspace:*",

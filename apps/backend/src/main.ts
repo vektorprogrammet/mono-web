@@ -1,3 +1,7 @@
+/**
+ * EX-0024: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { HttpRecruitmentNotificationsLive } from "./recruitment/delivery.js";
 import { runRecruitmentInvitationWorker } from "./recruitment/worker.js";
 import { runOnboardingExpirySweeper } from "./onboarding/delivery.js";
@@ -7,12 +11,16 @@ import { runReceiptDeliveryWorker } from "./receipt/worker.js";
 import { runPasswordResetDeliveryWorker } from "./password-recovery/worker.js";
 import { HttpMailLive } from "./mail/http.js";
 import { runAdmissionOutcomeDeliveryWorker } from "./admission/outcome-worker.js";
-import { randomUUID } from "node:crypto";
 import process from "node:process";
 import * as BunHttpPlatform from "@effect/platform-bun/BunHttpPlatform";
 import * as BunServices from "@effect/platform-bun/BunServices";
 import { AuthEngine, AuthLive, databaseHealth } from "@vektorprogrammet/database";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
+import {
+  BetterAuthStartupOptions,
+  NativeDatabaseStartupOptions,
+} from "@vektorprogrammet/database/search-path";
+import { AuthPoolLive } from "@vektorprogrammet/database/pg-pool";
 import { AdmissionsLive } from "@vektorprogrammet/database/admissions";
 import { ReturningAssistantsLive } from "@vektorprogrammet/database/application";
 import { ContentLive, ContentManagementLive } from "@vektorprogrammet/database/content";
@@ -33,6 +41,7 @@ import {
   Cause,
   Config,
   ConfigProvider,
+  Crypto,
   Effect,
   Exit,
   Fiber,
@@ -40,7 +49,7 @@ import {
   ManagedRuntime,
   Redacted,
 } from "effect";
-import { Etag, FetchHttpClient, HttpRouter } from "effect/unstable/http";
+import { Etag, FetchHttpClient, HttpRouter } from "effect/http";
 import { publicApplicationHttpEffects } from "./application/effects.js";
 import { decodeBackendConfig } from "./config.js";
 import {
@@ -84,6 +93,7 @@ const databaseLayer = DatabaseLive({
   url: Redacted.make(config.postgresUrl),
   applicationName: "vektorprogrammet-backend",
   maxConnections: 8,
+  startupOptions: NativeDatabaseStartupOptions,
 }).pipe(Layer.provide(BunServices.layer));
 
 const admissionsLayer = AdmissionsLive.pipe(Layer.provide(databaseLayer));
@@ -140,14 +150,24 @@ const receiptDeliveryLayer = ReceiptDeliveryLive(config.receiptDelivery).pipe(
   Layer.provide(Layer.merge(databaseLayer, platformLayer)),
 );
 
-const authLayer = AuthLive(config.auth).pipe(Layer.provide(databaseLayer));
+const authPoolLayer = AuthPoolLive(config.auth, {
+  maxConnections: 4,
+  applicationName: "vektorprogrammet-backend-auth",
+  pipeline: false,
+  startupOptions: BetterAuthStartupOptions,
+});
+
+const authLayer = AuthLive(config.auth, globalThis.crypto.subtle).pipe(
+  Layer.provide(Layer.merge(databaseLayer, authPoolLayer)),
+  Layer.provide(platformLayer),
+);
 
 const backendServicesLayer = Layer.mergeAll(
   databaseLayer,
   capabilityLayers,
   receiptDeliveryLayer,
   authLayer,
-);
+).pipe(Layer.provide(platformLayer));
 
 const httpPlatformLayer = Layer.mergeAll(platformLayer, BunHttpPlatform.layer, Etag.layer);
 
@@ -204,47 +224,64 @@ if (process.exitCode !== 1) {
   const onboardingExpiryFiber =
     ingress === "external" ? runtime.runFork(runOnboardingExpirySweeper) : undefined;
 
-  const { publicApplicationEffects, schoolServiceNotifications } = config;
+  const {
+    publicApplicationEffects,
+    schoolServiceNotifications,
+    recruitmentNotifications,
+    admissionOutcomeDelivery,
+  } = config;
 
   const workerFiber =
     ingress === "internal" || publicApplicationEffects === undefined
       ? undefined
       : runtime.runFork(
-          Effect.flatMap(publicApplicationHttpEffects(publicApplicationEffects), (interpreter) =>
-            runPublicApplicationOutboxWorker(interpreter, {
-              workerId: `backend-${randomUUID()}`,
+          Effect.gen(function* () {
+            const crypto = yield* Crypto.Crypto;
+            const workerId = `backend-${yield* crypto.randomUUIDv4.pipe(Effect.orDie)}`;
+            const interpreter = yield* publicApplicationHttpEffects(publicApplicationEffects);
+
+            return yield* runPublicApplicationOutboxWorker(interpreter, {
+              workerId,
               pollIntervalMilliseconds: publicApplicationEffects.pollIntervalMilliseconds,
               staleClaimMilliseconds: publicApplicationEffects.staleClaimMilliseconds,
-            }),
-          ),
+            });
+          }),
         );
 
   const schoolServiceWorkerFiber =
     ingress === "internal" || schoolServiceNotifications === undefined
       ? undefined
       : runtime.runFork(
-          Effect.flatMap(
-            schoolServiceNotificationDelivery(schoolServiceNotifications),
-            (interpreter) =>
-              runSchoolServiceNotificationWorker(interpreter, {
-                workerId: `school-service-${randomUUID()}`,
-                pollIntervalMilliseconds: schoolServiceNotifications.pollIntervalMilliseconds,
-                staleClaimMilliseconds: schoolServiceNotifications.staleClaimMilliseconds,
-              }),
-          ),
+          Effect.gen(function* () {
+            const crypto = yield* Crypto.Crypto;
+            const workerId = `school-service-${yield* crypto.randomUUIDv4.pipe(Effect.orDie)}`;
+
+            const interpreter = yield* schoolServiceNotificationDelivery(
+              schoolServiceNotifications,
+            );
+
+            return yield* runSchoolServiceNotificationWorker(interpreter, {
+              workerId,
+              pollIntervalMilliseconds: schoolServiceNotifications.pollIntervalMilliseconds,
+              staleClaimMilliseconds: schoolServiceNotifications.staleClaimMilliseconds,
+            });
+          }),
         );
 
   const recruitmentWorkerFiber =
-    ingress === "internal" || config.recruitmentNotifications === undefined
+    ingress === "internal" || recruitmentNotifications === undefined
       ? undefined
       : runtime.runFork(
-          runRecruitmentInvitationWorker({
-            workerId: `recruitment-${randomUUID()}`,
-            pollIntervalMilliseconds: config.recruitmentNotifications.pollIntervalMilliseconds,
-            staleClaimMilliseconds: config.recruitmentNotifications.staleClaimMilliseconds,
-          }).pipe(
-            Effect.provide(HttpRecruitmentNotificationsLive(config.recruitmentNotifications)),
-          ),
+          Effect.gen(function* () {
+            const crypto = yield* Crypto.Crypto;
+            const workerId = `recruitment-${yield* crypto.randomUUIDv4.pipe(Effect.orDie)}`;
+
+            return yield* runRecruitmentInvitationWorker({
+              workerId,
+              pollIntervalMilliseconds: recruitmentNotifications.pollIntervalMilliseconds,
+              staleClaimMilliseconds: recruitmentNotifications.staleClaimMilliseconds,
+            });
+          }).pipe(Effect.provide(HttpRecruitmentNotificationsLive(recruitmentNotifications))),
         );
 
   const passwordResetWorkerFiber =
@@ -275,13 +312,15 @@ if (process.exitCode !== 1) {
         );
 
   const admissionOutcomeWorkerFiber =
-    ingress === "internal" || config.admissionOutcomeDelivery === undefined
+    ingress === "internal" || admissionOutcomeDelivery === undefined
       ? undefined
       : runtime.runFork(
-          runAdmissionOutcomeDeliveryWorker(
-            config.admissionOutcomeDelivery,
-            `admission-outcome-${randomUUID()}`,
-          ).pipe(Effect.provide(HttpMailLive(config.admissionOutcomeDelivery.transport))),
+          Effect.gen(function* () {
+            const crypto = yield* Crypto.Crypto;
+            const workerId = `admission-outcome-${yield* crypto.randomUUIDv4.pipe(Effect.orDie)}`;
+
+            return yield* runAdmissionOutcomeDeliveryWorker(admissionOutcomeDelivery, workerId);
+          }).pipe(Effect.provide(HttpMailLive(admissionOutcomeDelivery.transport))),
         );
 
   if (ingress === "external" && teamApplicationWorkerFiber === undefined) {

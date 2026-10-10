@@ -1,6 +1,6 @@
 import { backendDatabase } from "../../test/database.js";
 import { Database } from "@vektorprogrammet/database";
-import { Organization } from "@vektorprogrammet/domain/organization";
+import { DepartmentNotFound, Organization } from "@vektorprogrammet/domain/organization";
 import { NativeProblem } from "@vektorprogrammet/http-api/http-semantics";
 import { Effect, Exit, Layer, Schema } from "effect";
 import { describe, expect, it } from "@effect/vitest";
@@ -52,12 +52,12 @@ const message = {
 };
 
 /** The contact ingress as the homepage reaches it, with or without delivery configured. */
-const contactIngress = (contact: typeof config | undefined) => {
+const contactIngress = (contact: typeof config | undefined, recipient = organization) => {
   const database = backendDatabase();
 
   const http = makeBackendTestHttp(
     { ...backendConfig, contact },
-    Layer.mergeAll(database.layer, organization),
+    Layer.mergeAll(database.layer, recipient),
     unavailableAuthHandler,
   );
 
@@ -84,13 +84,20 @@ const contactIngress = (contact: typeof config | undefined) => {
         }),
       );
     },
+    /** The quota windows that visitors have spent, as the database holds them. */
     consumedWindows: () =>
       database.run(
         Database.use(
           (sql) =>
             sql<{
-              count: number;
-            }>`SELECT count(*)::integer AS count FROM public.contact_rate_windows`,
+              visitorIp: string;
+              attempts: number;
+              expiresAt: string;
+            }>`
+              SELECT host(visitor_ip) AS "visitorIp", attempts::integer AS attempts, expires_at::text AS "expiresAt"
+              FROM public.contact_rate_windows
+              ORDER BY visitor_ip
+            `,
         ),
       ),
   };
@@ -114,6 +121,10 @@ describe("native contact trust boundary", () => {
         [undefined, "credential.missing"],
         ["wrong", "credential.invalid"],
         ["ingress-test-credential-0000000000000000", "credential.invalid"],
+        [
+          String.fromCharCode(config.backendToken.charCodeAt(0) ^ 1) + config.backendToken.slice(1),
+          "credential.invalid",
+        ],
       ] as const) {
         expect(yield* problemOf(yield* ingress.submit({ ip: "127.0.0.1", token }))).toEqual({
           status: 401,
@@ -121,8 +132,44 @@ describe("native contact trust boundary", () => {
         });
       }
 
-      expect(yield* ingress.consumedWindows()).toEqual([{ count: 0 }]);
+      expect(yield* ingress.consumedWindows()).toEqual([]);
     }),
+  );
+
+  it.live(
+    "admits the configured token through native verification and rejects a one-bit change",
+    () =>
+      Effect.gen(function* () {
+        // The department does not exist, so the recipient lookup refuses the admitted request.
+        const ingress = contactIngress(
+          config,
+          Layer.mock(Organization, {
+            readDepartment: (departmentId) => Effect.fail(new DepartmentNotFound({ departmentId })),
+          }),
+        );
+
+        const accepted = yield* ingress.submit({ ip: "127.0.0.1", token: config.backendToken });
+
+        expect(yield* problemOf(accepted)).toEqual({ status: 422, code: "validation.failed" });
+
+        // The law of submitContact in packages/domain/src/contact/service.ts is "Quota commits before
+        // recipient lookup or delivery, so neither failure refunds an attempt": the admitted request
+        // spent exactly one attempt, which also shows that it passed the credential guard.
+        const admitted = yield* ingress.consumedWindows();
+
+        expect(admitted.map(({ visitorIp, attempts }) => ({ visitorIp, attempts }))).toEqual([
+          { visitorIp: "127.0.0.1", attempts: 1 },
+        ]);
+
+        const changed =
+          String.fromCharCode(config.backendToken.charCodeAt(0) ^ 1) + config.backendToken.slice(1);
+
+        const denied = yield* ingress.submit({ ip: "127.0.0.1", token: changed });
+
+        expect(yield* problemOf(denied)).toEqual({ status: 401, code: "credential.invalid" });
+        // A refused credential writes nothing: the windows are exactly those the admitted request left.
+        expect(yield* ingress.consumedWindows()).toEqual(admitted);
+      }),
   );
 
   it.live("fails closed for absent configuration and noncanonical addresses before mutation", () =>
@@ -144,7 +191,7 @@ describe("native contact trust boundary", () => {
         );
       }
 
-      expect(yield* ingress.consumedWindows()).toEqual([{ count: 0 }]);
+      expect(yield* ingress.consumedWindows()).toEqual([]);
     }),
   );
 
@@ -165,7 +212,7 @@ describe("native contact trust boundary", () => {
         });
       }
 
-      expect(yield* ingress.consumedWindows()).toEqual([{ count: 0 }]);
+      expect(yield* ingress.consumedWindows()).toEqual([]);
     }),
   );
 

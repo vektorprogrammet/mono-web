@@ -2,6 +2,7 @@ import type { HttpAccessAnnotationSpec } from "@effx/runtime";
 import { Schema } from "effect";
 import { type SCOPE_RESOLVER_IDS } from "@vektorprogrammet/domain/authz";
 import { accessSpecAnnotations, personNativeAccess } from "./access.js";
+import { decodeDeclaredOrThrow } from "./declaration-decoding.js";
 
 /** An explicit symbol-to-resolver mapping for the Profile contract. */
 export const ProfileCurrentPerson = { id: "profile.current-person" } as const satisfies {
@@ -48,9 +49,7 @@ const ProfileAccess = Schema.Struct({
   ),
 );
 
-const decodeProfileAccess = Schema.decodeUnknownSync(ProfileAccess, {
-  onExcessProperty: "error",
-});
+const decodeProfileAccess = decodeDeclaredOrThrow(ProfileAccess, { onExcessProperty: "error" });
 
 /** Derives the native AccessSpec only for the exact person-owned Profile declarations. */
 export const profileAccessAnnotations = (input: HttpAccessAnnotationSpec) => {

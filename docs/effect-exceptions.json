@@ -1,5 +1,5 @@
 {
-  "description": "Registered exceptions to the Effect rules of mono-web. Each suppression of an Effect rule (a disable comment of effecttsgo/*, effect/*, or anti-slop-effect/*, an oxlint-effect-plugin allow directive, @effect-expect-leaking, @effect-leakable-service, @effect-diagnostics) and each non-native substitute names its entry id in a comment at the site. `just exceptions` checks every entry against its sites, its owner, and the versions that package.json pins. .agents/skills/effect-house/references/exceptions.md describes the fields and how an entry is added and retired.",
+  "description": "Registered exceptions to the Effect rules of mono-web. Each suppression of an Effect rule (a disable comment of effecttsgo/*, effect/*, or anti-slop-effect/*, @effect-expect-leaking, @effect-leakable-service, @effect-diagnostics) and each non-native substitute names its entry id in a comment at the site. `just exceptions` checks every entry against its sites, its owner, and the versions that package.json pins. .agents/skills/effect-house/references/exceptions.md describes the fields and how an entry is added and retired.",
   "exceptions": [
     {
       "id": "EX-0001",
@@ -9,7 +9,7 @@
         "symbols": ["nativeRouterWebHandler"]
       },
       "reason": "The native web handler serves the built router through HttpEffect.toWebHandler. toWebHandler answers every failure cause with a response, so the handler never fails.",
-      "missingCapability": "HttpRouter.asHttpEffect() types the failure of the built router as unknown.",
+      "missingCapability": "Inspected stable effect/http/HttpRouter.ts: HttpRouter.asHttpEffect() still types the built router failure as unknown. Native HttpEffect.toWebHandler owns its cause-to-response boundary.",
       "nativeAlternatives": [
         "HttpRouter.toHttpEffect(appLayer) types the failure from the route layers, but it builds the router from the application layer in the caller's scope. The entry point, the legacy candidate journey, and the organization import rehearsal read the router from their ManagedRuntime, which also runs their other services, such as the workers and the identity engine of the entry point.",
         "Handling the failure before HttpEffect.toWebHandler, for example with Effect.catchCause, replaces the response that toWebHandler writes for each cause."
@@ -19,7 +19,7 @@
         "`just rehearsal organization-import` serves its native API through this handler."
       ],
       "owner": "apps/backend",
-      "examinedWith": { "effect": "4.0.0-rc.116" },
+      "examinedWith": { "effect": "4.0.0" },
       "retirementTrigger": "HttpRouter.asHttpEffect() types its failure, or the callers build their handler with HttpRouter.toHttpEffect. Then remove the suppression."
     },
     {
@@ -41,7 +41,7 @@
         "The HTTP tests of the contexts decode the answered problems with the contract schemas, for example `apps/backend/src/content/http.test.ts`."
       ],
       "owner": "apps/backend/src/http-api",
-      "examinedWith": { "effect": "4.0.0-rc.116", "typescript": "7.0.2" },
+      "examinedWith": { "effect": "4.0.0", "typescript": "7.0.2" },
       "retirementTrigger": "TypeScript infers the mapped failure union from the generic cases record. Then remove the assertion and the suppression."
     },
     {
@@ -62,7 +62,7 @@
         "No test replaces a path between the check and the open; review verifies the O_NOFOLLOW open."
       ],
       "owner": "apps/backend/src/receipt",
-      "examinedWith": { "effect": "4.0.0-rc.116", "@effect/platform-bun": "4.0.0-rc.116" },
+      "examinedWith": { "effect": "4.0.0", "@effect/platform-bun": "4.0.0" },
       "retirementTrigger": "Effect FileSystem.open can refuse a symbolic link, for example with a no-follow flag. Then open through FileSystem and remove the node:fs/promises import."
     },
     {
@@ -80,7 +80,7 @@
       ],
       "verification": ["`just e2e interview-response` runs the spec in the hosted journey matrix."],
       "owner": "apps/dashboard",
-      "examinedWith": { "@phibkro/oxlint-effect-plugin": "0.1.0" },
+      "examinedWith": { "@phibkro/oxlint-effect-plugin": "0.2.0" },
       "retirementTrigger": "The callback moves to a module that oxlint.config.ts declares platform browser, or effect/no-cross-runtime recognizes Playwright page callbacks. Then remove the suppressions."
     },
     {
@@ -100,7 +100,7 @@
         "`just e2e identity` signs in, reads, and revokes sessions through the backend."
       ],
       "owner": "packages/database",
-      "examinedWith": { "effect": "4.0.0-rc.116", "@effect/tsgo": "0.36.4" },
+      "examinedWith": { "effect": "4.0.0", "@effect/tsgo": "0.48.0" },
       "retirementTrigger": "No caller runs these operations inside its own transaction. Then resolve Database when the layer is built and remove the expectation."
     },
     {
@@ -120,7 +120,7 @@
         "`just e2e content-publication` publishes articles through the backend."
       ],
       "owner": "packages/domain/src/content",
-      "examinedWith": { "effect": "4.0.0-rc.116", "@effect/tsgo": "0.36.4" },
+      "examinedWith": { "effect": "4.0.0", "@effect/tsgo": "0.48.0" },
       "retirementTrigger": "The capability topology lets ContentManagement depend on Organization. Then provide Organization when the layer is built and remove the expectation."
     },
     {
@@ -141,7 +141,7 @@
         "`apps/backend/src/receipt/http.test.ts` sends person and service bearers through both, because the receipt group declares them."
       ],
       "owner": "packages/http-api",
-      "examinedWith": { "effect": "4.0.0-rc.116", "@effect/tsgo": "0.36.4" },
+      "examinedWith": { "effect": "4.0.0", "@effect/tsgo": "0.48.0" },
       "retirementTrigger": "Effect marks these per-request services leakable, or @effect/tsgo stops reporting the requirements of HttpApiMiddleware services. Then remove the expectations."
     },
     {
@@ -162,38 +162,8 @@
         "No test replaces the path with a symbolic link or widens its mode; review verifies the O_NOFOLLOW open and the checks of the opened file."
       ],
       "owner": "packages/database",
-      "examinedWith": { "effect": "4.0.0-rc.116", "@effect/platform-bun": "4.0.0-rc.116" },
+      "examinedWith": { "effect": "4.0.0", "@effect/platform-bun": "4.0.0" },
       "retirementTrigger": "Effect FileSystem.open can refuse a symbolic link, for example with a no-follow flag. Then open through FileSystem and remove the node:fs/promises import."
-    },
-    {
-      "id": "EX-0009",
-      "rules": ["FX011", "effect/no-ambient-console"],
-      "scope": {
-        "files": ["tools/acceptance/recommendation-check.ts"],
-        "symbols": [
-          "recordGate",
-          "stage",
-          "ReturningLoginProbeComplete",
-          "ReturningTargetedComplete",
-          "ApplicantProgressTargetedComplete",
-          "CoInterviewerTargetedComplete",
-          "CorrectionTargetedComplete",
-          "failureEvidence"
-        ]
-      },
-      "reason": "The recommendation probe reports its fixture check, its gate milestones, its returning stages, its result, and its failure evidence as lines on standard output and standard error, which the operator reads. Each line is bounded, and the failure evidence is redacted.",
-      "missingCapability": "None in Effect: Console of effect writes the same lines, but only inside an Effect program. The probe is a script of top-level Promise code with no Effect runtime at its entry point.",
-      "nativeAlternatives": [
-        "Console.log and Console.error of effect, each run with Effect.runSync at its site: that runs programs outside an owned entry point, which FX003 and effect/no-premature-execution reject.",
-        "One Effect program that the entry point of the probe runs: a rewrite of the whole probe, which is the retirement path."
-      ],
-      "verification": [
-        "The hosted journey matrix runs the probe as `just e2e recommendation-applicant-progress`, `recommendation-co-interviewer`, `recommendation-correction`, and `recommendation-returning`.",
-        "The plugin accepts a directive only when it names no-ambient-console alone with a nonempty `dev only:` reason, and it reports broad, unreasoned, and unused directives."
-      ],
-      "owner": "tools/acceptance",
-      "examinedWith": { "@phibkro/oxlint-effect-plugin": "0.1.0", "effect": "4.0.0-rc.116" },
-      "retirementTrigger": "The probe becomes an Effect program that its entry point runs, and it writes through Console of effect. Then remove the directives."
     },
     {
       "id": "EX-0010",
@@ -205,22 +175,869 @@
         ],
         "symbols": ["EffectSdk"]
       },
-      "reason": "Command endpoints of the contract, such as placements.commandBoard, take a union of commands as their payload, and the dashboard sends a command that it has not narrowed to one member. patches/effect@4.0.0-rc.116.patch changes the declaration type HttpApiEndpoint.ClientRequest so that a generated client method takes the whole payload type. The client runtime is unchanged.",
-      "missingCapability": "HttpApiEndpoint.ClientRequest of effect 4.0.0-rc.116, unchanged in 4.0.0-rc.117 and on the main branch of effect-smol on 2026-09-27, distributes a union payload over its members: a method takes { payload: A } | { payload: B }, not { payload: A | B }, so a payload typed as the union fails with TS2345. Its conditional P extends Brand<…> names Payload[\"Type\"] in the false branch, and TypeScript narrows that to the member P inside the true branch of Payload[\"Type\"] extends infer P. A program with one union endpoint reproduces it with TypeScript 7.0.2 and 5.9.3.",
+      "reason": "Command endpoints accept a whole union payload through one generated client call. patches/effect@4.0.0.patch ports the HttpApiEndpoint.ClientRequest source/declaration repair to stable http-api paths; the client runtime is unchanged. Native SQL queue extensions in the same patch are independently owned.",
+      "missingCapability": "The exact public stable Effect 4.0.0 HttpApiEndpoint.ClientRequest still distributes a union payload into separate request objects, rejecting a caller whose payload is the complete union. The multipart conditional must distribute only the payload value, not the surrounding request object. Stable source was inspected directly; renaming the patch is not retirement. The retained type regression must run against the committed stable graph before acceptance.",
       "nativeAlternatives": [
-        "Narrowing each command with Match and calling the method once per member: every caller of a union endpoint then repeats one identical call per command.",
-        "Asserting the request type at each call site: the assertion removes the check of the request against the contract.",
-        "One endpoint per command, or a struct that wraps the union: both change the HTTP contract and the wire format of every command endpoint.",
-        "Deriving the SDK client type again with a corrected request type: it copies HttpApiClient.Client.Method and its unexported MethodReturn from the Effect source, and the copy drifts with each release."
+        "Narrowing each command with Match repeats one identical client call per command member.",
+        "Asserting the request type removes the check against the HTTP contract.",
+        "One endpoint per command or a wrapper struct changes the HTTP contract and command wire format.",
+        "Re-deriving the SDK client copies native HttpApiClient method internals and drifts with each release."
       ],
       "verification": [
-        "`bun run --cwd packages/sdk check-types` checks the type test \"accepts the complete command union through one Promise endpoint\" in packages/sdk/src/__tests__/generated-native-client.test.ts, which fails with TS2344 without the patch.",
-        "`just check-types` checks the dashboard callers that send an unnarrowed command union: apps/dashboard/app/foldkit/recruitment-maintenance/command.ts, apps/dashboard/app/foldkit/schools/browser-client.ts, and apps/dashboard/app/routes/dashboard.assistenter._index.tsx. Without the patch each fails with TS2345.",
-        "The patch changes only dist/unstable/httpapi/HttpApiEndpoint.d.ts and its source. The contract tests of the same test file run the unchanged client runtime."
+        "Required before stable acceptance: packages/sdk check-types checks the retained complete-union Promise endpoint type regression and full check-types checks unnarrowed dashboard callers.",
+        "The HTTP repair changes only dist/http-api/HttpApiEndpoint.d.ts and its source. SDK contract tests exercise the unchanged client runtime; bootstrap patch applicability is not runtime/type acceptance."
       ],
       "owner": "packages/sdk",
-      "examinedWith": { "effect": "4.0.0-rc.116", "typescript": "7.0.2" },
-      "retirementTrigger": "An Effect release whose HttpApiEndpoint.ClientRequest takes the whole union as the payload of a union endpoint. Then remove the patch and its patchedDependencies entry, delete this entry and the comments that name it, and keep the type test, which then checks the release."
+      "examinedWith": {
+        "effect": "4.0.0",
+        "typescript": "7.0.2"
+      },
+      "retirementTrigger": "When the installed native ClientRequest accepts the complete union, remove only the HTTP hunks and this record after the retained type/runtime regressions pass. Keep the patch descriptor while an independent native queue hunk remains necessary."
+    },
+    {
+      "id": "EX-0020",
+      "rules": ["FX001", "FX002", "FX012", "effecttsgo/unstable-api-usage"],
+      "scope": {
+        "files": [
+          "packages/domain/runtime/tutor-d1.ts",
+          "packages/domain/src/admission-period/schema.ts",
+          "packages/domain/src/application/schema.ts",
+          "packages/domain/src/content/schema.ts",
+          "packages/domain/src/organization/schema.ts",
+          "packages/domain/src/placements/scheduler.test.ts",
+          "packages/domain/src/profile/schema.ts",
+          "packages/domain/src/receipt/schema.ts",
+          "packages/domain/src/receipt/update.property.test.ts",
+          "packages/domain/src/recruitment/schema.ts",
+          "packages/domain/src/schools/schema.ts",
+          "packages/domain/src/tutor/tracer.property.test.ts"
+        ],
+        "symbols": ["Arbitrary", "D1Client", "Model", "SqlError"]
+      },
+      "reason": "This module uses the operator-required public native APIs from the exact stable Effect4 application cohort. Their upstream declarations retain unstable annotations. A file-local acknowledgement covers only unstableApiUsage; all other diagnostics remain errors.",
+      "missingCapability": "The required native families are exported by stable Effect4.0.0 but still annotated @stability unstable. No unannotated native equivalent preserves this module contract. This record accepts declared API evolution risk, not an RC package or an erased error/lifetime requirement.",
+      "nativeAlternatives": [
+        "Examined installed @effect/sql-d1/D1Client: its used public declarations retain unstable annotations.",
+        "Examined installed effect/Arbitrary: its used public declarations retain unstable annotations.",
+        "Examined installed effect/schema/Model: its used public declarations retain unstable annotations.",
+        "Examined installed effect/sql/SqlError: its used public declarations retain unstable annotations.",
+        "Replacing native protocols, SQL/model variants, schema arbitraries or scoped processes with foreign implementations would violate the approved native ownership and wire/data contracts.",
+        "The installed tsgo rule has no module allowlist. Global disabling or lowering severity would hide unrelated usages, so acknowledgement stays in these explicit files."
+      ],
+      "verification": [
+        "Existing repository exception checks reject unknown ids, files/symbols outside this module, version drift and other suppressed rules. Exact source API inspection establishes this native stability gap.",
+        "Required before acceptance: native module type/diagnostic/runtime contracts and full check/tests on the final clean committed stable source. A local stability acknowledgement does not certify behavior, cancellation, delivery or providers."
+      ],
+      "owner": "packages/domain",
+      "examinedWith": {
+        "effect": "4.0.0",
+        "@effect/tsgo": "0.48.0"
+      },
+      "retirementTrigger": "When the installed native declarations no longer carry unstable annotations, remove the matching file acknowledgements and scope entries after the retained native behavior and negative-control diagnostics pass. Reopen this record on any examined-version change."
+    },
+    {
+      "id": "EX-0022",
+      "rules": ["FX001", "FX002", "FX012", "effecttsgo/unstable-api-usage"],
+      "scope": {
+        "files": [
+          "packages/http-api/scripts/generate-openapi.ts",
+          "packages/http-api/src/access.ts",
+          "packages/http-api/src/api.ts",
+          "packages/http-api/src/certificates.ts",
+          "packages/http-api/src/common.ts",
+          "packages/http-api/src/contact.ts",
+          "packages/http-api/src/http-semantics.ts",
+          "packages/http-api/src/onboarding.ts",
+          "packages/http-api/src/placements.ts",
+          "packages/http-api/src/receipt-upload.test.ts",
+          "packages/http-api/src/receipt-upload.ts",
+          "packages/http-api/src/receipts.ts",
+          "packages/http-api/src/recruitment.effx.ts",
+          "packages/http-api/src/system.ts",
+          "packages/http-api/src/team-application.effx.ts",
+          "packages/http-api/src/v2-schemas.ts",
+          "packages/http-api/test/contact-effx-adapters.test.ts",
+          "packages/http-api/test/content-effx-adapters.test.ts",
+          "packages/http-api/test/native-api.test.ts",
+          "packages/http-api/test/onboarding-effx-adapters.test.ts",
+          "packages/http-api/test/openapi-semantics.test.ts",
+          "packages/http-api/test/organization-effx-adapters.test.ts",
+          "packages/http-api/test/receipts.test.ts",
+          "packages/http-api/test/team-application-effx-adapters.test.ts"
+        ],
+        "symbols": [
+          "HttpApi",
+          "HttpApiClient",
+          "HttpApiEndpoint",
+          "HttpApiGroup",
+          "HttpApiMiddleware",
+          "HttpApiSchema",
+          "HttpApiSecurity",
+          "Multipart",
+          "OpenApi"
+        ]
+      },
+      "reason": "This module uses the operator-required public native APIs from the exact stable Effect4 application cohort. Their upstream declarations retain unstable annotations. A file-local acknowledgement covers only unstableApiUsage; all other diagnostics remain errors.",
+      "missingCapability": "The required native families are exported by stable Effect4.0.0 but still annotated @stability unstable. No unannotated native equivalent preserves this module contract. This record accepts declared API evolution risk, not an RC package or an erased error/lifetime requirement.",
+      "nativeAlternatives": [
+        "Examined installed effect/http-api/HttpApi: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http-api/HttpApiClient: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http-api/HttpApiEndpoint: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http-api/HttpApiGroup: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http-api/HttpApiMiddleware: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http-api/HttpApiSchema: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http-api/HttpApiSecurity: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http-api/OpenApi: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/Multipart: its used public declarations retain unstable annotations.",
+        "Replacing native protocols, SQL/model variants, schema arbitraries or scoped processes with foreign implementations would violate the approved native ownership and wire/data contracts.",
+        "The installed tsgo rule has no module allowlist. Global disabling or lowering severity would hide unrelated usages, so acknowledgement stays in these explicit files."
+      ],
+      "verification": [
+        "Existing repository exception checks reject unknown ids, files/symbols outside this module, version drift and other suppressed rules. Exact source API inspection establishes this native stability gap.",
+        "Required before acceptance: native module type/diagnostic/runtime contracts and full check/tests on the final clean committed stable source. A local stability acknowledgement does not certify behavior, cancellation, delivery or providers."
+      ],
+      "owner": "packages/http-api",
+      "examinedWith": {
+        "effect": "4.0.0",
+        "@effect/tsgo": "0.48.0"
+      },
+      "retirementTrigger": "When the installed native declarations no longer carry unstable annotations, remove the matching file acknowledgements and scope entries after the retained native behavior and negative-control diagnostics pass. Reopen this record on any examined-version change."
+    },
+    {
+      "id": "EX-0023",
+      "rules": ["FX001", "FX002", "FX012", "effecttsgo/unstable-api-usage"],
+      "scope": {
+        "files": [
+          "packages/sdk/scripts/generate-operations.ts",
+          "packages/sdk/src/__tests__/generated-native-client.test.ts",
+          "packages/sdk/src/__tests__/profile-operation-index.test.ts",
+          "packages/sdk/src/effect-client.ts"
+        ],
+        "symbols": [
+          "FetchHttpClient",
+          "HttpApi",
+          "HttpApiBuilder",
+          "HttpApiClient",
+          "HttpApiGroup",
+          "HttpApiSchema",
+          "HttpClient",
+          "HttpClientRequest",
+          "HttpRouter",
+          "HttpServer",
+          "OpenApi"
+        ]
+      },
+      "reason": "This module uses the operator-required public native APIs from the exact stable Effect4 application cohort. Their upstream declarations retain unstable annotations. A file-local acknowledgement covers only unstableApiUsage; all other diagnostics remain errors.",
+      "missingCapability": "The required native families are exported by stable Effect4.0.0 but still annotated @stability unstable. No unannotated native equivalent preserves this module contract. This record accepts declared API evolution risk, not an RC package or an erased error/lifetime requirement.",
+      "nativeAlternatives": [
+        "Examined installed effect/http-api/HttpApi: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http-api/HttpApiBuilder: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http-api/HttpApiClient: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http-api/HttpApiGroup: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http-api/HttpApiSchema: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http-api/OpenApi: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/FetchHttpClient: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/HttpClient: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/HttpClientRequest: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/HttpRouter: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/HttpServer: its used public declarations retain unstable annotations.",
+        "Replacing native protocols, SQL/model variants, schema arbitraries or scoped processes with foreign implementations would violate the approved native ownership and wire/data contracts.",
+        "The installed tsgo rule has no module allowlist. Global disabling or lowering severity would hide unrelated usages, so acknowledgement stays in these explicit files."
+      ],
+      "verification": [
+        "Existing repository exception checks reject unknown ids, files/symbols outside this module, version drift and other suppressed rules. Exact source API inspection establishes this native stability gap.",
+        "Required before acceptance: native module type/diagnostic/runtime contracts and full check/tests on the final clean committed stable source. A local stability acknowledgement does not certify behavior, cancellation, delivery or providers."
+      ],
+      "owner": "packages/sdk",
+      "examinedWith": {
+        "effect": "4.0.0",
+        "@effect/tsgo": "0.48.0"
+      },
+      "retirementTrigger": "When the installed native declarations no longer carry unstable annotations, remove the matching file acknowledgements and scope entries after the retained native behavior and negative-control diagnostics pass. Reopen this record on any examined-version change."
+    },
+    {
+      "id": "EX-0025",
+      "rules": ["FX001", "FX002", "FX012", "effecttsgo/unstable-api-usage"],
+      "scope": {
+        "files": [
+          "apps/dashboard/app/foldkit/interview/update.property.test.ts",
+          "apps/dashboard/e2e/native-operations.ts"
+        ],
+        "symbols": ["Arbitrary", "OpenApi"]
+      },
+      "reason": "This module uses the operator-required public native APIs from the exact stable Effect4 application cohort. Their upstream declarations retain unstable annotations. A file-local acknowledgement covers only unstableApiUsage; all other diagnostics remain errors.",
+      "missingCapability": "The required native families are exported by stable Effect4.0.0 but still annotated @stability unstable. No unannotated native equivalent preserves this module contract. This record accepts declared API evolution risk, not an RC package or an erased error/lifetime requirement.",
+      "nativeAlternatives": [
+        "Examined installed effect/Arbitrary: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http-api/OpenApi: its used public declarations retain unstable annotations.",
+        "Replacing native protocols, SQL/model variants, schema arbitraries or scoped processes with foreign implementations would violate the approved native ownership and wire/data contracts.",
+        "The installed tsgo rule has no module allowlist. Global disabling or lowering severity would hide unrelated usages, so acknowledgement stays in these explicit files."
+      ],
+      "verification": [
+        "Existing repository exception checks reject unknown ids, files/symbols outside this module, version drift and other suppressed rules. Exact source API inspection establishes this native stability gap.",
+        "Required before acceptance: native module type/diagnostic/runtime contracts and full check/tests on the final clean committed stable source. A local stability acknowledgement does not certify behavior, cancellation, delivery or providers."
+      ],
+      "owner": "apps/dashboard",
+      "examinedWith": {
+        "effect": "4.0.0",
+        "@effect/tsgo": "0.48.0"
+      },
+      "retirementTrigger": "When the installed native declarations no longer carry unstable annotations, remove the matching file acknowledgements and scope entries after the retained native behavior and negative-control diagnostics pass. Reopen this record on any examined-version change."
+    },
+    {
+      "id": "EX-0026",
+      "rules": ["FX001", "FX002", "FX012", "effecttsgo/unstable-api-usage"],
+      "scope": {
+        "files": [
+          "apps/homepage/e2e/public-applicant-admission.spec.ts",
+          "apps/homepage/src/lib/api-types.ts",
+          "apps/homepage/src/lib/public-application.ts",
+          "apps/homepage/src/lib/public-team-application.ts"
+        ],
+        "symbols": ["HttpApiEndpoint", "HttpApiSchema"]
+      },
+      "reason": "This module uses the operator-required public native APIs from the exact stable Effect4 application cohort. Their upstream declarations retain unstable annotations. A file-local acknowledgement covers only unstableApiUsage; all other diagnostics remain errors.",
+      "missingCapability": "The required native families are exported by stable Effect4.0.0 but still annotated @stability unstable. No unannotated native equivalent preserves this module contract. This record accepts declared API evolution risk, not an RC package or an erased error/lifetime requirement.",
+      "nativeAlternatives": [
+        "Examined installed effect/http-api/HttpApiEndpoint: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http-api/HttpApiSchema: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/HttpClientError: its used public declarations retain unstable annotations.",
+        "Replacing native protocols, SQL/model variants, schema arbitraries or scoped processes with foreign implementations would violate the approved native ownership and wire/data contracts.",
+        "The installed tsgo rule has no module allowlist. Global disabling or lowering severity would hide unrelated usages, so acknowledgement stays in these explicit files."
+      ],
+      "verification": [
+        "Existing repository exception checks reject unknown ids, files/symbols outside this module, version drift and other suppressed rules. Exact source API inspection establishes this native stability gap.",
+        "Required before acceptance: native module type/diagnostic/runtime contracts and full check/tests on the final clean committed stable source. A local stability acknowledgement does not certify behavior, cancellation, delivery or providers."
+      ],
+      "owner": "apps/homepage",
+      "examinedWith": {
+        "effect": "4.0.0",
+        "@effect/tsgo": "0.48.0"
+      },
+      "retirementTrigger": "When the installed native declarations no longer carry unstable annotations, remove the matching file acknowledgements and scope entries after the retained native behavior and negative-control diagnostics pass. Reopen this record on any examined-version change."
+    },
+    {
+      "id": "EX-0027",
+      "rules": ["FX001", "FX002", "FX012", "effecttsgo/unstable-api-usage"],
+      "scope": {
+        "files": [
+          "tools/acceptance/password-recovery-check.ts",
+          "tools/acceptance/recommendation-check.ts"
+        ],
+        "symbols": ["FetchHttpClient", "HttpClient"]
+      },
+      "reason": "This module uses the operator-required public native APIs from the exact stable Effect4 application cohort. Their upstream declarations retain unstable annotations. A file-local acknowledgement covers only unstableApiUsage; all other diagnostics remain errors.",
+      "missingCapability": "The required native families are exported by stable Effect4.0.0 but still annotated @stability unstable. No unannotated native equivalent preserves this module contract. This record accepts declared API evolution risk, not an RC package or an erased error/lifetime requirement.",
+      "nativeAlternatives": [
+        "Examined installed effect/http/FetchHttpClient: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/HttpClient: its used public declarations retain unstable annotations.",
+        "Replacing native protocols, SQL/model variants, schema arbitraries or scoped processes with foreign implementations would violate the approved native ownership and wire/data contracts.",
+        "The installed tsgo rule has no module allowlist. Global disabling or lowering severity would hide unrelated usages, so acknowledgement stays in these explicit files."
+      ],
+      "verification": [
+        "Existing repository exception checks reject unknown ids, files/symbols outside this module, version drift and other suppressed rules. Exact source API inspection establishes this native stability gap.",
+        "Required before acceptance: native module type/diagnostic/runtime contracts and full check/tests on the final clean committed stable source. A local stability acknowledgement does not certify behavior, cancellation, delivery or providers."
+      ],
+      "owner": "tools/acceptance",
+      "examinedWith": {
+        "effect": "4.0.0",
+        "@effect/tsgo": "0.48.0"
+      },
+      "retirementTrigger": "When the installed native declarations no longer carry unstable annotations, remove the matching file acknowledgements and scope entries after the retained native behavior and negative-control diagnostics pass. Reopen this record on any examined-version change."
+    },
+    {
+      "id": "EX-0028",
+      "rules": ["FX001", "FX002", "FX012", "effecttsgo/unstable-api-usage"],
+      "scope": {
+        "files": [
+          "tools/e2e/run-legacy-current-assignment-rehearsal.ts",
+          "tools/e2e/run-legacy-organization-rehearsal.ts",
+          "tools/e2e/legacy-cutover-references.ts",
+          "tools/e2e/legacy-organization-rehearsal-runtime.ts",
+          "tools/e2e/run-legacy-service-cutover.ts",
+          "tools/e2e/golden-harness-self-test.ts",
+          "tools/e2e/golden-harness.ts",
+          "tools/e2e/golden-team-application.ts",
+          "tools/e2e/legacy-candidate-native-journey.ts",
+          "tools/e2e/run-legacy-backup-person-rehearsal.ts",
+          "tools/e2e/run-legacy-candidate-rehearsal.ts",
+          "tools/e2e/run-legacy-receipt-rehearsal.ts"
+        ],
+        "symbols": [
+          "ChildProcess",
+          "ChildProcessSpawner",
+          "Etag",
+          "FetchHttpClient",
+          "HttpRouter",
+          "SqlClient"
+        ]
+      },
+      "reason": "This module uses the operator-required public native APIs from the exact stable Effect4 application cohort. Their upstream declarations retain unstable annotations. A file-local acknowledgement covers only unstableApiUsage; all other diagnostics remain errors.",
+      "missingCapability": "The required native families are exported by stable Effect4.0.0 but still annotated @stability unstable. No unannotated native equivalent preserves this module contract. This record accepts declared API evolution risk, not an RC package or an erased error/lifetime requirement.",
+      "nativeAlternatives": [
+        "Examined installed effect/http/Etag: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/FetchHttpClient: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/HttpRouter: its used public declarations retain unstable annotations.",
+        "Examined installed effect/process/ChildProcess: its used public declarations retain unstable annotations.",
+        "Examined installed effect/process/ChildProcessSpawner: its used public declarations retain unstable annotations.",
+        "Examined exact installed effect/sql/SqlClient used by the Person rehearsal: its public tag and methods retain upstream unstable annotations; native transaction and cleanup requirements are not exempted.",
+        "Replacing native protocols, SQL/model variants, schema arbitraries or scoped processes with foreign implementations would violate the approved native ownership and wire/data contracts.",
+        "The installed tsgo rule has no module allowlist. Global disabling or lowering severity would hide unrelated usages, so acknowledgement stays in these explicit files."
+      ],
+      "verification": [
+        "Existing repository exception checks reject unknown ids, files/symbols outside this module, version drift and other suppressed rules. Exact source API inspection establishes this native stability gap.",
+        "Required before acceptance: native module type/diagnostic/runtime contracts and full check/tests on the final clean committed stable source. A local stability acknowledgement does not certify behavior, cancellation, delivery or providers."
+      ],
+      "owner": "tools/e2e",
+      "examinedWith": {
+        "effect": "4.0.0",
+        "@effect/tsgo": "0.48.0"
+      },
+      "retirementTrigger": "When the installed native declarations no longer carry unstable annotations, remove the matching file acknowledgements and scope entries after the retained native behavior and negative-control diagnostics pass. Reopen this record on any examined-version change."
+    },
+    {
+      "id": "EX-0029",
+      "rules": ["FX001", "FX002", "FX012", "effecttsgo/unstable-api-usage"],
+      "scope": {
+        "files": [
+          "tools/verification/current-assignment-cohort-rehearsal.ts",
+          "tools/verification/credential-race.ts",
+          "tools/verification/completion-receipt-postgres-proof-main.ts",
+          "tools/verification/identity-cohort-rehearsal.ts",
+          "tools/verification/onboarding-delivery.test.ts",
+          "tools/verification/organization-import-rehearsal-main.ts",
+          "tools/verification/organization-import-rehearsal-postgres.ts",
+          "tools/verification/recommendation-preupgrade-fixture.ts"
+        ],
+        "symbols": [
+          "Etag",
+          "FetchHttpClient",
+          "HttpClient",
+          "HttpClientRequest",
+          "HttpClientResponse",
+          "HttpRouter",
+          "Migrator",
+          "SqlClient",
+          "SqlError"
+        ]
+      },
+      "reason": "This module uses the operator-required public native APIs from the exact stable Effect4 application cohort. Their upstream declarations retain unstable annotations. A file-local acknowledgement covers only unstableApiUsage; all other diagnostics remain errors.",
+      "missingCapability": "The required native families are exported by stable Effect4.0.0 but still annotated @stability unstable. No unannotated native equivalent preserves this module contract. This record accepts declared API evolution risk, not an RC package or an erased error/lifetime requirement.",
+      "nativeAlternatives": [
+        "Examined installed effect/http/Etag: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/FetchHttpClient: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/HttpClient: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/HttpClientRequest: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/HttpClientResponse: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/HttpRouter: its used public declarations retain unstable annotations.",
+        "Examined installed effect/sql/Migrator: its used public declarations retain unstable annotations.",
+        "Examined installed effect/sql/SqlClient: its used public declarations retain unstable annotations.",
+        "Examined installed effect/sql/SqlError: its used public declarations retain unstable annotations.",
+        "Replacing native protocols, SQL/model variants, schema arbitraries or scoped processes with foreign implementations would violate the approved native ownership and wire/data contracts.",
+        "The installed tsgo rule has no module allowlist. Global disabling or lowering severity would hide unrelated usages, so acknowledgement stays in these explicit files."
+      ],
+      "verification": [
+        "Existing repository exception checks reject unknown ids, files/symbols outside this module, version drift and other suppressed rules. Exact source API inspection establishes this native stability gap.",
+        "Required before acceptance: native module type/diagnostic/runtime contracts and full check/tests on the final clean committed stable source. A local stability acknowledgement does not certify behavior, cancellation, delivery or providers."
+      ],
+      "owner": "tools/verification",
+      "examinedWith": {
+        "effect": "4.0.0",
+        "@effect/tsgo": "0.48.0"
+      },
+      "retirementTrigger": "When the installed native declarations no longer carry unstable annotations, remove the matching file acknowledgements and scope entries after the retained native behavior and negative-control diagnostics pass. Reopen this record on any examined-version change."
+    },
+    {
+      "id": "EX-0035",
+      "rules": ["FX012", "FX014", "effecttsgo/schema-sync"],
+      "scope": {
+        "files": ["packages/domain/src/placements/days-served.ts"],
+        "symbols": ["encodeEvidence", "encodeCursorTuple"]
+      },
+      "reason": "Only these two native encodeSync constructors serialize already typed domain evidence and the locally constructed assistant cursor tuple. The public digest and cursor APIs remain total deterministic functions; no untrusted decode is admitted.",
+      "missingCapability": "None in Effect: native encodeSync is the required pure typed serializer. The generic schemaSync diagnostic does not distinguish these typed total encoders from throwing external-input decoders.",
+      "nativeAlternatives": [
+        "Installed Schema.encodeEffect adds an error and runtime channel to pure digest/cursor calculations and changes every caller contract.",
+        "Installed Schema.encodeResult introduces an impossible failure branch for these already typed values; a fallback or unwrap would not improve their totality.",
+        "A hand-written serializer duplicates the native schema and risks changing canonical wire bytes."
+      ],
+      "verification": [
+        "Existing packages/domain/src/placements/days-served.test.ts digest and wire/cursor laws must run against final stable committed source.",
+        "The exception check must retain exactly these two next-line schemaSync directives; malformed input and all decodeUnknown/other schemaSync sites remain errors."
+      ],
+      "owner": "packages/domain/src/placements",
+      "examinedWith": {
+        "effect": "4.0.0",
+        "@effect/tsgo": "0.48.0"
+      },
+      "retirementTrigger": "Remove both directives and this entry once the installed diagnostic supports typed total encoder constructors without reporting schemaSync, after the existing digest and cursor wire laws pass. Reopen on examined package version drift."
+    },
+    {
+      "id": "EX-0021",
+      "rules": ["FX001", "FX002", "FX012", "effecttsgo/unstable-api-usage"],
+      "scope": {
+        "files": [
+          "packages/database/src/admissions/evidence-upgrade.test.ts",
+          "packages/database/src/admissions/outcome-policy.postgres.test.ts",
+          "packages/database/src/application/ownership-upgrade.postgres.test.ts",
+          "packages/database/src/migrations.test.ts",
+          "packages/database/src/native-postgres-codecs.test.ts",
+          "packages/database/src/test-support/pglite-native-parity.test.ts",
+          "packages/database/src/schema-calendar-arithmetic.test.ts",
+          "packages/database/src/search-path-shadow.postgres.test.ts",
+          "packages/database/src/team-application/delivery-pgbouncer.test.ts",
+          "packages/database/src/team-application/queue-deadline.test.ts",
+          "packages/database/src/team-application/queue-migration.test.ts",
+          "packages/database/runtime/historical-service-cohort-rehearsal.ts",
+          "packages/database/src/auth-schema-generator.config.ts",
+          "packages/database/runtime/identity-browser-proof-main.ts",
+          "packages/database/runtime/identity-postgres-proof-main.ts",
+          "packages/database/runtime/identity-seed-main.ts",
+          "packages/database/runtime/oauth-dashboard-fixture-main.ts",
+          "packages/database/runtime/oauth-postgres-tracer-main.ts",
+          "packages/database/runtime/person-cohort-rehearsal.ts",
+          "packages/database/runtime/rehearsal-platform.ts",
+          "packages/database/runtime/service-principal-grants-postgres-tracer-main.ts",
+          "packages/database/src/advisory-lock.ts",
+          "packages/database/src/auth-engine.ts",
+          "packages/database/src/auth-live.test.ts",
+          "packages/database/src/auth-live.ts",
+          "packages/database/src/database-construction.ts",
+          "packages/database/src/historical-service-cohort.test.ts",
+          "packages/database/src/historical-service-cohort.ts",
+          "packages/database/src/identity-cohort.ts",
+          "packages/database/src/layers.ts",
+          "packages/database/src/migrations.ts",
+          "packages/database/src/oauth-config.test.ts",
+          "packages/database/src/oauth-live.ts",
+          "packages/database/src/oauth-refresh-window.test.ts",
+          "packages/database/src/organization/reviewed-cohort.ts",
+          "packages/database/src/password-recovery-disabled.test.ts",
+          "packages/database/src/password-recovery.test.ts",
+          "packages/database/src/password-recovery.ts",
+          "packages/database/src/person-cohort.test.ts",
+          "packages/database/src/person-cohort.ts",
+          "packages/database/src/pg-pool.ts",
+          "packages/database/src/placements/current-assignment-cohort.ts",
+          "packages/database/src/placements/current-assignment-import.test.ts",
+          "packages/database/src/postgres-migration-statements.test.ts",
+          "packages/database/src/postgres-migration-statements.ts",
+          "packages/database/src/runtime-layer.ts",
+          "packages/database/src/service-principal-grants-live.test.ts",
+          "packages/database/src/service-principal-grants-live.ts",
+          "packages/database/src/service.ts",
+          "packages/database/src/test-support/pglite-layer.ts",
+          "packages/database/src/team-application/outbox.ts",
+          "packages/database/src/native-postgres-deadlines.test.ts",
+          "packages/database/src/test-support/native-pg-transport.ts",
+          "packages/database/src/test-support/postgres.ts",
+          "packages/database/runtime/authorization-rules-postgres-proof-main.ts",
+          "packages/database/runtime/receipt-postgres-proof-main.ts",
+          "packages/database/runtime/schema-boundary-postgres-proof-main.ts",
+          "packages/database/src/admissions/evidence.ts",
+          "packages/database/src/admissions/outcome-mail-queue.ts",
+          "packages/database/src/admissions/outcome-template-store.ts",
+          "packages/database/src/admissions/outcome.ts",
+          "packages/database/src/application/postgres.ts",
+          "packages/database/src/identity-access.ts",
+          "packages/database/src/onboarding/postgres.ts",
+          "packages/database/src/organization/administration-postgres.ts",
+          "packages/database/src/organization/mailing-lists-postgres.ts",
+          "packages/database/src/organization/postgres.ts",
+          "packages/database/src/outbox-lifecycle.ts",
+          "packages/database/src/placements/certificates.test.ts",
+          "packages/database/src/placements/certificates.ts",
+          "packages/database/src/placements/coverage.ts",
+          "packages/database/src/placements/draft.ts",
+          "packages/database/src/receipt/cursor.ts",
+          "packages/database/src/receipt/file-proof.ts",
+          "packages/database/src/receipt/postgres-proof.ts",
+          "packages/database/src/receipt/projections.ts",
+          "packages/database/src/receipt/reviewed-cohort.ts",
+          "packages/database/src/recruitment/assessment-correction.ts",
+          "packages/database/src/recruitment/invitation-delivery-admission.ts",
+          "packages/database/src/recruitment/invitation-open.ts",
+          "packages/database/src/recruitment/maintenance-postgres.ts",
+          "packages/database/src/rule-reconciliation-migration-postgres-proof.ts",
+          "packages/database/src/rule-reconciliation-postgres-tracer-main.ts",
+          "packages/database/src/schools/administration.ts",
+          "packages/database/src/team-application/persistence.ts",
+          "packages/database/src/team-application/postgres.ts",
+          "packages/database/src/test-support/observe-postgres.ts"
+        ],
+        "symbols": [
+          "PgClient",
+          "SqlClient",
+          "SqlError",
+          "Statement",
+          "Migrator",
+          "SqlSchema",
+          "ChildProcess"
+        ]
+      },
+      "reason": "This module uses the operator-required public native APIs from the exact stable Effect4 application cohort. Their upstream declarations retain unstable annotations. A file-local acknowledgement covers only unstableApiUsage; all other diagnostics remain errors.",
+      "missingCapability": "The required native families are exported by stable Effect4.0.0 but still annotated @stability unstable. No unannotated native equivalent preserves this module contract. This record accepts declared API evolution risk, not an RC package or an erased error/lifetime requirement.",
+      "nativeAlternatives": [
+        "Inspected exact installed stable effect/sql/SqlClient, SqlError, Statement, Migrator and SqlSchema declarations: required native public SQL APIs retain upstream unstable annotations.",
+        "Inspected exact @effect/sql-pg/PgClient stable source and native layer ownership. No unannotated alternative preserves the scoped native SQL contract.",
+        "Inspected exact installed effect/process/ChildProcess command construction, output and scoped execution used by the shared rehearsal platform; native declarations retain unstable annotations.",
+        "A local file-head unstableApiUsage directive accepts only declared evolution risk; all other diagnostics stay errors."
+      ],
+      "verification": [
+        "Existing repository exception checks reject unknown ids, files/symbols outside this module, version drift and other suppressed rules. Exact source API inspection establishes this native stability gap.",
+        "Required before acceptance: native module type/diagnostic/runtime contracts and full check/tests on the final clean committed stable source. A local stability acknowledgement does not certify behavior, cancellation, delivery or providers."
+      ],
+      "owner": "packages/database",
+      "examinedWith": {
+        "effect": "4.0.0",
+        "@effect/tsgo": "0.48.0"
+      },
+      "retirementTrigger": "When the installed native declarations no longer carry unstable annotations, remove the matching file acknowledgements and scope entries after the retained native behavior and negative-control diagnostics pass. Reopen this record on any examined-version change."
+    },
+    {
+      "id": "EX-0024",
+      "rules": ["FX001", "FX002", "FX012", "effecttsgo/unstable-api-usage"],
+      "scope": {
+        "files": [
+          "apps/backend/src/admission/admission-period.http.test.ts",
+          "apps/backend/src/admission/http.ts",
+          "apps/backend/src/admission/outcome-http-support.ts",
+          "apps/backend/src/admission/outcome-http.ts",
+          "apps/backend/src/admission/outcome-policy.http.test.ts",
+          "apps/backend/src/application/effects.test.ts",
+          "apps/backend/src/application/effects.ts",
+          "apps/backend/src/contact/http.ts",
+          "apps/backend/src/content/http-command-guards.postgres.test.ts",
+          "apps/backend/src/content/http-context.ts",
+          "apps/backend/src/content/http.test.ts",
+          "apps/backend/src/content/http.ts",
+          "apps/backend/src/delivery/http.ts",
+          "apps/backend/src/directory/http.ts",
+          "apps/backend/src/http-api/problem.ts",
+          "apps/backend/src/http-api/receipt-transaction.ts",
+          "apps/backend/src/http-api/system.ts",
+          "apps/backend/src/http-api/transport.test.ts",
+          "apps/backend/src/http-api/transport.ts",
+          "apps/backend/src/mail/http.ts",
+          "apps/backend/src/main.ts",
+          "apps/backend/src/onboarding/http-completion.test.ts",
+          "apps/backend/src/onboarding/http.ts",
+          "apps/backend/src/onboarding/policy.http.test.ts",
+          "apps/backend/src/organization/http.ts",
+          "apps/backend/src/password-recovery/drain-main.ts",
+          "apps/backend/src/password-recovery/worker.ts",
+          "apps/backend/src/placements/certificates-http.ts",
+          "apps/backend/src/placements/http.ts",
+          "apps/backend/src/placements/notification.ts",
+          "apps/backend/src/profile/http.ts",
+          "apps/backend/src/receipt/delivery.test.ts",
+          "apps/backend/src/receipt/delivery.ts",
+          "apps/backend/src/receipt/drain-main.ts",
+          "apps/backend/src/receipt/http-problem.ts",
+          "apps/backend/src/receipt/http.ts",
+          "apps/backend/src/recruitment/cancellation.postgres.test.ts",
+          "apps/backend/src/recruitment/delivery.ts",
+          "apps/backend/src/recruitment/http-guard.test.ts",
+          "apps/backend/src/recruitment/http-guard.ts",
+          "apps/backend/src/recruitment/http.ts",
+          "apps/backend/src/router.ts",
+          "apps/backend/src/social-events/http.ts",
+          "apps/backend/src/team-application/http.ts",
+          "apps/backend/src/test/native-http.ts",
+          "apps/backend/src/test/platform.ts"
+        ],
+        "symbols": [
+          "Etag",
+          "FetchHttpClient",
+          "HttpApi",
+          "HttpApiBuilder",
+          "HttpApiEndpoint",
+          "HttpApiError",
+          "HttpApiGroup",
+          "HttpApiMiddleware",
+          "HttpClient",
+          "HttpClientRequest",
+          "HttpClientResponse",
+          "HttpEffect",
+          "HttpPlatform",
+          "HttpRouter",
+          "HttpServerError",
+          "HttpServerRequest",
+          "HttpServerResponse",
+          "OpenApi",
+          "SqlClient",
+          "SqlError",
+          "SqlSchema"
+        ]
+      },
+      "reason": "This module uses the operator-required public native APIs from the exact stable Effect4 application cohort. Their upstream declarations retain unstable annotations. A file-local acknowledgement covers only unstableApiUsage; all other diagnostics remain errors.",
+      "missingCapability": "The required native families are exported by stable Effect4.0.0 but still annotated @stability unstable. No unannotated native equivalent preserves this module contract. This record accepts declared API evolution risk, not an RC package or an erased error/lifetime requirement.",
+      "nativeAlternatives": [
+        "Examined installed effect/http-api/HttpApi: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http-api/HttpApiBuilder: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http-api/HttpApiEndpoint: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http-api/HttpApiError: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http-api/HttpApiGroup: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http-api/HttpApiMiddleware: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http-api/OpenApi: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/Etag: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/FetchHttpClient: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/HttpClient: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/HttpClientRequest: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/HttpClientResponse: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/HttpEffect: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/HttpPlatform: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/HttpRouter: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/HttpServerError: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/HttpServerRequest: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/HttpServerResponse: its used public declarations retain unstable annotations.",
+        "Examined installed effect/sql/SqlError: its used public declarations retain unstable annotations.",
+        "Examined installed effect/sql/SqlSchema: its used public declarations retain unstable annotations.",
+        "Inspected exact stable effect/sql/SqlClient used by the password-reset worker and CLI: public native SQL declarations retain upstream unstable annotations.",
+        "Replacing native protocols, SQL/model variants, schema arbitraries or scoped processes with foreign implementations would violate the approved native ownership and wire/data contracts.",
+        "The installed tsgo rule has no module allowlist. Global disabling or lowering severity would hide unrelated usages, so acknowledgement stays in these explicit files."
+      ],
+      "verification": [
+        "Existing repository exception checks reject unknown ids, files/symbols outside this module, version drift and other suppressed rules. Exact source API inspection establishes this native stability gap.",
+        "Required before acceptance: native module type/diagnostic/runtime contracts and full check/tests on the final clean committed stable source. A local stability acknowledgement does not certify behavior, cancellation, delivery or providers."
+      ],
+      "owner": "apps/backend",
+      "examinedWith": {
+        "effect": "4.0.0",
+        "@effect/tsgo": "0.48.0"
+      },
+      "retirementTrigger": "When the installed native declarations no longer carry unstable annotations, remove the matching file acknowledgements and scope entries after the retained native behavior and negative-control diagnostics pass. Reopen this record on any examined-version change."
+    },
+    {
+      "id": "EX-0034",
+      "rules": ["FX001", "FX006", "FX009", "FX012"],
+      "scope": {
+        "files": ["packages/database/src/pg-pool.ts"],
+        "symbols": ["nativePgLayer"]
+      },
+      "reason": "The local native lifetime patch exposes explicit top-level transaction admission and opted transport shutdown. Omitted/false acquisition preserves caller interruptibility; true overrides a caller mask only during admission. Omitted shutdown retains the original synchronous closeUnsafe branch; opted shutdown waits for actual close, forces local destruction only after owner grace, and defects if no close arrives within the subsequent 100ms. No transaction outcome is inferred.",
+      "missingCapability": "Stable SqlClient4.0.0 masks top-level acquisition and PgClient has no explicit admission policy. Stable PgConnection.closeUnsafe ends the transport without observing physical close, so scope completion/backend-row absence cannot certify physical cleanup.",
+      "nativeAlternatives": [
+        "Inspected installed SqlClient.makeWithTransaction and Scope.provide transaction acquisition: restoring caller interruptibility preserves unmasked callers; explicit true is required to override a masked caller only during admission.",
+        "Wrapping the whole transaction in Effect.interruptible changes the caller body and finalization contract. A private transaction wrapper duplicates native control/lease ownership.",
+        "Changing a SQL deadline or pool capacity does not make the admission wait interruptible and cannot substitute for physical cleanup observation.",
+        "Inspected exact PgClient to PgPool to PgConnection.make option plumbing and finalizer original options. Native Socket APIs and public Node close events are reused; no private application pool wrapper or invented close receipt is introduced."
+      ],
+      "verification": [
+        "Required native real PostgreSQL acquisition matrix: unmasked/masked callers with omitted,false,true; body interruption, rollback and release, plus failed transaction controls.",
+        "Normal-hook native patch publication and actual anonymous Bun installation are source/graph evidence only, not behavioral acceptance. Final frozen source must run native PostgreSQL and application journeys.",
+        "Required v1 leaked-timer negative control versus v3 graceful no-pending-timeout law, omitted branch-ran/FIN-withheld law, forced 1800ms grace plus 100ms close acknowledgement within 2s total, and real close-silent transport bounded defect. Heavy runs require Main admission.",
+        "KNOWN UPSTREAM BEHAVIOR, not a pinned requirement: Effect4.0.0 Pool.ts344-346 captures the owner Scope,598 restores the borrower wait,630-631 forks resize in state.scope,1048 restores allocation use; PgConnection.ts2200-2204 destroys the real socket when its startup owner is interrupted. Future upstream borrower cancellation that also cancels resize is acceptable. The startup law requires interrupted borrower/body zero and actual socket close within the unchanged 2s measured after owner Scope closure."
+      ],
+      "owner": "packages/database",
+      "examinedWith": {
+        "effect": "4.0.0",
+        "@effect/sql-pg": "4.0.0",
+        "@effect/tsgo": "0.48.0"
+      },
+      "retirementTrigger": "Retire admission hunks only when compatible native SqlClient/PgClient provide the same caller-mask-preserving explicit policy and the full default/masked/nested/body/rollback/release laws pass. Retire shutdown hunks only when native public disposal observes real close, owns/cancels its timer and handles missing close honestly under the same graceful/omitted/forced/silent native-PG laws. Retain independently required HTTP/queue patches and reopen on package version drift."
+    },
+    {
+      "id": "EX-0012",
+      "rules": ["FX001", "FX006", "FX010", "FX012"],
+      "scope": {
+        "files": ["packages/database/src/team-application/outbox.ts"],
+        "symbols": ["TeamApplicationDeliveryQueueLive"]
+      },
+      "reason": "Finite delivery graphs need independently bounded acknowledgement retries and read-only acquisition of operator-provisioned queue schema. Local native queue extensions preserve native lease, refresh, claim fencing, factory retry and committed-envelope ownership.",
+      "missingCapability": "Stable Effect4.0.0 derives acknowledgement retry duration from lockExpiration and always runs Migrator on SQL store acquisition. No public acknowledgement-window or verification-only option exists.",
+      "nativeAlternatives": [
+        "Changing lockExpiration changes native claim fencing and refresh, not only acknowledgement retries.",
+        "Factory retry delays/maxAttempts govern redelivery policy, not SQL acknowledgement finalization.",
+        "Database.migrate intent does not stop the native queue store running its own Migrator and migration locks."
+      ],
+      "verification": [
+        "Retained real PostgreSQL queue deadline/lease/refresh/fencing/default laws in native-postgres-deadlines.test.ts and team-application delivery tests must run on final installed source; no native lifetime acceptance implied by patch generation.",
+        "migrations verify reads canonical migration versions and column availability only, not types/indexes/constraints. Operator migrations remain authoritative."
+      ],
+      "owner": "packages/database",
+      "examinedWith": {
+        "effect": "4.0.0"
+      },
+      "retirementTrigger": "When native SQL queue supports independent acknowledgement retry windows and read-only schema acquisition, replace these options and remove only queue patch hunks and this record after the same real PostgreSQL regressions pass. Retain independently necessary HTTP and native transaction/lifetime hunks."
+    },
+    {
+      "id": "EX-0030",
+      "rules": ["FX002", "FX012"],
+      "scope": {
+        "files": ["packages/database/src/postgres-migration-statements.ts"],
+        "symbols": ["postgresMigrationStatements"]
+      },
+      "reason": "Native PostgreSQL uses extended query protocol, which accepts one statement per execution. Migration sources contain dollar-quoted functions, comments and Unicode. Their original statement bytes must run sequentially within the existing Migrator transaction.",
+      "missingCapability": "Effect 4.0.0 has no PostgreSQL grammar parser that exposes original RawStmt UTF-8 byte ranges.",
+      "nativeAlternatives": [
+        "SqlClient.unsafe(source) uses native extended protocol and rejects a source with multiple statements.",
+        "Migrator owns ordering, the ledger and the transaction. It does not parse SQL source statements.",
+        "A handwritten splitter or AST deparser changes the grammar or source bytes and is prohibited by the frozen native SQL contract."
+      ],
+      "verification": [
+        "Retained command: devenv shell -- bun run --cwd packages/database vitest run src/postgres-migration-statements.test.ts --no-file-parallelism --maxWorkers=1. Covers suspended construction, channels, empty source, comments, dollar quotes, UTF-8 byte offsets, omitted protobuf zero fields, syntax failure and NUL rejection; final source verification remains required.",
+        "The adapter Schema-decodes RawStmt offset fields. Parser rejection and offset decode failure retain DatabaseMigrationExecutionError. Only original UTF-8 ranges become statement text; no AST deparser runs.",
+        "libpg-query owns its WASM allocation and frees per-call parse memory. Its parse operation cannot be aborted. Effect interruption discards a late result before executePostgresMigration can execute SQL.",
+        "Authored, not exercised by C: packages/database/src/native-postgres-codecs.test.ts proves real sequential Unicode/function execution, Migrator ledger and DDL rollback after a later SQL failure, and interruption during pg_sleep preventing subsequent statements. SQL lead owns the single heavy proof job and admission.",
+        "Native proof command: devenv shell -- just measure --class stable-sql-codecs -- bun run --cwd packages/database vitest run src/native-postgres-codecs.test.ts --no-file-parallelism --maxWorkers=1. Run for each supported PostgreSQL major through the lead's existing harness."
+      ],
+      "owner": "packages/database",
+      "examinedWith": {
+        "effect": "4.0.0",
+        "libpg-query": "18.1.5"
+      },
+      "retirementTrigger": "A supported native Effect PostgreSQL API parses complete migration sources and executes original UTF-8 statement bytes within the caller's transaction. Replace this FFI adapter with that API and retain all parser, channel, rollback and cancellation laws."
+    },
+    {
+      "id": "EX-0031",
+      "rules": ["FX002", "FX012"],
+      "scope": {
+        "files": ["packages/database/src/team-application/delivery-pgbouncer.test.ts"],
+        "symbols": ["poolMode", "preparedCapacity"]
+      },
+      "reason": "Only the disposable PgBouncer admin console uses the supported pg simple-protocol client to read SHOW POOLS and SHOW CONFIG. All application SQL, transactions, prepared queries, queue operations and migrations use the native driver.",
+      "missingCapability": "Installed native sql-pg4.0.0 exposes extended-protocol execution but no public simple-query client for the PgBouncer admin console.",
+      "nativeAlternatives": [
+        "Inspected installed PgConnection.ts1043-1050 and1070-1100: both unnamed and prepared executions encode Parse/Bind/Describe/Execute/Sync; prepare:false remains extended protocol.",
+        "Native PgClient/PgConnection have no public simple-query selection. Reimplementing PostgreSQL protocol or using private session internals is rejected.",
+        "The existing maintained pg client is already the supported Better Auth dependency. The console adapter owns a one-connection scoped pool with explicit acquisition/query deadlines, typed failures, schema-decoded rows and finalization."
+      ],
+      "verification": [
+        "packages/database/src/team-application/delivery-pgbouncer.test.ts reads actual pool_mode and max_prepared_statements from the owned real console, and tests native queries/transactions under prepare:false and prepare:true.",
+        "Real PostgreSQL17/18 and PgBouncer execution on the final integrated head remains lead-admitted; registering this source does not claim a runtime pass."
+      ],
+      "owner": "packages/database",
+      "examinedWith": {
+        "effect": "4.0.0",
+        "@effect/sql-pg": "4.0.0",
+        "pg": "8.23.0"
+      },
+      "retirementTrigger": "When the public native PostgreSQL client supports the required simple-query admin protocol, replace only these console operations and remove this record after the real pool mode/prepared-capacity proofs pass."
+    },
+    {
+      "id": "EX-0032",
+      "rules": ["FX002", "FX006", "FX012", "effecttsgo/node-builtin-import"],
+      "scope": {
+        "files": [
+          "packages/database/src/test-support/native-pg-transport.ts",
+          "packages/database/src/team-application/queue-deadline.test.ts"
+        ],
+        "symbols": [
+          "observeNativePgTransport",
+          "withFinWithheldPostgres",
+          "readNativeTimeoutCount",
+          "readNativeHostRuntime",
+          "CloseSilentPgDuplex",
+          "withStartupWithheldPostgres",
+          "trackedTransport"
+        ]
+      },
+      "reason": "Test-only public Node transport ABI supplies PgClientConfig.stream synchronously and observes genuine socket close and active Timeout resources. A genuine Duplex with emitClose false forwards real PostgreSQL traffic to falsify missing close acknowledgement; it is not a socket mock or an application adapter.",
+      "missingCapability": "Public Effect Socket does not expose a synchronous fresh Node Duplex for PgClientConfig.stream or host active-resource inventory. Native scope completion alone cannot certify physical transport close.",
+      "nativeAlternatives": [
+        "Inspected PgClientConfig.stream public Node Duplex ABI and native PgConnection shutdown; opaque private pool bookkeeping cannot supply a real close receipt.",
+        "Native BunSocket/BunSocketServer own scoped FIN/startup-withheld peers and are reused for protocol traffic; node net is restricted to the supported synchronous stream constructor and independent real socket observation.",
+        "Clock.monotonic and Deferred own receipt timing; process.getActiveResourcesInfo is used only for the test host timeout inventory and process.versions only for safe runtime/version receipts, not environment, credentials, configuration or application behavior."
+      ],
+      "verification": [
+        "Required real PostgreSQL physical close, active cancellation, startup interruption, graceful no-timer-leak, omitted original synchronous branch, forced deadline timing and never-closing transport bounded-defect laws.",
+        "v1-leak-control RED and confirmed v3 GREEN must be exercised after Main resumes heavy execution. Publishing this prospective test-only record authorizes exact owned test source pairing, not a passing receipt."
+      ],
+      "owner": "packages/database",
+      "examinedWith": {
+        "effect": "4.0.0",
+        "@effect/platform-bun": "4.0.0",
+        "@effect/sql-pg": "4.0.0",
+        "@effect/tsgo": "0.48.0"
+      },
+      "retirementTrigger": "When a compatible public Effect/native PostgreSQL API supplies the required synchronous stream and real transport/resource observations, replace these test-only imports and retain the same negative-control and real-PG lifetime laws. Never infer physical close or transaction outcome from a scope/row count alone."
+    },
+    {
+      "id": "EX-0037",
+      "rules": ["FX003", "FX004", "FX012"],
+      "scope": {
+        "files": [
+          "packages/database/src/auth-engine.ts",
+          "packages/database/src/auth-live.test.ts"
+        ],
+        "symbols": ["runProvisioningContext", "withNativeAuthProvisioning"]
+      },
+      "reason": "One binding assertion describes the installed public Better Auth runWithEndpointContext ABI without casting any Effect channel or application context. The upstream non-generic AuthContext default is invariant with plugin-specific engine contexts and the declared Promise<T> omits JavaScript async Promise flattening.",
+      "missingCapability": "@better-auth/core1.7.1 public context declarations cannot express the plugin-specific context and Promise<Awaited<T>> result used by supported internal-adapter provisioning.",
+      "nativeAlternatives": [
+        "Inspected @better-auth/core/src/context/endpoint-context.ts:46-51: the public function forwards the exact context object to its owned ALS.run and an async function awaits the task result.",
+        "Broadening the native engine type loses typed plugin APIs; constructing a fake context or an adapter shim violates the supported engine boundary.",
+        "Effect.acquireRelease, Effect.scoped and Effect.tryPromise own registration, rejection and interruption. The assertion is on the foreign callable ABI only; native Effect success/error/requirement channels remain inferred and checked."
+      ],
+      "verification": [
+        "Real adapter-hook controls cover current enabled Person access revisions, disabled/unknown Persons, forged string and Symbol.for lookalikes, copied and expired contexts, failure and interruption revocation.",
+        "Compile-only wrong-context callsite negative control must fail before the expectation; the full type/Effect diagnostic gate remains required.",
+        "Production source inspection: better-auth/dist/api/dispatch.mjs205 establishes per-call context;228 resets it after before-hook merging; with-hooks.mjs7 captures that exact context for hook arguments. The real two-person hook case also observes context identity/evidence while a previous request fiber drains.",
+        "No runtime security acceptance is claimed from source publication. An unfiled upstream issue draft is retained outside the repository."
+      ],
+      "owner": "packages/database",
+      "examinedWith": {
+        "@better-auth/core": "1.7.1",
+        "better-auth": "1.7.1",
+        "effect": "4.0.0",
+        "@effect/tsgo": "0.48.0"
+      },
+      "retirementTrigger": "When the public context API is generic in the actual engine options and returns Promise<Awaited<T>>, remove the one foreign binding assertion and this record after all native hook/lifetime and compile-time negative controls pass."
+    },
+    {
+      "id": "EX-0038",
+      "rules": ["FX002", "FX012"],
+      "scope": {
+        "files": ["apps/backend/src/receipt/filesystem.ts"],
+        "symbols": ["makeReceiptFileStore"]
+      },
+      "reason": "The receipt file store compares a stored file with its expected identity by hashing it as a stream, reading at most byteLength + 1 bytes, and hashes the upload chunk by chunk while enforcing the configured size limit. receipt/config.ts allows an arbitrary positive safe-integer cap on that size, so the incremental hasher keeps memory constant. Only this incremental SHA-256 uses @noble/hashes; every whole-input digest and every UUID in the module uses the native Crypto service.",
+      "missingCapability": "Installed Effect 4.0.0 Crypto.digest accepts one whole Uint8Array and has no streaming or incremental digest API.",
+      "nativeAlternatives": [
+        "Crypto.Crypto.digest over buffered bytes: rejected, because it removes the streaming length+1 cutoff and the constant memory bound, and buffers up to the configured cap per file.",
+        "Crypto.Crypto.randomUUIDv4 and digest: used for temporary names, command and effect-id digests, and the committed-byte check, not exempted.",
+        "Effect modules examined (Crypto, encoding/Hex, Stream, FileSystem): none expose an incremental hash."
+      ],
+      "verification": [
+        "apps/backend/src/receipt/filesystem.test.ts: pinned SHA-256 known answer for staged bytes, restart, replay and conflict identity, committed read digest, typed Crypto failures",
+        "apps/backend/src/receipt/import-snapshot.test.ts: staged and committed file identity",
+        "No test covers hashing a file larger than memory; the streaming bound is by construction (bytesToRead = byteLength + 1)."
+      ],
+      "owner": "apps/backend",
+      "examinedWith": {
+        "effect": "4.0.0",
+        "@noble/hashes": "2.3.0"
+      },
+      "retirementTrigger": "A public streaming or incremental digest in Effect Crypto. Replace the two sha256.create() sites with it, run the filesystem and import-snapshot tests, remove the @noble/hashes dependency from apps/backend and the EX-0038 comment, and delete this record."
+    },
+    {
+      "id": "EX-0039",
+      "rules": ["FX005", "FX012"],
+      "scope": {
+        "files": ["packages/http-api/src/declaration-decoding.ts"],
+        "symbols": ["decodeDeclaredOrThrow", "decodeExampleOrThrow", "encodeExampleOrThrow"]
+      },
+      "reason": "The effx compiler calls an access annotator (`metadata.annotator`, an exported callable symbol) and a problem registry synchronously with the literals of one declaration, and module-level annotation examples are constants. Their schema mismatch is the build-time or module-load failure of that declaration, so the helpers unwrap a Result into a thrown SchemaError, in one module.",
+      "missingCapability": "Installed Effect 4.0.0 provides synchronous throwing Schema decoders and encoders. The schema-sync diagnostic has no declaration-time/static-input acknowledgement, and effx0.1.0 annotator or registry callbacks cannot return Effect, Result or Exit to a caller that handles a typed failure. This record scopes the required declaration-time throw, not an absent Effect decoder API.",
+      "nativeAlternatives": [
+        "Schema.decodeUnknownEffect / decodeEffect / encodeEffect: rejected, because the callers are synchronous annotation functions and module-level constants, not running Effects, and an Effect cannot be unwrapped without a run.",
+        "Schema.decodeUnknownResult / decodeResult / encodeResult returned to the caller: rejected, because the effx annotator contract returns annotations, not a Result.",
+        "Typed Schema .make: rejected for the access specs and the conduct example, because their input is unknown or Encoded-shaped (instant strings, a resolver symbol check, Model.Class representations) rather than the Type side. Constants that are already Type-shaped keep using .make (the CorrectionHistoryOriginalSchema example).",
+        "Schema.decodeUnknownSync / decodeSync / encodeSync: rejected by effecttsgo/schema-sync and an unregistered spelling of the same throw."
+      ],
+      "verification": [
+        "packages/http-api/test/*-effx-adapters.test.ts: each adapter's tests assert `toThrow()` for unsupported or excess specs (e.g. profile-effx-adapters.test.ts and the `registry(\"InvalidProblem\", [...])` cases), which pin the throw contract at every site.",
+        "just exceptions: this file names the id, and the entry's file and symbols exist.",
+        "`just lint-files` and the commit hook on the touched files are clean.",
+        "Not covered: no test exercises the module-load decode of the conduct example in isolation; it fails when recruitment.ts is imported, which the http-api suites and `effx build` do."
+      ],
+      "owner": "packages/http-api",
+      "examinedWith": {
+        "effect": "4.0.0",
+        "@effx/runtime": "0.1.0"
+      },
+      "retirementTrigger": "An effx release whose annotator or problem-registry contract may return an Effect, Result or typed diagnostic, or a stable Effect decoder that is synchronous and not flagged by schema-sync. Then change the callers to the new contract, delete declaration-decoding.ts, and delete the entry (keep the id unused)."
     }
   ]
 }

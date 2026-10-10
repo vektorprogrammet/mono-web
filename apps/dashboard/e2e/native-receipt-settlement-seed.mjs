@@ -1,4 +1,4 @@
-import { Predicate } from "effect";
+import { Predicate, Struct } from "effect";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
@@ -48,7 +48,7 @@ const dashboardOrigin = new URL(trustedOrigins[0]);
 
 assert.ok(
   dashboardOrigin.protocol === "http:" &&
-    ["127.0.0.1", "localhost", "::1", "[::1]"].includes(dashboardOrigin.hostname),
+  ["127.0.0.1", "localhost", "::1", "[::1]"].includes(dashboardOrigin.hostname),
   "Settlement fixture requires a loopback Better Auth origin",
 );
 
@@ -136,7 +136,7 @@ export const seededSettlementReceiptIds = {
 
 const personas = Object.values(receiptSettlementPersonas);
 
-const identityPersons = personas.map(({ fixtureLabel: _, ...persona }) => persona);
+const identityPersons = personas.map(Struct.omit(["fixtureLabel"]));
 
 const personIds = personas.map(({ personId }) => personId);
 

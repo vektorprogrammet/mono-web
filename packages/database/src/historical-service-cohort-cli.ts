@@ -1,5 +1,5 @@
 import { Config, Effect, Redacted } from "effect";
-import { Pool } from "pg";
+
 import {
   parseDisposableCohortDatabaseUrl,
   readPrivateCohortJson,
@@ -11,7 +11,8 @@ import {
   importHistoricalServiceCohort,
 } from "./historical-service-cohort.js";
 import { DatabaseLive } from "./layers.js";
-import { databaseHealth } from "./service.js";
+import { NativeDatabaseStartupOptions } from "./search-path.js";
+import { Database } from "./service.js";
 
 const invalidSnapshot = () => new HistoricalServiceFailure({ code: "InvalidSnapshot" });
 
@@ -19,6 +20,7 @@ export const disposableHistoricalServiceDatabaseUrl = (value: string | undefined
   parseDisposableCohortDatabaseUrl(value, /^\/historical_service_[a-z0-9_]+$/, invalidSnapshot);
 
 // An unset variable reads as empty, which no check below accepts.
+
 const environment = Config.all({
   mode: Config.String("HISTORICAL_SERVICE_MODE").pipe(Config.withDefault("")),
   deployment: Config.String("NATIVE_IDENTITY_DEPLOYMENT").pipe(Config.withDefault("")),
@@ -50,14 +52,20 @@ export const runHistoricalServiceCohortCli = Effect.gen(function* () {
 
   if ((env.mode === "synthetic") !== (input.sourceKind === "Synthetic"))
     return yield* invalidSnapshot();
-  yield* databaseHealth.pipe(
-    Effect.provide(DatabaseLive({ url: Redacted.make(url), maxConnections: 1 })),
-  );
 
-  const pool = yield* Effect.acquireRelease(
-    Effect.sync(() => new Pool({ connectionString: url, max: 2 })),
-    (pool) => Effect.promise(() => pool.end()),
-  );
+  yield* Effect.gen(function* () {
+    const sql = yield* Database;
 
-  yield* writeCohortReport(yield* importHistoricalServiceCohort(pool, input));
+    yield* sql.health;
+
+    yield* writeCohortReport(yield* importHistoricalServiceCohort(sql, input));
+  }).pipe(
+    Effect.provide(
+      DatabaseLive({
+        url: Redacted.make(url),
+        maxConnections: 2,
+        startupOptions: NativeDatabaseStartupOptions,
+      }),
+    ),
+  );
 }).pipe(Effect.scoped);

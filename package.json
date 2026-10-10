@@ -11,24 +11,32 @@
     "prepare": "effect-tsgo patch --typescript --oxlint"
   },
   "devDependencies": {
-    "@effect/tsgo": "0.36.4",
-    "@effx/cli": "file:tools/effx-dist/effx-cli-0.1.0-e04c8d2a16636f81e65d478a4d06a07933f6896b.tgz",
+    "@effect/platform-browser": "catalog:effect-v4",
+    "@effect/tsgo": "0.48.0",
+    "@effx/cli": "file:tools/effx-dist/effx-cli-0.1.0-34f56e2e92d8ec3ee881db22fa702fe8cdc81a77.tgz",
+    "@effx/runtime": "0.1.0",
     "@oxlint/plugins": "1.77.0",
-    "@phibkro/oxlint-effect-plugin": "0.1.0",
+    "@phibkro/oxlint-effect-plugin": "0.2.0",
     "@types/bun": "1.3.10",
     "conventional-changelog-cli": "5.0.0",
     "conventional-changelog-conventionalcommits": "8.0.0",
     "effect": "catalog:effect-v4",
     "oxfmt": "0.61.0",
-    "oxlint": "1.77.0",
+    "oxlint": "1.86.0",
     "oxlint-tsgolint": "7.0.2001",
     "turbo": "^2.8.12",
     "typescript": "7.0.2",
     "wrangler": "4.136.1"
   },
   "overrides": {
-    "@effx/compiler": "file:tools/effx-dist/effx-compiler-0.1.0-e04c8d2a16636f81e65d478a4d06a07933f6896b.tgz",
-    "@effx/ir": "file:tools/effx-dist/effx-ir-0.1.0-e04c8d2a16636f81e65d478a4d06a07933f6896b.tgz"
+    "@effect/platform-browser": "4.0.0",
+    "@effect/platform-node": "4.0.0",
+    "@effect/platform-node-shared": "4.0.0",
+    "@effx/compiler": "file:tools/effx-dist/effx-compiler-0.1.0-34f56e2e92d8ec3ee881db22fa702fe8cdc81a77.tgz",
+    "@effx/diagnostics": "file:tools/effx-dist/effx-diagnostics-0.1.0-34f56e2e92d8ec3ee881db22fa702fe8cdc81a77.tgz",
+    "@effx/ir": "file:tools/effx-dist/effx-ir-0.1.0-34f56e2e92d8ec3ee881db22fa702fe8cdc81a77.tgz",
+    "@effx/persistence": "file:tools/effx-dist/effx-persistence-0.1.0-34f56e2e92d8ec3ee881db22fa702fe8cdc81a77.tgz",
+    "@effx/runtime": "file:tools/effx-dist/effx-runtime-0.1.0-34f56e2e92d8ec3ee881db22fa702fe8cdc81a77.tgz"
   },
   "engines": {
     "node": ">=22",
@@ -37,20 +45,28 @@
   "packageManager": "bun@1.3.10",
   "catalogs": {
     "effect-v4": {
-      "@effect/vitest": "4.0.0-rc.116",
-      "@effect/platform-browser": "4.0.0-rc.116",
-      "@effect/platform-bun": "4.0.0-rc.116",
-      "@effect/sql-d1": "4.0.0-rc.116",
-      "@effect/sql-pg": "4.0.0-rc.112",
-      "@effect/sql-pglite": "4.0.0-rc.116",
-      "@foldkit/ui": "0.163.0",
-      "effect": "4.0.0-rc.116",
+      "@better-auth/core": "1.7.1",
+      "@effect/vitest": "4.0.0",
+      "@effect/platform-browser": "4.0.0",
+      "@effect/platform-bun": "4.0.0",
+      "@effect/sql-d1": "4.0.0",
+      "@effect/sql-pg": "4.0.0",
+      "@effect/sql-pglite": "4.0.0",
+      "@foldkit/ui": "0.165.0",
+      "@noble/hashes": "2.3.0",
+      "better-auth": "1.7.1",
+      "effect": "4.0.0",
       "fast-check": "4.9.0",
-      "foldkit": "0.163.0",
+      "foldkit": "0.165.0",
+      "pg": "8.23.0",
       "vitest": "5.0.0"
+    },
+    "sql-parser": {
+      "libpg-query": "18.1.5"
     }
   },
   "patchedDependencies": {
-    "effect@4.0.0-rc.116": "patches/effect@4.0.0-rc.116.patch"
+    "effect@4.0.0": "patches/effect@4.0.0.patch",
+    "@effect/sql-pg@4.0.0": "patches/@effect%2Fsql-pg@4.0.0.patch"
   }
 }

@@ -4,11 +4,13 @@ import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import { Economy, decodeReceiptCursor } from "@vektorprogrammet/domain/receipt";
 import { EconomyLive } from "@vektorprogrammet/database/receipt/postgres";
 import { Effect, Layer } from "effect";
-import { DatabaseTestLive } from "./test-support/platform.js";
+import { DatabaseTestLive, TestPlatform } from "./test-support/platform.js";
 
 const databaseLayer = DatabaseTestLive();
 
-const suiteLayer = Layer.merge(databaseLayer, EconomyLive.pipe(Layer.provide(databaseLayer)));
+const suiteLayer = Layer.merge(databaseLayer, EconomyLive.pipe(Layer.provide(databaseLayer))).pipe(
+  Layer.provideMerge(TestPlatform),
+);
 
 layer(suiteLayer, { excludeTestServices: true, timeout: "30 seconds" })(
   "rule-aware Receipt approval projection in PGlite",

@@ -12,6 +12,7 @@ import {
   PersonId,
 } from "@vektorprogrammet/domain/organization";
 import { DatabaseLive } from "../layers.js";
+import { NativeDatabaseStartupOptions } from "../search-path.js";
 import { OrganizationLive } from "../organization/postgres-layer.js";
 import { Database } from "../service.js";
 import { TestPlatform } from "../test-support/platform.js";
@@ -35,6 +36,7 @@ const database = Layer.unwrap(
       url: Redacted.make(postgres.url),
       applicationName: "content-slug-postgres-test",
       maxConnections: 2,
+      startupOptions: NativeDatabaseStartupOptions,
     }).pipe(Layer.provide(TestPlatform)),
   ),
 );

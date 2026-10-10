@@ -1,3 +1,7 @@
+/**
+ * EX-0022: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import {
   ContactMessage,
   ContactVisitorIp,
@@ -5,7 +9,7 @@ import {
   CONTACT_IP_HEADER,
 } from "@vektorprogrammet/domain/contact";
 import { Schema } from "effect";
-import { HttpApiMiddleware, HttpApiSecurity, OpenApi } from "effect/unstable/httpapi";
+import { HttpApiMiddleware, HttpApiSecurity, OpenApi } from "effect/http-api";
 import { SessionUnauthorizedResponse } from "./common.js";
 import { problemUnion, type NativeProblemCode } from "./http-semantics.js";
 

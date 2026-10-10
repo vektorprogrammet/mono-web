@@ -21,6 +21,7 @@ import { readSchoolsDirectory } from "@vektorprogrammet/database/schools";
 import { SchoolsLive } from "@vektorprogrammet/database/schools";
 import { Config, Deferred, Effect, Fiber, Layer, Redacted } from "effect";
 import { DatabaseLive } from "../src/layers.js";
+import { NativeDatabaseStartupOptions } from "../src/search-path.js";
 import { TestPlatform } from "../src/test-support/platform.js";
 import { databaseSchemaRevision } from "../src/migrations.js";
 
@@ -57,6 +58,7 @@ const makeProofLayer = (databaseUrl: Redacted.Redacted<string>) => {
     url: Redacted.make(Redacted.value(databaseUrl)),
     applicationName: "schools-postgres-proof-0061",
     maxConnections: 4,
+    startupOptions: NativeDatabaseStartupOptions,
   });
 
   const organizationLayer = OrganizationLive.pipe(Layer.provide(databaseLayer));

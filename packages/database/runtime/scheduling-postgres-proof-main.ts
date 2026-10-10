@@ -21,6 +21,7 @@ import {
 } from "@vektorprogrammet/domain/recruitment";
 import { RecruitmentLive } from "@vektorprogrammet/database/recruitment";
 import { DatabaseLive } from "../src/layers.js";
+import { NativeDatabaseStartupOptions } from "../src/search-path.js";
 import { TestPlatform } from "../src/test-support/platform.js";
 
 const cohort = {
@@ -511,6 +512,7 @@ const program = Effect.gen(function* () {
     url: Redacted.make(Redacted.value(databaseUrl)),
     applicationName: "recruitment-scheduling-postgres-proof-0050",
     maxConnections: 4,
+    startupOptions: NativeDatabaseStartupOptions,
   });
 
   const admissionsLayer = AdmissionsLive.pipe(Layer.provide(databaseLayer));

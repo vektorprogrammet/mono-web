@@ -1,10 +1,14 @@
+/**
+ * EX-0021: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { canonicalJsonValue } from "@vektorprogrammet/domain/shared-kernel";
 import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import { Database, type DatabaseOperations } from "../service.js";
 import { DepartmentId } from "@vektorprogrammet/domain/organization";
 import { flow, Effect, Schema } from "effect";
-import type { SqlError } from "effect/unstable/sql/SqlError";
-import type * as Statement from "effect/unstable/sql/Statement";
+import type { SqlError } from "effect/sql/SqlError";
+import type * as Statement from "effect/sql/Statement";
 import {
   AdmissionDepartment,
   AdmissionFieldOfStudy,
@@ -49,7 +53,7 @@ import {
 import {
   ApplicantContactProjectionSchema,
   ApplicantProgressResponseSchema,
-  ApplicantRecord,
+  type ApplicantRecord,
   PublicApplicationCatalogSchema,
   PublicApplicationActivationTokenSchema,
   PublicApplication,
@@ -140,13 +144,6 @@ const persistenceError = (
 
   return error;
 };
-
-const decodeApplicantRow = (
-  row: typeof ApplicantRecord.Encoded,
-): Effect.Effect<ApplicantRecord, PublicApplicationPersistenceError> =>
-  Schema.decodeEffect(ApplicantRecord)(row, {
-    onExcessProperty: "error",
-  }).pipe(Effect.mapError(() => persistenceError("decode applicant row")));
 
 const decodeApplicationRow = (
   row: typeof PublicApplication.Encoded,
@@ -259,33 +256,6 @@ const findFieldOfStudy = (
     ),
   );
 
-const findApplicantForUpdate = (
-  sql: DatabaseOperations,
-  normalizedEmail: string,
-): Effect.Effect<ApplicantRecord | undefined, PublicApplicationPersistenceError> =>
-  sql<typeof ApplicantRecord.Encoded>`
-    SELECT applicant_id AS id,
-      normalized_email AS "normalizedEmail",
-      email,
-      first_name AS "firstName",
-      last_name AS "lastName",
-      phone,
-      gender,
-      field_of_study_id AS "fieldOfStudyId",
-      year_of_study AS "yearOfStudy",
-      activation_digest AS "activationDigest"
-    FROM admission_applicants
-    WHERE normalized_email = ${normalizedEmail}
-    FOR UPDATE
-  `.pipe(
-    Effect.flatMap((rows) =>
-      rows[0] === undefined ? Effect.undefined : decodeApplicantRow(rows[0]),
-    ),
-    Effect.catchTag("SqlError", (cause) =>
-      Effect.fail(persistenceError("lock applicant identity", cause)),
-    ),
-  );
-
 /** Locks and reads the application that `where` selects. */
 const findApplicationForUpdate = (
   sql: DatabaseOperations,
@@ -356,28 +326,6 @@ const writeApplicant = (
     Effect.asVoid,
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("insert applicant", cause)),
-    ),
-  );
-
-const updateApplicant = (
-  sql: DatabaseOperations,
-  applicant: ApplicantRecord,
-): Effect.Effect<void, PublicApplicationPersistenceError> =>
-  sql`
-  UPDATE admission_applicants
-  SET email = ${applicant.email},
-    first_name = ${applicant.firstName},
-    last_name = ${applicant.lastName},
-    phone = ${applicant.phone},
-    gender = ${applicant.gender},
-    field_of_study_id = ${applicant.fieldOfStudyId},
-    year_of_study = ${applicant.yearOfStudy},
-    activation_digest = COALESCE(${applicant.activationDigest}, activation_digest)
-  WHERE applicant_id = ${applicant.id}
-`.pipe(
-    Effect.asVoid,
-    Effect.catchTag("SqlError", (cause) =>
-      Effect.fail(persistenceError("update applicant profile", cause)),
     ),
   );
 
@@ -536,26 +484,27 @@ const executeCommandInTransaction = (
       return yield* new FieldOfStudyInactive({ fieldOfStudyId: command.fieldOfStudyId });
     }
 
-    const existingApplicant = yield* findApplicantForUpdate(sql, normalizedEmail);
+    const duplicate = yield* findApplicationForUpdate(
+      sql,
+      sql`admission_period_id = ${period.id} AND applicant_id IN (
+        SELECT applicant_id FROM admission_applicants WHERE normalized_email = ${normalizedEmail}
+      )`,
+      "read duplicate application",
+    );
 
-    const applicantId =
-      existingApplicant?.id ?? context.applicantId ?? publicApplicantIdForCommand(command);
+    if (duplicate !== undefined) return yield* new DuplicatePublicApplication();
 
-    const requiresActivation =
-      existingApplicant === undefined || existingApplicant.activationDigest !== null;
+    const applicantId = context.applicantId ?? publicApplicantIdForCommand(command);
 
-    const activationToken = requiresActivation
-      ? yield* Schema.decodeEffect(PublicApplicationActivationTokenSchema)(
-          context.activationToken,
-        ).pipe(
-          Effect.mapError(
-            () => new PublicApplicationDecodeError({ message: "invalid activation token" }),
-          ),
-        )
-      : undefined;
+    const activationToken = yield* Schema.decodeEffect(PublicApplicationActivationTokenSchema)(
+      context.activationToken,
+    ).pipe(
+      Effect.mapError(
+        () => new PublicApplicationDecodeError({ message: "invalid activation token" }),
+      ),
+    );
 
-    const activationDigest =
-      activationToken === undefined ? null : publicApplicationActivationDigest(activationToken);
+    const activationDigest = publicApplicationActivationDigest(activationToken);
 
     const applicant: ApplicantRecord = {
       id: applicantId,
@@ -570,14 +519,6 @@ const executeCommandInTransaction = (
       activationDigest,
     };
 
-    const duplicate = yield* findApplicationForUpdate(
-      sql,
-      sql`applicant_id = ${applicant.id} AND admission_period_id = ${period.id}`,
-      "read duplicate application",
-    );
-
-    if (duplicate !== undefined) return yield* new DuplicatePublicApplication();
-
     const applicationId = context.applicationId ?? publicApplicationIdForCommand(command);
 
     const collidingApplication = yield* findApplicationForUpdate(
@@ -588,8 +529,7 @@ const executeCommandInTransaction = (
 
     if (collidingApplication !== undefined) return yield* new DuplicatePublicApplication();
 
-    if (existingApplicant === undefined) yield* writeApplicant(sql, applicant);
-    else yield* updateApplicant(sql, applicant);
+    yield* writeApplicant(sql, applicant);
 
     const application: typeof PublicApplication.insert.Type = {
       id: applicationId,
@@ -628,6 +568,12 @@ const executeCommandInTransaction = (
     return { observation, replayed: false, outboxCount: requests.length };
   });
 
+/**
+ * Commits a fresh, unlinked applicant statement, application, command receipt, audit and outbox
+ * atomically, or returns the same stored observation on replay. Email equality is only a
+ * per-period duplicate fence, never identity authority. Success is not provider delivery; an
+ * enclosing caller transaction can still roll back these writes.
+ */
 export const executePublicApplicationCommand = (
   input: typeof PublicApplicationSubmitInputSchema.Encoded,
   context: PublicApplicationSubmitContext,

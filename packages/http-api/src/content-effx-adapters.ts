@@ -2,6 +2,7 @@ import type { HttpAccessAnnotationSpec } from "@effx/runtime";
 import { type SCOPE_RESOLVER_IDS } from "@vektorprogrammet/domain/authz";
 import { Predicate, Schema } from "effect";
 import { accessSpecAnnotations, anonymousNativeAccess, personNativeAccess } from "./access.js";
+import { decodeDeclaredOrThrow } from "./declaration-decoding.js";
 
 /** Exported resolver identities for the six staff and two public declarations. */
 export const ContentArticlesResolver = { id: "content.articles" } as const satisfies {
@@ -142,9 +143,7 @@ const ContentAccess = Schema.Struct({
   ),
 );
 
-const decodeContentAccess = Schema.decodeUnknownSync(ContentAccess, {
-  onExcessProperty: "error",
-});
+const decodeContentAccess = decodeDeclaredOrThrow(ContentAccess, { onExcessProperty: "error" });
 
 /** Derives only the six Person and two genuinely anonymous public native AccessSpecs. */
 export const contentAccessAnnotations = (input: HttpAccessAnnotationSpec) => {

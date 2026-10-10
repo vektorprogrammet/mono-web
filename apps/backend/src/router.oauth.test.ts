@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "@effect/vitest";
+import { expect, layer, vi } from "@effect/vitest";
 import { Effect } from "effect";
 import {
   backendHttpHandler,
@@ -6,6 +6,7 @@ import {
   type BackendAuthHandler,
 } from "./router.js";
 import type { NativeSessionBoundaryPolicy } from "./session-security.js";
+import { TestPlatform } from "./test/platform.js";
 
 const sessionBoundary: NativeSessionBoundaryPolicy = {
   deployment: "local",
@@ -53,7 +54,7 @@ const allowedRoutes = [
   ["POST", "http://127.0.0.1:4173/api/auth/oauth2/delete-consent"],
 ] as const;
 
-describe("frozen external OAuth ingress", () => {
+layer(TestPlatform)("frozen external OAuth ingress", (it) => {
   it.effect.each(allowedRoutes)("dispatches only %s %s to the OAuth graph", ([method, url]) =>
     Effect.gen(function* () {
       const auth = makeAuth();
@@ -122,7 +123,7 @@ describe("frozen external OAuth ingress", () => {
   );
 });
 
-describe("independent internal OAuth ingress", () => {
+layer(TestPlatform)("independent internal OAuth ingress", (it) => {
   it.effect("reveals no token signal to a wrong network", () =>
     Effect.gen(function* () {
       const auth = makeAuth();

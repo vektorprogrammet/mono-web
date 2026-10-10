@@ -1,3 +1,7 @@
+/**
+ * EX-0024: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import {
   makePublicApplicationEffectInterpreter,
   PublicApplicationEffectDeliveryError,
@@ -6,7 +10,7 @@ import {
 } from "@vektorprogrammet/domain/application";
 import { deliverJson } from "../delivery/http.js";
 import { Effect } from "effect";
-import { HttpClient } from "effect/unstable/http";
+import { HttpClient } from "effect/http";
 import type { PublicApplicationEffectConfig } from "../config.js";
 
 /** The interpreter delivers every public application effect through the composition's client. */

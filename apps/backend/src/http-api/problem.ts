@@ -1,4 +1,8 @@
 /**
+ * EX-0024: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+/**
  * Typed transport failures for native HttpApi handlers. Handlers fail with
  * `Problem` values and HttpApiBuilder encodes them against the endpoint's
  * declared problems, so an undeclared code, an unmapped domain failure, or a
@@ -20,12 +24,7 @@ import {
   type StrongETag,
 } from "@vektorprogrammet/http-api/http-semantics";
 import { Cause, Effect, ErrorReporter, type Layer, Match, Predicate, Schema } from "effect";
-import {
-  HttpRouter,
-  HttpServerError,
-  HttpServerRequest,
-  HttpServerResponse,
-} from "effect/unstable/http";
+import { HttpRouter, HttpServerError, HttpServerRequest, HttpServerResponse } from "effect/http";
 import {
   type DerivedHttpIdentity,
   deriveHttpIdentity,
@@ -889,15 +888,19 @@ export const unreachable =
 export const ProblemBoundaryLive: Layer.Layer<never, never, HttpRouter.HttpRouter> =
   HttpRouter.middleware(
     (httpEffect) =>
-      Effect.catchCause(httpEffect, (cause) =>
-        Cause.hasInterruptsOnly(cause) &&
-        cause.reasons.some((reason) => reason.annotations.has(HttpServerError.ClientAbort.key))
-          ? Effect.failCause(cause)
-          : ErrorReporter.report(cause).pipe(
-              Effect.as(
-                HttpServerResponse.fromWeb(problemWebResponse(Problem.make("internal.error"))),
-              ),
+      Effect.catchCauseIf(
+        httpEffect,
+        (cause) =>
+          !(
+            Cause.hasInterruptsOnly(cause) &&
+            cause.reasons.some((reason) => reason.annotations.has(HttpServerError.ClientAbort.key))
+          ),
+        (cause) =>
+          ErrorReporter.report(cause).pipe(
+            Effect.as(
+              HttpServerResponse.fromWeb(problemWebResponse(Problem.make("internal.error"))),
             ),
+          ),
       ),
     { global: true },
   );

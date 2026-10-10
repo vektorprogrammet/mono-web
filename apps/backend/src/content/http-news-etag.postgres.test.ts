@@ -114,6 +114,12 @@ const listing = Schema.decodeUnknownEffect(Schema.fromJsonString(PublishedNewsLi
 
 const article = Schema.decodeUnknownEffect(Schema.fromJsonString(PublishedNewsArticleSchema));
 
+/** Status, ETag and body of one read, for the failure message of an assertion about it. */
+const describeRead = (
+  label: string,
+  read: { readonly status: number; readonly etag: string | null; readonly body: string },
+) => `${label}: ${read.status} ${read.etag} ${read.body}`;
+
 it.live("changes both public news validators when only the department link changes", () =>
   Effect.gen(function* () {
     const { read, publishedMetadata, relink } = fixture();
@@ -125,7 +131,15 @@ it.live("changes both public news validators when only the department link chang
       article: yield* read(articlePath),
     };
 
-    expect([before.listing.status, before.article.status]).toEqual([200, 200]);
+    // A refused read fails with its problem in the message, not with a bare status.
+    const beforeEvidence = [
+      describeRead("before listing", before.listing),
+      describeRead("before article", before.article),
+    ];
+
+    expect([before.listing.status, before.article.status], beforeEvidence.join("\n")).toEqual([
+      200, 200,
+    ]);
 
     const originalListing = yield* listing(before.listing.body);
     const originalArticle = yield* article(before.article.body);
@@ -157,10 +171,9 @@ it.live("changes both public news validators when only the department link chang
 
     // Keep both responses in the red failure: status, ETag and body of the original and stale read.
     const evidence = [
-      `before listing: ${before.listing.status} ${before.listing.etag} ${before.listing.body}`,
-      `before article: ${before.article.status} ${before.article.etag} ${before.article.body}`,
-      `after listing: ${after.listing.status} ${after.listing.etag} ${after.listing.body}`,
-      `after article: ${after.article.status} ${after.article.etag} ${after.article.body}`,
+      ...beforeEvidence,
+      describeRead("after listing", after.listing),
+      describeRead("after article", after.article),
     ].join("\n");
 
     expect([after.listing.status, after.article.status], evidence).toEqual([200, 200]);

@@ -1,5 +1,9 @@
+/**
+ * EX-0020: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { Schema } from "effect";
-import { Model } from "effect/unstable/schema";
+import { Model } from "effect/schema";
 import { PersonId } from "../organization/schema.js";
 
 export const PersonProfileName = Schema.String.pipe(

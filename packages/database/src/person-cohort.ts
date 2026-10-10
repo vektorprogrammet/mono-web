@@ -1,14 +1,18 @@
-import { createHash } from "node:crypto";
+/**
+ * EX-0021: required public native SQL APIs in exact stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { Data, Effect, flow, Option, Predicate, Schema } from "effect";
-import type { Pool, PoolClient } from "pg";
-import { canonicalJson } from "@vektorprogrammet/domain/shared-kernel";
+import type { SqlClient } from "effect/sql";
+import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import { PersonId } from "@vektorprogrammet/domain/organization";
 import {
   PersonContactEmail,
   PersonContactPhone,
   PersonProfileName,
 } from "@vektorprogrammet/domain/profile";
-import { pgQuery, pgTransaction } from "./pg-pool.js";
+import { withTypedTransactionFailures } from "./service.js";
+import { AdvisoryLockKey, lockAdvisory } from "./advisory-lock.js";
 
 const Id = Schema.String.pipe(Schema.check(Schema.isPattern(/^[A-Za-z0-9._:-]{1,128}$/)));
 
@@ -125,12 +129,16 @@ export const PersonCohortReport = Schema.Struct({
 
 export type PersonCohortReport = typeof PersonCohortReport.Type;
 
-const digest = flow(canonicalJson, (json) => createHash("sha256").update(json).digest("hex"));
+const digest = flow(canonicalJsonBytes, sha256Hex);
 
 export const personCohortSourceRowDigest = digest;
 
+const decodeLegacyPersonRow = Schema.decodeUnknownOption(LegacyPersonRow, {
+  onExcessProperty: "error",
+});
+
 export const isPersonCohortMappableRow = flow(
-  Schema.decodeUnknownOption(LegacyPersonRow, { onExcessProperty: "error" }),
+  decodeLegacyPersonRow,
   Option.match({ onSome: (row) => row.active, onNone: () => false }),
 );
 
@@ -171,30 +179,58 @@ export const decodePersonCohort = flow(
   },
 );
 
-const cohortReport = (tx: PoolClient, snapshotKey: string, replay: boolean) =>
-  pgQuery<PersonCohortOccurrence>(
-    tx,
-    `SELECT occurrence_id AS "occurrenceId", disposition, reason
-       FROM public.person_cohort_occurrences
-      WHERE snapshot_key = $1
-      ORDER BY occurrence_id`,
-    [snapshotKey],
-  ).pipe(
-    Effect.map((rows): PersonCohortReport => {
-      const accepted = rows.rows.filter(({ disposition }) => disposition === "Accepted").length;
+const decodeOccurrenceRows = Schema.decodeUnknownEffect(Schema.Array(PersonCohortOccurrence));
 
-      return {
-        snapshotKey,
-        replay,
-        input: rows.rows.length,
-        accepted,
-        quarantined: rows.rows.length - accepted,
-        occurrences: rows.rows,
-        aliases: "LegacyUsernameAndCompanyEmailUnsupported",
-        credentials: "HandledByCredentialCohort",
-      };
+const decodeSnapshotRows = Schema.decodeUnknownEffect(
+  Schema.Array(Schema.Struct({ snapshot_digest: Sha256 })),
+);
+
+const decodeImportRows = Schema.decodeUnknownEffect(
+  Schema.Array(Schema.Struct({ source_user_id: Id, source_digest: Sha256 })),
+);
+
+const decodeTargetRows = Schema.decodeUnknownEffect(
+  Schema.Array(Schema.Struct({ person_id: PersonId })),
+);
+
+const decodeExistingRows = Schema.decodeUnknownEffect(
+  Schema.Array(
+    Schema.Struct({
+      name_revision: Revision,
+      contact_revision: Revision,
+      email: PersonContactEmail,
     }),
-  );
+  ),
+);
+
+const cohortReport = Effect.fnUntraced(function* (
+  tx: SqlClient.SqlClient,
+  snapshotKey: string,
+  replay: boolean,
+) {
+  const rows = yield* tx
+    .unsafe(
+      `SELECT occurrence_id AS "occurrenceId", disposition, reason
+     FROM public.person_cohort_occurrences
+    WHERE snapshot_key = $1
+    ORDER BY occurrence_id`,
+      [snapshotKey],
+    )
+    .pipe(Effect.flatMap(decodeOccurrenceRows));
+
+  const accepted = rows.filter(({ disposition }) => disposition === "Accepted").length;
+
+  return {
+    snapshotKey,
+    replay,
+    input: rows.length,
+    accepted,
+    quarantined: rows.length - accepted,
+    occurrences: rows,
+    aliases: "LegacyUsernameAndCompanyEmailUnsupported",
+    credentials: "HandledByCredentialCohort",
+  } satisfies PersonCohortReport;
+});
 
 interface AcceptedPersonEvidence {
   readonly snapshotKey: string;
@@ -206,7 +242,7 @@ interface AcceptedPersonEvidence {
 }
 
 const appendAcceptedPersonMapping = Effect.fnUntraced(function* (
-  tx: PoolClient,
+  tx: SqlClient.SqlClient,
   evidence: AcceptedPersonEvidence,
 ) {
   const values = [
@@ -218,37 +254,40 @@ const appendAcceptedPersonMapping = Effect.fnUntraced(function* (
     evidence.sourceDigest,
   ];
 
-  const inserted = yield* pgQuery(
-    tx,
+  const inserted = yield* tx.unsafe(
     `INSERT INTO public.person_cohort_accepted_mappings
-       (snapshot_key, occurrence_id, source_repository, source_user_id)
-     SELECT $1, $2, source_repository, source_user_id
-       FROM public.person_cohort_imports
-      WHERE source_repository = $3 AND source_user_id = $4 AND person_id = $5 AND source_digest = $6
-     ON CONFLICT (snapshot_key, occurrence_id) DO NOTHING`,
+     (snapshot_key, occurrence_id, source_repository, source_user_id)
+   SELECT $1, $2, source_repository, source_user_id
+     FROM public.person_cohort_imports
+    WHERE source_repository = $3 AND source_user_id = $4 AND person_id = $5 AND source_digest = $6
+   ON CONFLICT (snapshot_key, occurrence_id) DO NOTHING
+   RETURNING occurrence_id`,
     values,
   );
 
-  if (inserted.rowCount) return;
+  if (inserted.length) return;
 
-  const existing = yield* pgQuery(
-    tx,
+  const existing = yield* tx.unsafe(
     `SELECT 1 FROM public.person_cohort_accepted_mappings a
-      JOIN public.person_cohort_imports i USING (source_repository, source_user_id)
-      WHERE a.snapshot_key = $1 AND a.occurrence_id = $2
-        AND a.source_repository = $3 AND a.source_user_id = $4
-        AND i.person_id = $5 AND i.source_digest = $6`,
+    JOIN public.person_cohort_imports i USING (source_repository, source_user_id)
+    WHERE a.snapshot_key = $1 AND a.occurrence_id = $2
+      AND a.source_repository = $3 AND a.source_user_id = $4
+      AND i.person_id = $5 AND i.source_digest = $6`,
     values,
   );
 
-  if (!existing.rowCount) return yield* new PersonCohortFailure({ code: "SourceIdentityConflict" });
+  if (!existing.length) return yield* new PersonCohortFailure({ code: "SourceIdentityConflict" });
 });
 
-/** Person/profile writes and source evidence share the caller transaction when supplied. */
+/**
+ * Writes Person/profile facts, occurrence dispositions, and source evidence atomically.
+ * A standalone report follows commit; a nested report remains pending until the caller commits.
+ * The same native client owns the transaction/savepoint and releases its lock on every exit.
+ * No credentials, notifications, or external effects are created.
+ */
 export const importPersonCohort = Effect.fn("importPersonCohort")(function* (
-  pool: Pool,
+  sql: SqlClient.SqlClient,
   input: typeof PersonCohortSnapshot.Encoded,
-  client?: PoolClient,
 ) {
   const snapshot = yield* Effect.try({
     try: () => decodePersonCohort(input),
@@ -258,18 +297,10 @@ export const importPersonCohort = Effect.fn("importPersonCohort")(function* (
   const snapshotKey = digest([snapshot.sourceRepository, snapshot.snapshotId]);
   const snapshotDigest = digest(snapshot);
 
-  const decoded = snapshot.occurrences.map((occurrence) => {
-    try {
-      return {
-        ...occurrence,
-        value: Schema.decodeUnknownSync(LegacyPersonRow)(occurrence.row, {
-          onExcessProperty: "error",
-        }),
-      };
-    } catch {
-      return { ...occurrence, value: undefined };
-    }
-  });
+  const decoded = snapshot.occurrences.map((occurrence) => ({
+    ...occurrence,
+    value: Option.getOrUndefined(decodeLegacyPersonRow(occurrence.row)),
+  }));
 
   const mappingsBySource = new Map<string, PersonMapping[]>();
   const mappingTargetCounts = new Map<string, number>();
@@ -290,20 +321,18 @@ export const importPersonCohort = Effect.fn("importPersonCohort")(function* (
     increment(emailCounts, occurrence.value?.email.toLowerCase());
   }
 
-  const importInTransaction = Effect.fnUntraced(function* (tx: PoolClient) {
-    yield* pgQuery(
-      tx,
-      "SELECT pg_advisory_xact_lock(hashtextextended('native-person-cohort-import', 0))",
-    );
+  const importInTransaction = Effect.fnUntraced(function* (tx: SqlClient.SqlClient) {
+    yield* lockAdvisory(tx, AdvisoryLockKey.reviewedPersonImport);
 
-    const prior = yield* pgQuery<{ snapshot_digest: string }>(
-      tx,
-      `SELECT snapshot_digest FROM public.person_cohort_snapshots WHERE snapshot_key = $1`,
-      [snapshotKey],
-    );
+    const prior = yield* tx
+      .unsafe<{ snapshot_digest: string }>(
+        `SELECT snapshot_digest FROM public.person_cohort_snapshots WHERE snapshot_key = $1`,
+        [snapshotKey],
+      )
+      .pipe(Effect.flatMap(decodeSnapshotRows));
 
-    if (prior.rows[0]) {
-      if (prior.rows[0].snapshot_digest !== snapshotDigest)
+    if (prior[0]) {
+      if (prior[0].snapshot_digest !== snapshotDigest)
         return yield* new PersonCohortFailure({ code: "SnapshotConflict" });
       const result = yield* cohortReport(tx, snapshotKey, true);
 
@@ -335,30 +364,26 @@ export const importPersonCohort = Effect.fn("importPersonCohort")(function* (
       return result;
     }
 
-    const acceptedImports = yield* pgQuery<{ source_user_id: string; source_digest: string }>(
-      tx,
-      `SELECT source_user_id, source_digest
-         FROM public.person_cohort_imports
-        WHERE source_repository = $1`,
-      [snapshot.sourceRepository],
-    );
+    const acceptedImports = yield* tx
+      .unsafe<{ source_user_id: string; source_digest: string }>(
+        `SELECT source_user_id, source_digest
+       FROM public.person_cohort_imports
+      WHERE source_repository = $1`,
+        [snapshot.sourceRepository],
+      )
+      .pipe(Effect.flatMap(decodeImportRows));
 
     const importedDigests = new Map(
-      acceptedImports.rows.map(({ source_user_id, source_digest }) => [
-        source_user_id,
-        source_digest,
-      ]),
+      acceptedImports.map(({ source_user_id, source_digest }) => [source_user_id, source_digest]),
     );
 
-    const acceptedTargets = yield* pgQuery<{ person_id: string }>(
-      tx,
-      `SELECT person_id
-         FROM public.person_cohort_imports
-        WHERE person_id = ANY($1::text[])`,
-      [snapshot.mappings.map(({ personId }) => personId)],
-    );
+    const acceptedTargets = yield* tx`SELECT person_id FROM public.person_cohort_imports
+        WHERE ${tx.in(
+          "person_id",
+          snapshot.mappings.map(({ personId }) => personId),
+        )}`.pipe(Effect.flatMap(decodeTargetRows));
 
-    const importedPersonIds = new Set(acceptedTargets.rows.map(({ person_id }) => person_id));
+    const importedPersonIds = new Set(acceptedTargets.map(({ person_id }) => person_id));
 
     for (const occurrence of decoded) {
       const sourceUserId = sourceIdOf(occurrence.row);
@@ -377,12 +402,11 @@ export const importPersonCohort = Effect.fn("importPersonCohort")(function* (
       }
     }
 
-    yield* pgQuery(
-      tx,
+    yield* tx.unsafe(
       `INSERT INTO public.person_cohort_snapshots
-         (snapshot_key, source_repository, snapshot_id, source_revision,
-          transformation_revision, snapshot_digest, occurrence_count)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+       (snapshot_key, source_repository, snapshot_id, source_revision,
+        transformation_revision, snapshot_digest, occurrence_count)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
       [
         snapshotKey,
         snapshot.sourceRepository,
@@ -416,36 +440,31 @@ export const importPersonCohort = Effect.fn("importPersonCohort")(function* (
         if (importedDigests.get(row.sourceUserId) === sourceDigest) reason = "ExactReplay";
         else if (importedPersonIds.has(mapping!.personId)) reason = "TargetConflict";
         else if (Predicate.isTagged(mapping!, "CreatePerson")) {
-          const target = yield* pgQuery(
-            tx,
+          const target = yield* tx.unsafe(
             `SELECT 1 FROM public.person_profiles WHERE person_id = $1 FOR SHARE`,
             [mapping!.personId],
           );
 
-          if (target.rowCount) reason = "TargetConflict";
+          if (target.length) reason = "TargetConflict";
           else {
-            const emailOwner = yield* pgQuery(
-              tx,
+            const emailOwner = yield* tx.unsafe(
               `SELECT 1 FROM public.person_contact_profiles WHERE lower(email) = $1 FOR SHARE`,
               [row.email.toLowerCase()],
             );
 
-            reason = emailOwner.rowCount ? "EmailConflict" : "CreatedPerson";
+            reason = emailOwner.length ? "EmailConflict" : "CreatedPerson";
           }
         } else {
-          const existing = (yield* pgQuery<{
-            name_revision: number;
-            contact_revision: number;
-            email: string;
-          }>(
-            tx,
-            `SELECT p.revision AS name_revision, c.revision AS contact_revision, c.email
-                 FROM public.person_profiles p
-                 JOIN public.person_contact_profiles c USING (person_id)
-                WHERE p.person_id = $1
-                FOR SHARE OF p, c`,
-            [mapping!.personId],
-          )).rows[0];
+          const existing = (yield* tx
+            .unsafe(
+              `SELECT p.revision AS name_revision, c.revision AS contact_revision, c.email
+               FROM public.person_profiles p
+               JOIN public.person_contact_profiles c USING (person_id)
+              WHERE p.person_id = $1
+              FOR SHARE OF p, c`,
+              [mapping!.personId],
+            )
+            .pipe(Effect.flatMap(decodeExistingRows)))[0];
 
           if (!existing) reason = "PersonMissing";
           else if (
@@ -460,11 +479,10 @@ export const importPersonCohort = Effect.fn("importPersonCohort")(function* (
       }
 
       const accepted = ["CreatedPerson", "LinkedExistingPerson", "ExactReplay"].includes(reason);
-      yield* pgQuery(
-        tx,
+      yield* tx.unsafe(
         `INSERT INTO public.person_cohort_occurrences
-           (snapshot_key, occurrence_id, disposition, reason)
-         VALUES ($1, $2, $3, $4)`,
+         (snapshot_key, occurrence_id, disposition, reason)
+       VALUES ($1, $2, $3, $4)`,
         [snapshotKey, occurrence.occurrenceId, accepted ? "Accepted" : "Quarantined", reason],
       );
 
@@ -475,26 +493,23 @@ export const importPersonCohort = Effect.fn("importPersonCohort")(function* (
         sourceDigest
       ) {
         if (reason === "CreatedPerson") {
-          yield* pgQuery(
-            tx,
+          yield* tx.unsafe(
             `INSERT INTO public.person_profiles (person_id, first_name, last_name)
-             VALUES ($1, $2, $3)`,
+           VALUES ($1, $2, $3)`,
             [mapping.personId, row.firstName, row.lastName],
           );
-          yield* pgQuery(
-            tx,
+          yield* tx.unsafe(
             `INSERT INTO public.person_contact_profiles (person_id, email, phone)
-             VALUES ($1, $2, $3)`,
+           VALUES ($1, $2, $3)`,
             [mapping.personId, row.email.toLowerCase(), row.phone],
           );
         }
 
-        yield* pgQuery(
-          tx,
+        yield* tx.unsafe(
           `INSERT INTO public.person_cohort_imports
-             (source_repository, source_user_id, person_id, mapping_action, source_digest,
-              evidence_ref, snapshot_key, occurrence_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+           (source_repository, source_user_id, person_id, mapping_action, source_digest,
+            evidence_ref, snapshot_key, occurrence_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
           [
             snapshot.sourceRepository,
             row.sourceUserId,
@@ -527,10 +542,8 @@ export const importPersonCohort = Effect.fn("importPersonCohort")(function* (
     return result;
   });
 
-  return yield* (
-    client === undefined ? pgTransaction(pool, importInTransaction) : importInTransaction(client)
-  ).pipe(
-    Effect.catchTag("PgQueryError", () =>
+  return yield* withTypedTransactionFailures(sql.withTransaction)(importInTransaction(sql)).pipe(
+    Effect.catchTag(["SqlError", "SchemaError"], () =>
       Effect.fail(new PersonCohortFailure({ code: "PersistenceFailure" })),
     ),
   );

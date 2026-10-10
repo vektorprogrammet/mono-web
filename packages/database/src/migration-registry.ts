@@ -13,7 +13,7 @@
  * migration is immutable, so a digest that differs from its entry is a finding that `write` does
  * not repair. `write` only appends the registered migrations that have no entry.
  */
-import { createHash } from "node:crypto";
+import { sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import { Effect, FileSystem, Path, Schema } from "effect";
 
 export interface RegisteredMigration {
@@ -163,7 +163,7 @@ export const digestMigrations = Effect.fn("digestMigrations")(function* (
     ({ id, url }) =>
       path.fromFileUrl(url).pipe(
         Effect.flatMap((file) => fs.readFile(file)),
-        Effect.map((bytes) => [id, createHash("sha256").update(bytes).digest("hex")] as const),
+        Effect.map((bytes) => [id, sha256Hex(bytes)] as const),
       ),
     { concurrency: "unbounded" },
   );

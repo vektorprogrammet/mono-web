@@ -1,11 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { Schema } from "effect";
+import { Result, Schema } from "effect";
 import {
   AdmissionOutcome,
   AdmissionOutcomeCommand,
   admissionOutcomePermission,
   canAnnounceAdmissionOutcome,
-  effectiveAdmissionOutcome,
 } from "./outcome.js";
 import { OrganizationPersonAuthoritySchema } from "../organization/authority.js";
 import { DelegationArea } from "../authz/delegation.js";
@@ -51,15 +50,17 @@ const authorityOf = (
     readonly delegations?: ReadonlyArray<unknown>;
   } = {},
 ) =>
-  Schema.decodeUnknownSync(OrganizationPersonAuthoritySchema)({
-    personId: PersonId.make("person"),
-    evaluatedAt,
-    globalAdministrator: "Absent",
-    memberships: [],
-    nationalBoardSeats: [],
-    delegations: [],
-    ...parts,
-  });
+  Result.getOrThrow(
+    Schema.decodeUnknownResult(OrganizationPersonAuthoritySchema)({
+      personId: PersonId.make("person"),
+      evaluatedAt,
+      globalAdministrator: "Absent",
+      memberships: [],
+      nationalBoardSeats: [],
+      delegations: [],
+      ...parts,
+    }),
+  );
 
 const delegation = (capability: DelegatedCapability, overrides: DelegationOverrides = {}) => ({
   delegationId: `delegation-${"c".repeat(64)}`,
@@ -90,18 +91,6 @@ describe("admission outcome values", () => {
     expect(Schema.is(AdmissionOutcome)("Rejected")).toBe(true);
     expect(Schema.is(AdmissionOutcome)("Substitute")).toBe(false);
     expect(Schema.is(AdmissionOutcomeCommand)({ outcome: "Substitute" })).toBe(false);
-  });
-
-  it("derives Ja and Nei from the interview and takes Rekruttering's decision for the rest", () => {
-    // A recorded revision never overrides what the interview derived.
-    expect(effectiveAdmissionOutcome("Ja", null)).toBe("Admitted");
-    expect(effectiveAdmissionOutcome("Ja", "Rejected")).toBe("Admitted");
-    expect(effectiveAdmissionOutcome("Nei", null)).toBe("Rejected");
-    expect(effectiveAdmissionOutcome("Nei", "Admitted")).toBe("Rejected");
-    expect(effectiveAdmissionOutcome("Kanskje", null)).toBeNull();
-    expect(effectiveAdmissionOutcome("Kanskje", "Rejected")).toBe("Rejected");
-    expect(effectiveAdmissionOutcome("Returning", "Admitted")).toBe("Admitted");
-    expect(effectiveAdmissionOutcome("Unreviewed", null)).toBeNull();
   });
 });
 

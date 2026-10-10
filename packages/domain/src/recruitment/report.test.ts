@@ -1,6 +1,6 @@
 import { PersonId, DepartmentId } from "../organization/schema.js";
 import { describe, expect, it } from "vitest";
-import { Schema } from "effect";
+import { Result, Schema } from "effect";
 import {
   InterviewReportQuery,
   InterviewReportRow,
@@ -13,17 +13,19 @@ const row = (
   recommendation: "Ja" | "Kanskje" | "Nei" | null,
   scores: [number, number, number],
 ) =>
-  Schema.decodeSync(InterviewReportRow)({
-    interviewId: id,
-    firstName: "Sofie",
-    lastName: "Søker",
-    completedAt: "2031-09-15T12:00:00.000Z",
-    recommendation,
-    participation: "Unknown",
-    explanatoryPower: scores[0],
-    roleModel: scores[1],
-    suitability: scores[2],
-  });
+  Result.getOrThrow(
+    Schema.decodeResult(InterviewReportRow)({
+      interviewId: id,
+      firstName: "Sofie",
+      lastName: "Søker",
+      completedAt: "2031-09-15T12:00:00.000Z",
+      recommendation,
+      participation: "Unknown",
+      explanatoryPower: scores[0],
+      roleModel: scores[1],
+      suitability: scores[2],
+    }),
+  );
 
 describe("completed interview report derivation", () => {
   it("keeps unrecorded historical recommendations separate and counts only selected rows", () => {
@@ -60,8 +62,10 @@ describe("completed interview report derivation", () => {
       { previousParticipation: false },
       { personId: PersonId.make("reader") },
     ])
-      expect(() =>
-        Schema.decodeUnknownSync(InterviewReportQuery)(extra, { onExcessProperty: "error" }),
-      ).toThrow();
+      expect(
+        Result.isFailure(
+          Schema.decodeUnknownResult(InterviewReportQuery, { onExcessProperty: "error" })(extra),
+        ),
+      ).toBe(true);
   });
 });

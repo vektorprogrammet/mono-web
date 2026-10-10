@@ -8,18 +8,20 @@ import {
   transitionAppointment,
 } from "./lifecycle.js";
 
-const current = Schema.decodeSync(Appointment)({
-  appointmentId: "appointment-1",
-  personId: PersonId.make("person-1"),
-  target: { kind: "Team", id: "team-1" },
-  position: "Leder",
-  leadership: true,
-  startAt: "2026-08-01T00:00:00Z",
-  endAt: null,
-  suspended: false,
-  revision: 3,
-  state: "Current",
-});
+const current = Result.getOrThrow(
+  Schema.decodeResult(Appointment)({
+    appointmentId: "appointment-1",
+    personId: PersonId.make("person-1"),
+    target: { kind: "Team", id: "team-1" },
+    position: "Leder",
+    leadership: true,
+    startAt: "2026-08-01T00:00:00Z",
+    endAt: null,
+    suspended: false,
+    revision: 3,
+    state: "Current",
+  }),
+);
 
 const now = "2026-09-24T11:00:00Z";
 
@@ -154,7 +156,7 @@ it("can clear an operational title and appoints the national board's leader", ()
 });
 
 it("rejects a blank audit reason before a lifecycle command can execute", () => {
-  const decode = Schema.decodeUnknownSync(OrganizationLifecycleCommand);
+  const decode = Schema.decodeUnknownResult(OrganizationLifecycleCommand);
 
   const command = OrganizationLifecycleCommand.cases.CreateNationalBoard.make({
     commandId: "board-command",
@@ -162,5 +164,5 @@ it("rejects a blank audit reason before a lifecycle command can execute", () => 
     reason: "Appoint national board",
   });
 
-  expect(() => decode({ ...command, reason: " " })).toThrow();
+  expect(Result.isFailure(decode({ ...command, reason: " " }))).toBe(true);
 });

@@ -1,4 +1,8 @@
-import { HttpClientError } from "effect/unstable/http";
+/**
+ * EX-0026: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+import { HttpClientError } from "effect/http";
 import type { PublicApplicationCatalog } from "./api-types";
 import { isProblem, problemBody, validationProblemSchema, type ValidationProblem, IdempotencyKey, SubmitApplicationRequest } from "@vektorprogrammet/http-api";
 import { Data, Match, Option, Predicate, Schema } from "effect";
@@ -95,43 +99,43 @@ const PublicApplicationErrorView = Data.taggedEnum<PublicApplicationErrorView>()
 
 export type PublicApplicationLoaderData =
   | {
-      readonly ok: true;
-      readonly catalog: PublicApplicationCatalog;
-    }
+    readonly ok: true;
+    readonly catalog: PublicApplicationCatalog;
+  }
   | {
-      readonly ok: false;
-      readonly error: PublicApplicationErrorView;
-    };
+    readonly ok: false;
+    readonly error: PublicApplicationErrorView;
+  };
 
 export type PublicApplicationActionData =
   | {
-      readonly success: true;
-      readonly confirmation: {
-        readonly _tag: "ApplicationConfirmed";
-        readonly applicationId: string;
-      };
-    }
-  | {
-      readonly success: false;
-      readonly failure: {
-        readonly commandId: string;
-        readonly error: PublicApplicationErrorView;
-      };
+    readonly success: true;
+    readonly confirmation: {
+      readonly _tag: "ApplicationConfirmed";
+      readonly applicationId: string;
     };
-
-export type ParsedPublicApplicationForm =
+  }
   | {
-      readonly ok: true;
-      readonly value: {
-        readonly commandId: IdempotencyKey;
-        readonly payload: SubmitApplicationRequest;
-      };
-    }
-  | {
-      readonly ok: false;
+    readonly success: false;
+    readonly failure: {
       readonly commandId: string;
       readonly error: PublicApplicationErrorView;
     };
+  };
+
+export type ParsedPublicApplicationForm =
+  | {
+    readonly ok: true;
+    readonly value: {
+      readonly commandId: IdempotencyKey;
+      readonly payload: SubmitApplicationRequest;
+    };
+  }
+  | {
+    readonly ok: false;
+    readonly commandId: string;
+    readonly error: PublicApplicationErrorView;
+  };
 
 /**
  * Reads the members that the form renders, each once and as text. A radio group or a checkbox
@@ -236,9 +240,11 @@ export function parsePublicApplicationForm(formData: FormData): ParsedPublicAppl
     return {
       ok: false,
       commandId,
-      error: PublicApplicationErrorView.ApplicationFormInvalid({message: "Kontroller at alle obligatoriske felt er riktig utfylt.",
-fieldErrors: requiredFieldErrors(record),
-resetCommandId: commandId === ""}),
+      error: PublicApplicationErrorView.ApplicationFormInvalid({
+        message: "Kontroller at alle obligatoriske felt er riktig utfylt.",
+        fieldErrors: requiredFieldErrors(record),
+        resetCommandId: commandId === ""
+      }),
     };
   }
 }

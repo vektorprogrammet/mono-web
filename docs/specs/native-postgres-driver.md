@@ -18,7 +18,7 @@ Move `packages/database` from `@effect/sql-pg` 4.0.0-rc.112, which wraps the `pg
   rc.114 sets the TLS SNI hostname by default for non-IP hosts. See the tagged CHANGELOG and `PgTypes.ts:1240-1320` at `effect@4.0.0-rc.116`.
 - Better Auth and the Effect `Database` share one `pg.Pool` object, but they never share a transaction or a connection. `pgTransaction` is a client-scoped `BEGIN`/`COMMIT`; Better Auth's adapter calls and its hooks run outside any Effect transaction; transactional native commands read Better Auth's tables through Effect SQL (`authority.ts:121-160,270-355`). This comes from a code-path audit, not runtime tracing.
 - No Effect v4 `@effect/sql-kysely` exists: 0.48.0 peers on Effect 3. Better Auth's PostgreSQL support is Kysely over a `pg.Pool` or `PostgresDialect`.
-- Codec census: no uncast `int8` reads, no `bytea` reads, and no object-valued raw parameters were found. The 5 `Date` session fields match the new timestamp codec. Two seams run multi-statement SQL through `sql.unsafe`: migration execution (`layers.ts:73-74`) and the receipt file proof (`receipt/file-proof.ts:300-301`). Some test fixtures do too.
+- Codec census amendment, 2026-10-09: the earlier claim of no uncast `int8` reads was incomplete. The stable native client decodes `int8` to JavaScript `bigint`. The source audit found two breaking decoder sites: the news department-link `article_id` and the legacy receipt rehearsal `file_byte_length`. Both now select text and decode through their domain-bounded numeric schemas. Range-unsafe int4 casts on article ids and receipt byte lengths were also removed. Timestamp, date, time and array compatibility is checked by the native codec/PGlite parity tests; real PostgreSQL17/18 acceptance remains required. Migration source statement boundaries use the maintained parser and the caller-owned native transaction, not multi-statement `sql.unsafe`.
 - The native client supports `prepare: false`. PgBouncer 1.21+ supports named prepared statements in transaction mode only when `max_prepared_statements` is nonzero.
 
 ## Decision
@@ -35,7 +35,7 @@ A Kysely dialect over the native client and a custom Better Auth adapter are bot
 - Each pool is a scoped Layer that closes only its own pool. No module outside `packages/database` touches a `pg.Pool`, and `pgQuery`/`pgTransaction`/`pgWithClient` exist only for Better Auth's hooks, or are removed.
 - Migration execution splits each migration file into statements with a parser that respects dollar quoting, comments, and string literals, and runs them in one transaction; or it uses the native client's documented multi-statement path if one exists. `just migration-hashes` and the upgrade proofs stay green.
 - Named prepared statements are disabled (`prepare: false`) unless the deployment's PgBouncer sets `max_prepared_statements`. The choice is one configuration key, tested both ways.
-- `auth` schema startup, TLS, and server-side `search_path` behave as today on both pools.
+- Search-path amendment, 2026-10-09: every native and Better Auth pool requires caller-supplied `startupOptions`; neither `DatabaseLive`, `DatabaseRuntimeLive`, `nativePgLayer` nor `AuthPoolLive` supplies a `search_path` fallback. Production native database hosts declare `search_path=public`; supported Better Auth hosts declare `search_path=auth`. Historical schema-move proofs may explicitly declare `auth,public` to reproduce their earlier layout. Other startup settings (such as TimeZone) stay explicit in the same options. The shadowing regression builds both native database layers with the declared policy and proves an unqualified production table resolves to public even when auth contains a same-named table; the SQL lead also inventories auth/public catalog collisions. TLS and schema ownership remain unchanged.
 - Codecs are declared, not left to defaults (sql-pg CHANGELOG rc.113 #7426, rc.116 #8240 and #8241):
   - Every PostgreSQL enum or domain type that a query reads is registered through `PgTypes.register`, or cast to text in SQL. Unregistered OIDs now decode as UTF-8 text, and binary UDTs or enum arrays can garble a value or close the connection.
   - `Date` parameters now bind as `timestamptz`. Every write to a `timestamp without time zone` column is listed and either casts explicitly or pins the session `TimeZone`, so a write can't shift with the server's zone.
@@ -54,3 +54,42 @@ A Kysely dialect over the native client and a custom Better Auth adapter are bot
 ## Order
 
 After the review fixes that touch `packages/database` land. They change `pg-pool.ts` callers: OAuthFix, OrganizationFix, AdmissionsCoreFix, EconomyFix, DeliveryFix, ContentTeamsFix.
+
+## Stable release and local Worker amendment (2026-10-09)
+
+The approved target is Effect and SQL 4.0.0. No release-candidate adapter remains.
+The two-pool decision stays in force. No custom Better Auth adapter or Kysely driver replaces the supported adapter.
+
+Each host supplies separate native and auth connection limits:
+
+| Owner                       | Native Database | Better Auth | Total |
+| --------------------------- | --------------- | ----------- | ----- |
+| Bun backend process         | 8               | 4           | 12    |
+| Local Worker fetch          | 2               | 2           | 4     |
+| Local Worker delivery event | 2               | none        | 2     |
+
+An overlapping fetch and its delivery event can use six application connections. Concurrent invocations add their limits.
+This local amendment grants no cloud configuration or deployment authority.
+
+The request signal and response body own the fetch graph. Each tail or Cron event owns a separate graph.
+No event captures the request pool, runtime, memo map, or signal. A delivery-only graph acquires no auth pool.
+
+Worker acquisition retains its existing absolute deadlines and server preflight.
+The server must enforce `statement_timeout` of at most 1s and `idle_in_transaction_session_timeout` of at most 2s.
+The Worker runs no migrations, session `SET`, or startup GUC commands.
+Transaction-local commands remain inside the native transaction. Isolation configuration precedes every other transaction statement.
+
+The old RC pool evidence does not prove stable-driver cleanup. The existing bounded-cleanup acceptance remains a requirement.
+A real saturated-pool test must observe interrupted transaction acquisition with no late query or write.
+A real transport test must observe physical socket closure, separately from scope completion and the remote transaction outcome.
+If the native driver fails either requirement, a minimal native source repair needs approval and a real afterproof.
+No timeout fallback, private transaction service, fabricated close receipt, or weaker deadline replaces that requirement.
+
+The native driver accepts one extended-protocol statement, including with `prepare: false`.
+The migration boundary uses the maintained PostgreSQL parser and original UTF-8 source offsets.
+Its tests cover dollar quoting, nested comments, string literals, Unicode, and rollback after a later statement fails.
+The migration ledger and applied migration checksums remain unchanged.
+
+Native JSON binds the value once. Empty arrays and affected-row predicates retain their existing meaning.
+Domain callers use native Database transactions. Only the supported Better Auth boundary retains raw `pg` access.
+Provider work starts after the claim transaction releases its connection. Settlement uses a new fenced transaction.

@@ -1,3 +1,7 @@
+/**
+ * EX-0022: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 /** Public request and response schemas frozen by 0080.1. */
 import { AdmissionPeriod, Rfc3339InstantSchema } from "@vektorprogrammet/domain/admission-period";
 import {
@@ -36,8 +40,8 @@ import {
   isIsoDate,
 } from "@vektorprogrammet/domain/receipt";
 import { Schema } from "effect";
-import { Multipart } from "effect/unstable/http";
-import { HttpApiSchema } from "effect/unstable/httpapi";
+import { Multipart } from "effect/http";
+import { HttpApiSchema } from "effect/http-api";
 import { StrongETag } from "./http-semantics.js";
 
 const receiptDescriptionPart = Schema.String.pipe(

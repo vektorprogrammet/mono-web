@@ -1,4 +1,4 @@
-import { Result, Array, Predicate, Context, Data, Effect, Schema } from "effect";
+import { Result, Array, Predicate, Context, Data, Effect, Schema, flow } from "effect";
 import { DepartmentId, PersonId } from "../organization/schema.js";
 import {
   ReceiptId,
@@ -184,11 +184,11 @@ export class ServicePrincipalGrantAuthority extends Context.Service<
   ServicePrincipalGrantAuthorityOperations
 >()("@vektorprogrammet/domain/ServicePrincipalGrantAuthority") {}
 
-export const makeServicePrincipalReceiptGrant = Schema.decodeUnknownSync(
-  ServicePrincipalReceiptGrantSchema,
-  {
+export const makeServicePrincipalReceiptGrant = flow(
+  Schema.decodeUnknownResult(ServicePrincipalReceiptGrantSchema, {
     onExcessProperty: "error",
-  },
+  }),
+  Result.getOrThrow,
 );
 
 export const composeServicePrincipalReceiptRuleRequirements = (

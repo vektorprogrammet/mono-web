@@ -1,4 +1,7 @@
-import { Predicate, Effect, Schema } from "effect";
+import { DateTime, Predicate, Effect, Schema } from "effect";
+import type { Instant } from "../time.js";
+import { AssessmentCorrection } from "./schema.js";
+import type { PersonId } from "../organization/schema.js";
 import { isRfc3339Instant } from "../time.js";
 import {
   RecruitmentConductValidationError,
@@ -64,13 +67,15 @@ const invalid = (state: RecruitmentConductState, message: string) =>
 const checkActor = (
   state: RecruitmentConductState,
   actor: RecruitmentConductActor,
+  allowCoInterviewer = false,
 ): Effect.Effect<void, ConductFailure> => {
   if (!actor.active || !actor.membershipActive || !actor.teamActive || !actor.departmentActive) {
     return Effect.fail(new RecruitmentInactiveActor({ personId: actor.personId }));
   }
 
   if (
-    actor.personId !== state.interview.interviewerPersonId ||
+    (actor.personId !== state.interview.interviewerPersonId &&
+      (!allowCoInterviewer || actor.personId !== state.interview.coInterviewerPersonId)) ||
     actor.departmentId !== state.interview.departmentId
   ) {
     return Effect.fail(
@@ -88,6 +93,7 @@ const checkBase = (
   state: RecruitmentConductState,
   actor: RecruitmentConductActor,
   expectedRevision: number,
+  allowCoInterviewer = false,
 ): Effect.Effect<void, ConductFailure> => {
   if (state.schedule === null) {
     return Effect.fail(
@@ -105,7 +111,7 @@ const checkBase = (
     );
   }
 
-  return checkActor(state, actor);
+  return checkActor(state, actor, allowCoInterviewer);
 };
 
 const validateQuestions = (state: RecruitmentConductState): string | undefined => {
@@ -366,7 +372,7 @@ export const correctInterviewAssessment = (
 ): Effect.Effect<CorrectionTransition, ConductFailure> =>
   Effect.gen(function* () {
     if (!isRfc3339Instant(now)) return yield* invalid(state, "invalid correction instant");
-    yield* checkBase(state, actor, command.expectedRevision);
+    yield* checkBase(state, actor, command.expectedRevision, true);
 
     if (state.cancellation !== null)
       return yield* new RecruitmentInterviewAlreadyCancelled({
@@ -428,6 +434,75 @@ export const correctInterviewAssessment = (
 
     return { observation, correction, state: { ...state, revision: resultingRevision } };
   });
+
+/** One pure rule owns both the write gate and the server observation. */
+export const assessmentCorrection = (
+  evidence: {
+    readonly decisionClosed: boolean;
+    readonly completed: boolean;
+    readonly cancelled: boolean;
+    readonly semesterEndsAt: Instant;
+    readonly sequence: number;
+    readonly window: {
+      readonly openedBy: PersonId;
+      readonly openedAt: Instant;
+      readonly endsAt: Instant;
+      readonly closedAt: Instant | null;
+    } | null;
+  },
+  actor: {
+    readonly personId: PersonId;
+    readonly participant: boolean;
+    readonly canMaintain: boolean;
+  },
+  at: Instant,
+): AssessmentCorrection => {
+  const now = DateTime.toEpochMillis(at);
+
+  const eligible =
+    evidence.completed &&
+    !evidence.cancelled &&
+    now < DateTime.toEpochMillis(evidence.semesterEndsAt);
+
+  const sequence = evidence.sequence;
+
+  if (!evidence.decisionClosed)
+    return AssessmentCorrection.cases.Ordinary.make({
+      sequence,
+      canCorrect: eligible && actor.participant,
+      canReopen: false,
+      canClose: false,
+    });
+
+  const window = evidence.window;
+
+  if (window === null || window.closedAt !== null)
+    return AssessmentCorrection.cases.Closed.make({
+      sequence,
+      canCorrect: false,
+      canReopen: eligible && actor.canMaintain,
+      canClose: false,
+    });
+
+  const common = { sequence, openedBy: window.openedBy, endsAt: window.endsAt };
+
+  if (now >= DateTime.toEpochMillis(window.endsAt))
+    return AssessmentCorrection.cases.Expired.make({
+      ...common,
+      canCorrect: false,
+      canReopen: eligible && actor.canMaintain,
+      canClose: false,
+    });
+
+  const open = eligible && DateTime.toEpochMillis(window.openedAt) <= now;
+
+  return AssessmentCorrection.cases.Open.make({
+    ...common,
+    canCorrect: open && actor.participant && actor.personId !== window.openedBy,
+    canReopen: false,
+    canClose: open && actor.canMaintain,
+  });
+};
 
 export const recruitmentInterviewAnswerIsValid = (
   value: unknown,

@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { Instant } from "../time.js";
 import { DepartmentId, PersonId } from "../organization/schema.js";
 import {
   InterviewSchema,
@@ -7,6 +8,7 @@ import {
   RecruitmentInterviewQuestionSourceSchema,
   RecruitmentInterviewerOptionSchema,
   RecruitmentInstantSchema,
+  AssessmentCorrection,
 } from "./schema.js";
 
 const CommandId = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_-]{22,128}$/u));
@@ -27,6 +29,17 @@ const definition = {
 const common = { commandId: CommandId, reason: Reason };
 
 export const RecruitmentMaintenanceCommand = Schema.TaggedUnion({
+  ReopenAssessmentCorrection: {
+    ...common,
+    interviewId: RecruitmentInterviewId,
+    expectedSequence: Revision,
+    endsAt: Instant,
+  },
+  CloseAssessmentCorrection: {
+    ...common,
+    interviewId: RecruitmentInterviewId,
+    expectedSequence: Revision,
+  },
   CreateQuestionnaire: { ...common, ...definition },
   ReviseQuestionnaire: {
     ...common,
@@ -46,6 +59,8 @@ export const RecruitmentMaintenanceCommand = Schema.TaggedUnion({
 export type RecruitmentMaintenanceCommand = typeof RecruitmentMaintenanceCommand.Type;
 
 export const RecruitmentMaintenanceResult = Schema.TaggedUnion({
+  AssessmentCorrectionReopened: { interviewId: RecruitmentInterviewId, sequence: Revision },
+  AssessmentCorrectionClosed: { interviewId: RecruitmentInterviewId, sequence: Revision },
   QuestionnaireSaved: { interviewSchemaId: InterviewSchemaId, revision: Revision },
   InterviewStaffingChanged: { interviewId: RecruitmentInterviewId, revision: Revision },
 });
@@ -84,7 +99,7 @@ export const QuestionnaireManagement = Schema.Struct({
 
 export type QuestionnaireManagement = typeof QuestionnaireManagement.Type;
 
-export const InterviewStaffing = Schema.Struct({
+export const InterviewStaffingSnapshot = Schema.Struct({
   interviewId: RecruitmentInterviewId,
   departmentId: DepartmentId,
   applicantName: Schema.String,
@@ -94,13 +109,18 @@ export const InterviewStaffing = Schema.Struct({
   terminal: Schema.Boolean,
 });
 
+export const InterviewStaffing = Schema.Struct({
+  ...InterviewStaffingSnapshot.fields,
+  assessmentCorrection: AssessmentCorrection,
+});
+
 export type InterviewStaffing = typeof InterviewStaffing.Type;
 
 export const InterviewStaffingHistory = Schema.Struct({
   ...history,
   interviewId: RecruitmentInterviewId,
-  before: InterviewStaffing,
-  after: InterviewStaffing,
+  before: InterviewStaffingSnapshot,
+  after: InterviewStaffingSnapshot,
 });
 
 export const InterviewStaffingManagement = Schema.Struct({

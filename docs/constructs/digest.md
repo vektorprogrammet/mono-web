@@ -4,6 +4,37 @@
 
 Canonical JSON and SHA-256 digests that evidence and idempotency identities hash. The [index](../constructs.md) lists every category.
 
+## `SecretEqualityLive`
+
+Supplies constant-time comparison of raw secrets under one process-owned HMAC key.
+
+```ts
+SecretEqualityLive(subtle: WebCryptoSubtle): Layer.Layer<SecretEquality, never, Crypto.Crypto>
+```
+
+- Inputs: `subtle: WebCryptoSubtle`
+- Output: `Layer.Layer<SecretEquality, never, Crypto.Crypto>`
+- Errors: none
+- Requirements: `Crypto.Crypto`
+- Side effects: Draws random bytes and imports a WebCrypto key at layer construction; each comparison signs and verifies through the injected provider. Provider failures are defects.
+- Source: [packages/database/src/web-crypto.ts:95](../../packages/database/src/web-crypto.ts#L95)
+
+**How it works**
+
+Draws a random 256-bit key from Crypto, imports it as non-extractable, and
+zeroes temporary bytes on success, failure, and interruption. The key never leaves the layer.
+Signing the expected value and verifying the presented value has no length shortcut.
+
+**Use**
+
+```ts
+SecretEqualityLive(subtle).pipe(Layer.provide(platform));
+```
+
+**Avoid**
+
+Comparing raw secrets with a plain equality, digest equality, or a length shortcut.
+
 ## `canonicalJsonValue`
 
 The plain JSON value of a datum, with sorted object keys and non-finite numbers as `null`.
@@ -18,7 +49,7 @@ canonicalJsonValue<A>(datum: A): Schema.Json
 - Throws: An `Error` whose cause is the schema issue, when the datum holds anything but plain data at any depth: `undefined`, a `DateTime`, a `Date`, a class instance, or bytes. Encode such a value through its owning schema first.
 - Requirements: none
 - Side effects: none
-- Source: [packages/domain/src/shared-kernel/canonical-json.ts:92](../../packages/domain/src/shared-kernel/canonical-json.ts#L92)
+- Source: [packages/domain/src/shared-kernel/canonical-json.ts:95](../../packages/domain/src/shared-kernel/canonical-json.ts#L95)
 
 **How it works**
 
@@ -53,7 +84,7 @@ canonicalJson<A>(datum: A): string
 - Throws: An `Error` whose cause is the schema issue, when the datum is not plain data, as `canonicalJsonValue` throws.
 - Requirements: none
 - Side effects: none
-- Source: [packages/domain/src/shared-kernel/canonical-json.ts:121](../../packages/domain/src/shared-kernel/canonical-json.ts#L121)
+- Source: [packages/domain/src/shared-kernel/canonical-json.ts:124](../../packages/domain/src/shared-kernel/canonical-json.ts#L124)
 
 **How it works**
 
@@ -87,7 +118,7 @@ canonicalJsonBytes<A>(datum: A): Uint8Array<ArrayBuffer>
 - Throws: An `Error` whose cause is the schema issue, when the datum is not plain data, as `canonicalJsonValue` throws.
 - Requirements: none
 - Side effects: none
-- Source: [packages/domain/src/shared-kernel/canonical-json.ts:147](../../packages/domain/src/shared-kernel/canonical-json.ts#L147)
+- Source: [packages/domain/src/shared-kernel/canonical-json.ts:150](../../packages/domain/src/shared-kernel/canonical-json.ts#L150)
 
 **How it works**
 
@@ -118,7 +149,7 @@ sha256Hex(bytes: Uint8Array): string
 - Errors: none
 - Requirements: none
 - Side effects: none
-- Source: [packages/domain/src/shared-kernel/canonical-json.ts:172](../../packages/domain/src/shared-kernel/canonical-json.ts#L172)
+- Source: [packages/domain/src/shared-kernel/canonical-json.ts:175](../../packages/domain/src/shared-kernel/canonical-json.ts#L175)
 
 **How it works**
 

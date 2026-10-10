@@ -24,7 +24,7 @@ deliverJson(
 - Errors: `HttpDeliveryFailure | Cause.TimeoutError`
 - Requirements: `HttpClient.HttpClient`
 - Side effects: One HTTP POST to `config.endpoint`; the timeout waits on the Effect clock.
-- Source: [apps/backend/src/delivery/http.ts:56](../../apps/backend/src/delivery/http.ts#L56)
+- Source: [apps/backend/src/delivery/http.ts:60](../../apps/backend/src/delivery/http.ts#L60)
 
 **How it works**
 

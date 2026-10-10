@@ -1,16 +1,30 @@
+/**
+ * EX-0024: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 /** Operator-only bounded retry of durable receipt work. No business command is issued. */
-import { randomUUID } from "node:crypto";
 import process from "node:process";
 import * as BunServices from "@effect/platform-bun/BunServices";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
+import { NativeDatabaseStartupOptions } from "@vektorprogrammet/database/search-path";
 import { Database, databaseHealth } from "@vektorprogrammet/database";
 import {
   deliverNextReceiptOutbox,
   listStaleReceiptOutboxClaimIds,
   recoverStaleReceiptOutbox,
 } from "@vektorprogrammet/database/receipt/postgres";
-import { Config, DateTime, Predicate, Effect, Layer, Redacted, Schema } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import {
+  Config,
+  Crypto,
+  DateTime,
+  Predicate,
+  Effect,
+  Layer,
+  Redacted,
+  Result,
+  Schema,
+} from "effect";
+import { FetchHttpClient } from "effect/http";
 import { ReceiptId } from "@vektorprogrammet/domain/receipt";
 import { decodeReceiptApiConfig } from "./config.js";
 import { ReceiptFileStoreLive } from "./filesystem.js";
@@ -31,7 +45,7 @@ const receiptId = process.argv[2];
 if (!receiptId || process.argv.length !== 3 || !environment.postgresUrl)
   throw new TypeError("Usage: BACKEND_PG_URL=... bun run src/receipt/drain-main.ts <receipt-id>");
 
-Schema.decodeSync(ReceiptId)(receiptId);
+Result.getOrThrow(Schema.decodeResult(ReceiptId)(receiptId));
 
 if (!environment.stagingRoot || !environment.committedRoot)
   throw new TypeError("Explicit receipt staging and committed roots required");
@@ -43,16 +57,18 @@ if (!config) throw new TypeError("Receipt delivery is not configured");
 const database = DatabaseLive({
   url: Redacted.make(environment.postgresUrl),
   maxConnections: 2,
+  startupOptions: NativeDatabaseStartupOptions,
 }).pipe(Layer.provide(BunServices.layer));
 
 const services = Layer.mergeAll(
   database,
   ReceiptDeliveryLive(config).pipe(Layer.provide(Layer.merge(database, FetchHttpClient.layer))),
   ReceiptFileStoreLive(decodeReceiptApiConfig()).pipe(Layer.provide(BunServices.layer)),
-);
+).pipe(Layer.provideMerge(BunServices.layer));
 
 const result = await Effect.runPromise(
   Effect.gen(function* () {
+    const crypto = yield* Crypto.Crypto;
     yield* databaseHealth;
     const db = yield* Database;
     const exists = yield* db`SELECT 1 FROM economy_receipts WHERE receipt_id = ${receiptId}`;
@@ -67,7 +83,11 @@ const result = await Effect.runPromise(
       Effect.gen(function* () {
         const now = DateTime.formatIso(yield* DateTime.now);
 
-        return yield* deliverNextReceiptOutbox(randomUUID(), now, receiptId);
+        return yield* deliverNextReceiptOutbox(
+          yield* crypto.randomUUIDv4.pipe(Effect.orDie),
+          now,
+          receiptId,
+        );
       }),
     );
 

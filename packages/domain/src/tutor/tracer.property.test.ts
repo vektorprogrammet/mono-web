@@ -1,6 +1,10 @@
+/**
+ * EX-0020: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { expect, it } from "@effect/vitest";
 import { Effect } from "effect";
-import type { CheckOptions } from "effect/unstable/arbitrary/Arbitrary";
+import type { CheckOptions } from "effect/Arbitrary";
 import { FIXTURE_COMMAND, FIXTURE_SEED_EVENTS } from "./fixture.js";
 import { ConductInterviewV1Schema, type ConductInterviewV1 } from "./schema.js";
 import { conductInterview, createTutorState } from "./tracer.js";

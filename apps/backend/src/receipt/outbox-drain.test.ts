@@ -5,9 +5,10 @@ import {
   ReceiptPersistenceError,
   receiptOutboxRequest,
 } from "@vektorprogrammet/domain/receipt";
-import { Effect, Layer } from "effect";
+import { Crypto, Effect, Layer, PlatformError } from "effect";
 import { describe, expect, it } from "@effect/vitest";
 import type { ReceiptApiConfig } from "./config.js";
+import { TestPlatform } from "../test/platform.js";
 import type { ReceiptFileStore } from "./filesystem.js";
 import { drainReceiptOutboxWith, type ReceiptOutboxDrainOperations } from "./outbox-drain.js";
 
@@ -44,8 +45,8 @@ const config: ReceiptApiConfig = {
   committedRoot: "/unused/committed",
   maxFileBytes: 1,
   now: () => "2026-09-25T12:00:00.000Z",
-  nextReceiptId: () => receiptId,
-  nextVisualId: () => "visual-drain",
+  nextReceiptId: Effect.succeed(receiptId),
+  nextVisualId: Effect.succeed("visual-drain"),
 };
 
 const drain = (
@@ -85,6 +86,7 @@ const drain = (
 
   return drainReceiptOutboxWith(economy, { config }, fileStore, receiptId).pipe(
     Effect.provideService(ReceiptAuxiliaryEffects, { apply: () => Effect.void }),
+    Effect.provide(TestPlatform),
     Effect.map((outcome) => ({ outcome, deliveries })),
   );
 };
@@ -139,5 +141,100 @@ describe("receipt request outbox drain", () => {
       expect(result).toEqual({ outcome: "Idle", deliveries: 1 });
       expect(unlisted).toEqual({ outcome: "Idle", deliveries: 1 });
     }),
+  );
+});
+
+const claimDrain = (crypto: Crypto.Crypto) => {
+  const claimIds: Array<string> = [];
+  let calls = 0;
+
+  const economy: ReceiptOutboxDrainOperations = {
+    listStaleOutboxClaims: () =>
+      Effect.sync(() => {
+        calls += 1;
+
+        return Array<string>();
+      }),
+    recoverStaleOutboxClaim: () =>
+      Effect.sync(() => {
+        calls += 1;
+
+        return 0;
+      }),
+    deliverNextOutboxEffect: (claimId) =>
+      Effect.sync(() => {
+        calls += 1;
+        claimIds.push(claimId);
+
+        return ReceiptOutboxDeliveryResult.Idle();
+      }),
+  };
+
+  return drainReceiptOutboxWith(
+    economy,
+    { config, outboxClaimId: "worker-a" },
+    fileStore,
+    receiptId,
+  ).pipe(
+    Effect.provideService(ReceiptAuxiliaryEffects, { apply: () => Effect.void }),
+    Effect.provideService(Crypto.Crypto, crypto),
+    Effect.map((outcome) => ({ outcome, claimIds, calls })),
+  );
+};
+
+const filledCrypto = (nextFill: () => number) =>
+  Crypto.make({
+    randomBytes: (size) => new Uint8Array(size).fill(nextFill()),
+    digest: () => Effect.die("the drain digests nothing"),
+  });
+
+describe("receipt outbox drain claim identity", () => {
+  it.effect("draws each claim identity from the Crypto service that the drain requires", () =>
+    Effect.gen(function* () {
+      let fill = 0;
+      const crypto = filledCrypto(() => (fill += 1));
+
+      expect(yield* claimDrain(crypto)).toEqual({
+        outcome: "Idle",
+        claimIds: ["worker-a-01010101-0101-4101-8101-010101010101"],
+        // One stale-claim listing and one delivery attempt.
+        calls: 2,
+      });
+
+      expect((yield* claimDrain(crypto)).claimIds).toEqual([
+        "worker-a-02020202-0202-4202-8202-020202020202",
+      ]);
+    }),
+  );
+
+  it.effect("claims nothing and reports Failed when the claim identity cannot be drawn", () =>
+    Effect.gen(function* () {
+      const unavailable = {
+        ...filledCrypto(() => 0),
+        randomUUIDv4: Effect.fail(
+          PlatformError.badArgument({
+            module: "Crypto",
+            method: "randomUUIDv4",
+            description: "injected entropy failure",
+          }),
+        ),
+      };
+
+      expect(yield* claimDrain(unavailable)).toEqual({ outcome: "Failed", claimIds: [], calls: 0 });
+    }),
+  );
+
+  it.effect("runs with the platform Crypto layer of the backend", () =>
+    Effect.gen(function* () {
+      const [first, second] = yield* Effect.all([
+        Crypto.Crypto.use((crypto) => claimDrain(crypto)),
+        Crypto.Crypto.use((crypto) => claimDrain(crypto)),
+      ]);
+
+      expect(first.claimIds[0]).toMatch(
+        /^worker-a-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+      );
+      expect(first.claimIds[0]).not.toBe(second.claimIds[0]);
+    }).pipe(Effect.provide(TestPlatform)),
   );
 });

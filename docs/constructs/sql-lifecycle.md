@@ -4,6 +4,119 @@
 
 Claim-fenced row lifecycles in PostgreSQL, such as outbox claims and account access. The [index](../constructs.md) lists every category.
 
+## `lockApplicationDecisionWithSql`
+
+Fences this application's decision-sensitive writes in the caller's transaction.
+
+```ts
+lockApplicationDecisionWithSql(
+  sql: DatabaseOperations,
+  applicationId: PublicApplicationId
+): Effect.Effect<void, SqlError>
+```
+
+- Inputs:
+  - `sql: DatabaseOperations`
+  - `applicationId: PublicApplicationId`
+- Output: `Effect.Effect<void, SqlError>`
+- Errors: `SqlError`
+- Requirements: none
+- Side effects: Waits for application row custody and increments its fence version until commit or rollback.
+- Source: [packages/database/src/admissions/evidence.ts:28](../../packages/database/src/admissions/evidence.ts#L28)
+
+**How it works**
+
+Updates the application-owned version through the same SQL owner used by decision,
+correction and window backstops. Unlike a row lock alone, this invalidates old snapshots.
+
+**Use**
+
+```ts
+yield* lockApplicationDecisionWithSql(sql, applicationId);
+```
+
+**Avoid**
+
+Calling outside the transaction that writes, or acquiring it before applicant custody.
+
+## `readApplicationAdmissionEvidenceWithSql`
+
+Reads decoded admission evidence from the application's own period and semester.
+
+```ts
+readApplicationAdmissionEvidenceWithSql(
+  sql: DatabaseOperations,
+  applicationId: PublicApplicationId,
+  departmentId: DepartmentId,
+  options: { readonly lock: boolean }
+): Effect.Effect<ApplicationAdmissionEvidence, SqlError | Schema.SchemaError | AdmissionOutcomeFailure>
+```
+
+- Inputs:
+  - `sql: DatabaseOperations`
+  - `applicationId: PublicApplicationId`
+  - `departmentId: DepartmentId`
+  - `options: { readonly lock: boolean }`
+- Output: `Effect.Effect<ApplicationAdmissionEvidence, SqlError | Schema.SchemaError | AdmissionOutcomeFailure>`
+- Errors: `SqlError | Schema.SchemaError | AdmissionOutcomeFailure`
+- Requirements: none
+- Side effects: Reads evidence and, on writes, acquires versioned application custody until transaction end.
+- Source: [packages/database/src/admissions/evidence.ts:51](../../packages/database/src/admissions/evidence.ts#L51)
+
+**How it works**
+
+The SQL view owns live versus frozen citation selection and the public outcome projection.
+Historical uncited decisions retain their outcome and never acquire a current assessment citation.
+The caller owns authority, applicant custody and the transaction; lock=true takes the common fence.
+
+**Use**
+
+```ts
+const evidence = yield* readApplicationAdmissionEvidenceWithSql(sql, applicationId, departmentId, { lock: true });
+```
+
+**Avoid**
+
+Treating a department selector as authority or observing eligibility before a lock wait.
+
+## `withNativeAuthProvisioning`
+
+Runs one explicit native provisioning attempt through Better Auth's public endpoint context API.
+
+```ts
+withNativeAuthProvisioning<A>(
+  context: Awaited<AuthEngine["$context"]>,
+  task: () => Promise<A>
+): Effect.Effect<A, Cause.UnknownError>
+```
+
+- Inputs:
+  - `context: Awaited<AuthEngine["$context"]>`
+  - `task: () => Promise<A>`
+- Output: `Effect.Effect<A, Cause.UnknownError>`
+- Errors: `Cause.UnknownError`
+- Requirements: none
+- Side effects: Executes the caller's supported Better Auth write and scopes its private authority.
+- Source: [packages/database/src/auth-engine.ts:373](../../packages/database/src/auth-engine.ts#L373)
+
+**How it works**
+
+Only this helper mints the private marker. Hooks require both its identity and live
+owner registration; copied contexts, lookalike keys and request contexts grant no authority.
+The marker ends on success, failure or interruption. Better Auth's Promise writes have no
+cancellation ABI: interruption revokes later hook admission but does not certify rollback
+of an operation already accepted by its adapter. This helper retries nothing.
+
+**Use**
+
+```ts
+yield* withNativeAuthProvisioning(context, () => context.internalAdapter.linkAccount(account));
+```
+
+**Avoid**
+
+Passing request-sourced authority or treating cancellation as a transaction receipt.
+
 ## `accountAccessEnabled`
 
 Whether the native account of `personId` exists and is not disabled.
@@ -24,7 +137,7 @@ accountAccessEnabled(
 - Errors: `SqlError`
 - Requirements: none
 - Side effects: Reads `auth."user"`; with `ForShare` it holds a share lock on the row until the transaction ends.
-- Source: [packages/database/src/identity-access.ts:34](../../packages/database/src/identity-access.ts#L34)
+- Source: [packages/database/src/identity-access.ts:38](../../packages/database/src/identity-access.ts#L38)
 
 **How it works**
 
@@ -67,7 +180,7 @@ outboxClaimAssignments(
 - Errors: none
 - Requirements: none
 - Side effects: none: it builds a fragment, and the aggregate's UPDATE writes the row.
-- Source: [packages/database/src/outbox-lifecycle.ts:140](../../packages/database/src/outbox-lifecycle.ts#L140)
+- Source: [packages/database/src/outbox-lifecycle.ts:144](../../packages/database/src/outbox-lifecycle.ts#L144)
 
 **How it works**
 
@@ -110,7 +223,7 @@ markOutboxDelivered(
 - Errors: `OutboxClaimLost | SqlError`
 - Requirements: none
 - Side effects: Writes the outbox row that the claim still owns.
-- Source: [packages/database/src/outbox-lifecycle.ts:172](../../packages/database/src/outbox-lifecycle.ts#L172)
+- Source: [packages/database/src/outbox-lifecycle.ts:176](../../packages/database/src/outbox-lifecycle.ts#L176)
 
 **How it works**
 
@@ -154,7 +267,7 @@ markOutboxFailed(
 - Errors: `OutboxClaimLost | SqlError`
 - Requirements: none
 - Side effects: Writes the outbox row that the claim still owns.
-- Source: [packages/database/src/outbox-lifecycle.ts:216](../../packages/database/src/outbox-lifecycle.ts#L216)
+- Source: [packages/database/src/outbox-lifecycle.ts:220](../../packages/database/src/outbox-lifecycle.ts#L220)
 
 **How it works**
 
@@ -195,7 +308,7 @@ quarantineOutboxClaim(
 - Errors: `OutboxClaimLost | SqlError`
 - Requirements: none
 - Side effects: Writes the outbox row that the claim still owns.
-- Source: [packages/database/src/outbox-lifecycle.ts:245](../../packages/database/src/outbox-lifecycle.ts#L245)
+- Source: [packages/database/src/outbox-lifecycle.ts:249](../../packages/database/src/outbox-lifecycle.ts#L249)
 
 **How it works**
 
@@ -237,7 +350,7 @@ releaseOutboxClaim(
 - Errors: `SqlError`
 - Requirements: none
 - Side effects: Writes the outbox row when the claim still owns it.
-- Source: [packages/database/src/outbox-lifecycle.ts:282](../../packages/database/src/outbox-lifecycle.ts#L282)
+- Source: [packages/database/src/outbox-lifecycle.ts:286](../../packages/database/src/outbox-lifecycle.ts#L286)
 
 **How it works**
 
@@ -279,7 +392,7 @@ recoverStaleOutboxClaims(
 - Errors: `SqlError`
 - Requirements: none
 - Side effects: Writes every stale Processing row of the table.
-- Source: [packages/database/src/outbox-lifecycle.ts:317](../../packages/database/src/outbox-lifecycle.ts#L317)
+- Source: [packages/database/src/outbox-lifecycle.ts:321](../../packages/database/src/outbox-lifecycle.ts#L321)
 
 **How it works**
 
@@ -299,3 +412,119 @@ recoverStaleOutboxClaims(sql, invitationOutbox, claimedBefore, { status: "Failed
 A cutoff that a live claim can still reach, such as one closer to now than the longest
 provider call: the row goes to a second claim, which delivers the effect again. Derive
 `claimedBefore` from the worker's stale-claim window, as now minus `staleClaimMilliseconds`.
+
+## `nativePgLayer`
+
+Builds the native SQL layer with an explicit host-owned connection limit.
+
+```ts
+nativePgLayer(
+  config: NativePgPoolConfig
+): Layer.Layer<PgClient.PgClient | SqlClient.SqlClient, Schema.SchemaError | SqlError>
+```
+
+- Inputs: `config: NativePgPoolConfig`
+- Output: `Layer.Layer<PgClient.PgClient | SqlClient.SqlClient, Schema.SchemaError | SqlError>`
+- Errors: `Schema.SchemaError | SqlError`
+- Requirements: none
+- Side effects: Opens native PostgreSQL sessions only after the layer runs.
+- Source: [packages/database/src/pg-pool.ts:72](../../packages/database/src/pg-pool.ts#L72)
+
+**How it works**
+
+The caller owns the layer scope. The native driver owns acquisition, transaction reservation,
+cancellation, and release. Each checkout is exclusive. The driver can queue waiting fibers,
+so this limit bounds connections, not admitted work. Prepared statements require an explicit
+choice for a compatible pooler. An absent connectionTTL preserves unlimited connection reuse.
+Building the layer performs no work. Its scope closes its native pool on every exit.
+EX-0034: native admission policy is patched at the upstream boundary. Omitted or false preserves
+the caller mask; explicit acquisitionInterruptible true interrupts only top-level admission.
+Explicit shutdownTimeout owns the graceful wait, then a 100ms real-close acknowledgement bound;
+no close event is a defect, not a successful disposal or transaction-outcome receipt.
+
+**Use**
+
+```ts
+const sql = nativePgLayer({ url, maxConnections: 2, prepare: false, startupOptions: "-c search_path=public" });
+```
+
+**Avoid**
+
+Providing a new layer for each service or enabling multiplexing on a cancellable path.
+
+## `AuthPoolLive`
+
+Builds the supported Better Auth pool with its own host-supplied capacity.
+
+```ts
+AuthPoolLive(
+  config: { readonly postgresUrl: string },
+  options: AuthPoolOptions
+): Layer.Layer<AuthPgPool, Schema.SchemaError>
+```
+
+- Inputs:
+  - `config: { readonly postgresUrl: string }`
+  - `options: AuthPoolOptions`
+- Output: `Layer.Layer<AuthPgPool, Schema.SchemaError>`
+- Errors: `Schema.SchemaError`
+- Requirements: none
+- Side effects: Opens supported pg sessions only when the auth adapter uses the layer.
+- Source: [packages/database/src/pg-pool.ts:123](../../packages/database/src/pg-pool.ts#L123)
+
+**How it works**
+
+This layer owns only the node-postgres pool. It never provides native SqlClient.
+The host provides it separately from Database. Native callback fibers close before
+the pool, and pool diagnostic fibers remain owned until the pool closes.
+A client deadline does not prove PostgreSQL cancellation or a committed outcome.
+
+**Use**
+
+```ts
+const authPool = AuthPoolLive(config, {
+  maxConnections: 2,
+  applicationName: "vektorprogrammet-worker-auth",
+  pipeline: true,
+  startupOptions: "-c search_path=auth",
+  connectTimeoutMilliseconds: 2_000,
+  queryTimeoutMilliseconds: 1_000,
+});
+```
+
+**Avoid**
+
+Providing this layer to a delivery-only event or sharing it with native Effect SQL.
+
+## `executePostgresMigration`
+
+Executes parsed statements sequentially on the provided native SQL client.
+
+```ts
+executePostgresMigration(
+  source: string
+): Effect.Effect<void, SqlError | DatabaseMigrationExecutionError, SqlClient.SqlClient>
+```
+
+- Inputs: `source: string`
+- Output: `Effect.Effect<void, SqlError | DatabaseMigrationExecutionError, SqlClient.SqlClient>`
+- Errors: `SqlError | DatabaseMigrationExecutionError`
+- Requirements: `SqlClient.SqlClient`
+- Side effects: Executes original statement bytes when the Effect runs.
+- Source: [packages/database/src/postgres-migration-statements.ts:84](../../packages/database/src/postgres-migration-statements.ts#L84)
+
+**How it works**
+
+The caller (normally Migrator) owns the transaction. Construction is suspended;
+this operation never commits, opens another pool, or retries. SQL errors remain
+typed. Interruption stops subsequent statements and the owner rolls back.
+
+**Use**
+
+```ts
+yield* sql.withTransaction(executePostgresMigration(source));
+```
+
+**Avoid**
+
+Running it outside the migration owner's transaction or on a new pool.

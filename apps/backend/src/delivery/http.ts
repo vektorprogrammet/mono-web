@@ -1,4 +1,8 @@
 /**
+ * EX-0024: required stable native HTTP transport retains upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+/**
  * Acknowledged JSON delivery to a provider endpoint.
  *
  * Use `deliverJson` when a worker delivers a committed effect over HTTP. It sends one POST with
@@ -10,7 +14,7 @@
  * whether an ambiguous attempt runs again.
  */
 import { Data, Duration, Effect, Stream, type Cause, type Schema } from "effect";
-import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http";
+import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/http";
 
 export interface HttpDeliveryConfig {
   readonly endpoint: URL;

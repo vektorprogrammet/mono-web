@@ -1,12 +1,19 @@
+/**
+ * EX-0021: required public native SQL APIs in exact stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { PersonId } from "@vektorprogrammet/domain/organization";
 /** 0106 owned synthetic PostgreSQL Person reconciliation journey. */
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
-import { Schema, flow, Effect, Redacted } from "effect";
-import { Pool } from "pg";
+import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
+import { Schema, flow, Effect, Layer, ManagedRuntime, Redacted } from "effect";
+import * as BunServices from "@effect/platform-bun/BunServices";
 import { type DisposablePostgres, startDisposablePostgres } from "@monoweb/postgres";
-import { databaseHealth } from "@vektorprogrammet/database";
+import { Database } from "@vektorprogrammet/database";
 import { DatabaseLive } from "../src/layers.js";
+import { NativeDatabaseStartupOptions } from "../src/search-path.js";
+import { executePostgresMigration } from "../src/postgres-migration-statements.js";
+import { SqlClient } from "effect/sql";
 import {
   PersonMapping,
   PersonCohortFailure,
@@ -18,15 +25,27 @@ import {
   commandOutput,
   rehearsalWorkspace,
   removeWorkspace,
-  runOnBun,
   writePrivateFile,
 } from "./rehearsal-platform.js";
 
-const importPersonCohort = flow(importPersonCohortEffect, Effect.runPromise);
+const makeRuntime = (url: string) =>
+  ManagedRuntime.make(
+    DatabaseLive({
+      url: Redacted.make(url),
+      maxConnections: 4,
+      startupOptions: NativeDatabaseStartupOptions,
+    }).pipe(Layer.provide(BunServices.layer)),
+  );
 
-const digest = flow(Schema.decodeUnknownSync(Schema.Json), (value) =>
-  createHash("sha256").update(JSON.stringify(value)).digest("hex"),
+const digest = flow(canonicalJsonBytes, sha256Hex);
+
+const decodeJourneyRows = Schema.decodeUnknownEffect(
+  Schema.Array(Schema.Record(Schema.String, Schema.Json)),
 );
+
+const decodeReport = Schema.decodeUnknownEffect(Schema.fromJsonString(PersonCohortReport));
+
+const decodeRevision = Schema.decodeUnknownEffect(Schema.String);
 
 assertNoAmbientConfiguration(["PERSON_COHORT_PG_URL", "PERSON_COHORT_INPUT", "DATABASE_URL"]);
 
@@ -36,7 +55,7 @@ const inputFile = workspace.file("person-cohort.json");
 
 let postgres: DisposablePostgres | undefined;
 
-let pool: Pool | undefined;
+let runtime: ReturnType<typeof makeRuntime> | undefined;
 
 let evidence: Record<string, Schema.Json> | undefined;
 
@@ -44,14 +63,13 @@ try {
   postgres = await startDisposablePostgres({ database: "person_cohort_rehearsal" });
 
   const databaseUrl = postgres.url;
-  pool = new Pool({ connectionString: databaseUrl, max: 4 });
-  await runOnBun(
-    databaseHealth.pipe(
-      Effect.provide(DatabaseLive({ url: Redacted.make(databaseUrl), maxConnections: 1 })),
-    ),
-  );
+  runtime = makeRuntime(databaseUrl);
+  const sql = await runtime.runPromise(Database);
+  await runtime.runPromise(sql.health);
 
-  await pool.query(`
+  await runtime.runPromise(
+    sql.withTransaction(
+      executePostgresMigration(`
     INSERT INTO public.person_profiles (person_id, first_name, last_name, revision)
     VALUES
       ('person-link', 'Native', 'Linked', 2),
@@ -66,16 +84,22 @@ try {
       ('person-email-mismatch', 'native@example.invalid', '+47 900 00 003', 0),
       ('person-target-conflict', 'target@example.invalid', '+47 900 00 004', 0),
       ('person-email-owner', 'owned@example.invalid', '+47 900 00 005', 0)
-  `);
+  `).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
+    ),
+  );
 
   const linkedBefore = (
-    await pool.query(
-      `SELECT p.*, c.email, c.phone, c.revision AS contact_revision
-         FROM public.person_profiles p
-         JOIN public.person_contact_profiles c USING (person_id)
-        WHERE p.person_id = 'person-link'`,
+    await runtime.runPromise(
+      sql
+        .unsafe(`SELECT p.*, c.email, c.phone, c.revision AS contact_revision
+       FROM public.person_profiles p
+       JOIN public.person_contact_profiles c USING (person_id)
+      WHERE p.person_id = 'person-link'`)
+        .pipe(Effect.flatMap(decodeJourneyRows)),
     )
-  ).rows[0];
+  )[0];
+
+  assert.ok(linkedBefore, "linked Person fixture must exist");
 
   type SourceRow = {
     sourceUserId: string;
@@ -186,7 +210,7 @@ try {
 
   await writePrivateFile(inputFile, JSON.stringify(snapshot));
 
-  const runCli = () =>
+  const runCli = (runtime: ReturnType<typeof makeRuntime>) =>
     commandOutput(
       process.execPath,
       ["run", "packages/database/runtime/person-cohort-main.ts"],
@@ -197,11 +221,11 @@ try {
         PERSON_COHORT_PG_URL: databaseUrl,
         PERSON_COHORT_INPUT: inputFile,
       },
-    ).then(Schema.decodeSync(Schema.fromJsonString(PersonCohortReport)));
+    ).then(flow(decodeReport, runtime.runPromise));
 
-  const cliReport = await runCli();
+  const cliReport = await runCli(runtime);
   assert.equal(cliReport.replay, false);
-  const report = await importPersonCohort(pool, snapshot);
+  const report = await runtime.runPromise(importPersonCohortEffect(sql, snapshot));
   assert.equal(report.replay, true);
   assert.deepEqual(report.occurrences, cliReport.occurrences);
   assert.equal(report.input, occurrences.length);
@@ -209,7 +233,7 @@ try {
   assert.equal(report.quarantined, occurrences.length - 2);
   assert.equal(report.aliases, "LegacyUsernameAndCompanyEmailUnsupported");
   assert.equal(report.credentials, "HandledByCredentialCohort");
-  assert.deepEqual(await runCli(), report, "exact CLI replay is byte-equivalent");
+  assert.deepEqual(await runCli(runtime), report, "exact CLI replay is byte-equivalent");
   const concurrentRow = row("concurrent-initial");
 
   const concurrentSnapshot = {
@@ -227,8 +251,8 @@ try {
   };
 
   const concurrent = await Promise.all([
-    importPersonCohort(pool, concurrentSnapshot),
-    importPersonCohort(pool, concurrentSnapshot),
+    runtime.runPromise(importPersonCohortEffect(sql, concurrentSnapshot)),
+    runtime.runPromise(importPersonCohortEffect(sql, concurrentSnapshot)),
   ]);
 
   assert.deepEqual(
@@ -239,34 +263,34 @@ try {
   assert.equal(concurrent[0]!.accepted, 1);
 
   const concurrentCounts = (
-    await pool.query<{
-      profile_count: string;
-      contact_count: string;
-      snapshot_count: string;
-      occurrence_count: string;
-      import_count: string;
-    }>(
-      `SELECT
-        (SELECT count(*) FROM public.person_profiles WHERE person_id = 'person-concurrent-initial') AS profile_count,
-        (SELECT count(*) FROM public.person_contact_profiles WHERE person_id = 'person-concurrent-initial') AS contact_count,
-        (SELECT count(*) FROM public.person_cohort_snapshots WHERE snapshot_id = 'person-cohort-0106-concurrent') AS snapshot_count,
-        (SELECT count(*) FROM public.person_cohort_occurrences WHERE occurrence_id = 'occ-concurrent-initial') AS occurrence_count,
-        (SELECT count(*) FROM public.person_cohort_imports WHERE source_user_id = 'concurrent-initial') AS import_count`,
+    await runtime.runPromise(
+      sql
+        .unsafe(`SELECT
+      (SELECT count(*)::text FROM public.person_profiles WHERE person_id = 'person-concurrent-initial') AS profile_count,
+      (SELECT count(*)::text FROM public.person_contact_profiles WHERE person_id = 'person-concurrent-initial') AS contact_count,
+      (SELECT count(*)::text FROM public.person_cohort_snapshots WHERE snapshot_id = 'person-cohort-0106-concurrent') AS snapshot_count,
+      (SELECT count(*)::text FROM public.person_cohort_occurrences WHERE occurrence_id = 'occ-concurrent-initial') AS occurrence_count,
+      (SELECT count(*)::text FROM public.person_cohort_imports WHERE source_user_id = 'concurrent-initial') AS import_count`)
+        .pipe(Effect.flatMap(decodeJourneyRows)),
     )
-  ).rows[0];
+  )[0];
 
   assert.ok(concurrentCounts);
   assert.deepEqual(Object.values(concurrentCounts).map(Number), [1, 1, 1, 1, 1]);
 
   const created = (
-    await pool.query(
-      `SELECT p.first_name, p.last_name, p.revision, c.email, c.phone,
-              c.revision AS contact_revision
-         FROM public.person_profiles p
-         JOIN public.person_contact_profiles c USING (person_id)
-        WHERE p.person_id = 'person-create'`,
+    await runtime.runPromise(
+      sql
+        .unsafe(`SELECT p.first_name, p.last_name, p.revision, c.email, c.phone,
+            c.revision AS contact_revision
+       FROM public.person_profiles p
+       JOIN public.person_contact_profiles c USING (person_id)
+      WHERE p.person_id = 'person-create'`)
+        .pipe(Effect.flatMap(decodeJourneyRows)),
     )
-  ).rows[0];
+  )[0];
+
+  assert.ok(created, "accepted Person must have profile and contact facts");
 
   assert.deepEqual(created, {
     first_name: "Legacy",
@@ -278,24 +302,38 @@ try {
   });
 
   const linkedAfter = (
-    await pool.query(
-      `SELECT p.*, c.email, c.phone, c.revision AS contact_revision
-         FROM public.person_profiles p
-         JOIN public.person_contact_profiles c USING (person_id)
-        WHERE p.person_id = 'person-link'`,
+    await runtime.runPromise(
+      sql
+        .unsafe(`SELECT p.*, c.email, c.phone, c.revision AS contact_revision
+       FROM public.person_profiles p
+       JOIN public.person_contact_profiles c USING (person_id)
+      WHERE p.person_id = 'person-link'`)
+        .pipe(Effect.flatMap(decodeJourneyRows)),
     )
-  ).rows[0];
+  )[0];
 
   assert.deepEqual(linkedAfter, linkedBefore, "linking preserves native profile and contact facts");
   assert.equal(
-    Number((await pool.query(`SELECT count(*) FROM auth."user"`)).rows[0].count),
+    Number(
+      (
+        await runtime.runPromise(
+          sql
+            .unsafe(`SELECT count(*)::text FROM auth."user"`)
+            .pipe(Effect.flatMap(decodeJourneyRows)),
+        )
+      )[0]!.count,
+    ),
     0,
     "person reconciliation creates no credentials",
   );
   assert.deepEqual(
     (
-      await pool.query(`SELECT reason FROM public.person_cohort_occurrences ORDER BY reason`)
-    ).rows.map(({ reason }) => reason),
+      await runtime.runPromise(
+        sql
+          .unsafe(`SELECT reason FROM public.person_cohort_occurrences ORDER BY reason`)
+          .pipe(Effect.flatMap(decodeJourneyRows)),
+      )
+    ).map(({ reason }) => reason),
     [
       "CreatedPerson",
       "CreatedPerson",
@@ -321,55 +359,63 @@ try {
 
   const factsBeforeConflict = digest(
     (
-      await pool.query(
-        `SELECT jsonb_build_object(
-          'profiles', (SELECT jsonb_agg(p ORDER BY person_id) FROM public.person_profiles p),
-          'contacts', (SELECT jsonb_agg(c ORDER BY person_id) FROM public.person_contact_profiles c),
-          'snapshots', (SELECT jsonb_agg(s ORDER BY snapshot_key) FROM public.person_cohort_snapshots s),
-          'occurrences', (SELECT jsonb_agg(o ORDER BY snapshot_key, occurrence_id) FROM public.person_cohort_occurrences o),
-          'imports', (SELECT jsonb_agg(i ORDER BY source_repository, source_user_id) FROM public.person_cohort_imports i)
-        ) AS facts`,
+      await runtime.runPromise(
+        sql
+          .unsafe(`SELECT jsonb_build_object(
+        'profiles', (SELECT jsonb_agg(p ORDER BY person_id) FROM public.person_profiles p),
+        'contacts', (SELECT jsonb_agg(c ORDER BY person_id) FROM public.person_contact_profiles c),
+        'snapshots', (SELECT jsonb_agg(s ORDER BY snapshot_key) FROM public.person_cohort_snapshots s),
+        'occurrences', (SELECT jsonb_agg(o ORDER BY snapshot_key, occurrence_id) FROM public.person_cohort_occurrences o),
+        'imports', (SELECT jsonb_agg(i ORDER BY source_repository, source_user_id) FROM public.person_cohort_imports i)
+      ) AS facts`)
+          .pipe(Effect.flatMap(decodeJourneyRows)),
       )
-    ).rows[0],
+    )[0],
   );
 
   await assert.rejects(
-    importPersonCohort(pool, { ...snapshot, sourceRevision: "changed-source" }),
+    runtime.runPromise(
+      importPersonCohortEffect(sql, { ...snapshot, sourceRevision: "changed-source" }),
+    ),
     (cause) => cause instanceof PersonCohortFailure && cause.code === "SnapshotConflict",
   );
   assert.equal(
     digest(
       (
-        await pool.query(
-          `SELECT jsonb_build_object(
-            'profiles', (SELECT jsonb_agg(p ORDER BY person_id) FROM public.person_profiles p),
-            'contacts', (SELECT jsonb_agg(c ORDER BY person_id) FROM public.person_contact_profiles c),
-            'snapshots', (SELECT jsonb_agg(s ORDER BY snapshot_key) FROM public.person_cohort_snapshots s),
-            'occurrences', (SELECT jsonb_agg(o ORDER BY snapshot_key, occurrence_id) FROM public.person_cohort_occurrences o),
-            'imports', (SELECT jsonb_agg(i ORDER BY source_repository, source_user_id) FROM public.person_cohort_imports i)
-          ) AS facts`,
+        await runtime.runPromise(
+          sql
+            .unsafe(`SELECT jsonb_build_object(
+          'profiles', (SELECT jsonb_agg(p ORDER BY person_id) FROM public.person_profiles p),
+          'contacts', (SELECT jsonb_agg(c ORDER BY person_id) FROM public.person_contact_profiles c),
+          'snapshots', (SELECT jsonb_agg(s ORDER BY snapshot_key) FROM public.person_cohort_snapshots s),
+          'occurrences', (SELECT jsonb_agg(o ORDER BY snapshot_key, occurrence_id) FROM public.person_cohort_occurrences o),
+          'imports', (SELECT jsonb_agg(i ORDER BY source_repository, source_user_id) FROM public.person_cohort_imports i)
+        ) AS facts`)
+            .pipe(Effect.flatMap(decodeJourneyRows)),
         )
-      ).rows[0],
+      )[0],
     ),
     factsBeforeConflict,
   );
 
   const crossTargetRow = row("cross-target", { email: "link@example.invalid" });
 
-  const crossTargetReport = await importPersonCohort(pool, {
-    ...snapshot,
-    snapshotId: "person-cohort-0106-cross-target",
-    occurrences: [{ occurrenceId: "occ-cross-target", row: crossTargetRow }],
-    mappings: [
-      PersonMapping.cases.LinkExistingPerson.make({
-        sourceUserId: "cross-target",
-        personId: PersonId.make("person-link"),
-        emailOwnership: attest(crossTargetRow),
-        expectedNameRevision: 2,
-        expectedContactRevision: 3,
-      }),
-    ],
-  });
+  const crossTargetReport = await runtime.runPromise(
+    importPersonCohortEffect(sql, {
+      ...snapshot,
+      snapshotId: "person-cohort-0106-cross-target",
+      occurrences: [{ occurrenceId: "occ-cross-target", row: crossTargetRow }],
+      mappings: [
+        PersonMapping.cases.LinkExistingPerson.make({
+          sourceUserId: "cross-target",
+          personId: PersonId.make("person-link"),
+          emailOwnership: attest(crossTargetRow),
+          expectedNameRevision: 2,
+          expectedContactRevision: 3,
+        }),
+      ],
+    }),
+  );
 
   assert.deepEqual(crossTargetReport.occurrences, [
     {
@@ -379,13 +425,17 @@ try {
     },
   ]);
 
-  await pool.query(`
+  await runtime.runPromise(
+    sql.withTransaction(
+      executePostgresMigration(`
     CREATE FUNCTION public.fail_person_cohort_import() RETURNS trigger
     LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic failure'; END $$;
     CREATE TRIGGER fail_person_cohort_import
     BEFORE INSERT ON public.person_cohort_imports
     FOR EACH ROW EXECUTE FUNCTION public.fail_person_cohort_import()
-  `);
+  `).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
+    ),
+  );
   const rollbackRow = row("rollback");
 
   const rollbackSnapshot = {
@@ -402,41 +452,61 @@ try {
   };
 
   await assert.rejects(
-    importPersonCohort(pool, rollbackSnapshot),
+    runtime.runPromise(importPersonCohortEffect(sql, rollbackSnapshot)),
     (cause) => cause instanceof PersonCohortFailure && cause.code === "PersistenceFailure",
   );
   assert.equal(
     Number(
       (
-        await pool.query(
-          `SELECT count(*) FROM public.person_profiles WHERE person_id = 'person-rollback'`,
+        await runtime.runPromise(
+          sql
+            .unsafe(
+              `SELECT count(*)::text FROM public.person_profiles WHERE person_id = 'person-rollback'`,
+            )
+            .pipe(Effect.flatMap(decodeJourneyRows)),
         )
-      ).rows[0].count,
+      )[0]!.count,
     ),
     0,
   );
   assert.equal(
     Number(
       (
-        await pool.query(
-          `SELECT count(*) FROM public.person_cohort_snapshots WHERE snapshot_id = 'person-cohort-0106-rollback'`,
+        await runtime.runPromise(
+          sql
+            .unsafe(
+              `SELECT count(*)::text FROM public.person_cohort_snapshots WHERE snapshot_id = 'person-cohort-0106-rollback'`,
+            )
+            .pipe(Effect.flatMap(decodeJourneyRows)),
         )
-      ).rows[0].count,
+      )[0]!.count,
     ),
     0,
   );
-  await pool.query(`
+  await runtime.runPromise(
+    sql.withTransaction(
+      executePostgresMigration(`
     DROP TRIGGER fail_person_cohort_import ON public.person_cohort_imports;
     DROP FUNCTION public.fail_person_cohort_import()
-  `);
+  `).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
+    ),
+  );
   await assert.rejects(
-    pool.query(`UPDATE public.person_cohort_imports SET evidence_ref = 'changed'`),
+    runtime.runPromise(
+      sql
+        .unsafe(`UPDATE public.person_cohort_imports SET evidence_ref = 'changed'`)
+        .pipe(Effect.flatMap(decodeJourneyRows)),
+    ),
     /Person cohort evidence is immutable/,
   );
 
   evidence = {
     contract: "0106",
-    sourceRevision: (await commandOutput("git", ["rev-parse", "HEAD"], workspace.root)).trim(),
+    sourceRevision: (
+      await runtime.runPromise(
+        decodeRevision(await commandOutput("git", ["rev-parse", "HEAD"], workspace.root)),
+      )
+    ).trim(),
     report,
     createdPerson: created,
     linkedPersonUnchanged: true,
@@ -448,10 +518,15 @@ try {
     productionEffects: "none",
   };
 } finally {
-  if (pool) await pool.end().catch(() => undefined);
-
-  await postgres?.stop().catch(() => undefined);
-  await removeWorkspace(workspace.artifacts);
+  try {
+    if (runtime) await runtime.dispose();
+  } finally {
+    try {
+      await postgres?.stop();
+    } finally {
+      await removeWorkspace(workspace.artifacts);
+    }
+  }
 }
 
 assert.ok(evidence, "rehearsal must complete before evidence is emitted");

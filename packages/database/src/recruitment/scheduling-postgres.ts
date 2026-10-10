@@ -562,7 +562,8 @@ const readSchedulingState = (sql: DatabaseOperations, interviewId: string) =>
 
 const capabilityIsValid = (value: string): boolean => /^[A-Za-z0-9_-]{43}$/u.test(value);
 
-const encodeScheduleObservation = Schema.encodeSync(RecruitmentScheduleObservationSchema);
+// A domain value that fails its own contract encoder is a broken invariant, so the failure is a defect.
+const encodeScheduleObservation = Schema.encodeEffect(RecruitmentScheduleObservationSchema);
 
 const writeScheduleRows = (
   sql: DatabaseOperations,
@@ -670,13 +671,15 @@ const writeScheduleRows = (
       ),
     );
 
+    const encodedObservation = yield* encodeScheduleObservation(observation).pipe(Effect.orDie);
+
     yield* sql`
       INSERT INTO recruitment_schedule_command_receipts (
         command_id, command_sha256, command_json, observation_json,
         interview_id, schedule_revision, committed_at
       ) VALUES (
         ${command.commandId}, ${digest}, ${canonicalJson(command)}::jsonb,
-        ${canonicalJson(encodeScheduleObservation(observation))}::jsonb, ${command.interviewId},
+        ${canonicalJson(encodedObservation)}::jsonb, ${command.interviewId},
         ${scheduleRevision}, ${context.now}
       )
     `.pipe(

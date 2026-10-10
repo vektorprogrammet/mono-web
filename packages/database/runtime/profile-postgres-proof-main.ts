@@ -16,6 +16,7 @@ import {
 } from "@vektorprogrammet/domain/shared-kernel";
 import { Schema, Predicate, Config, Deferred, Effect, Fiber, Layer, Redacted } from "effect";
 import { DatabaseLive } from "../src/layers.js";
+import { NativeDatabaseStartupOptions } from "../src/search-path.js";
 import { TestPlatform } from "../src/test-support/platform.js";
 import { databaseSchemaRevision } from "../src/migrations.js";
 
@@ -50,7 +51,13 @@ const contenders = (expectedRevision: number) => {
 };
 
 const makeProofLayer = (url: Redacted.Redacted<string>, applicationName: string) => {
-  const database = DatabaseLive({ url, applicationName, maxConnections: 1 });
+  const database = DatabaseLive({
+    url,
+    applicationName,
+    maxConnections: 1,
+    startupOptions: NativeDatabaseStartupOptions,
+  });
+
   const organization = OrganizationLive.pipe(Layer.provide(database));
   const profile = ProfileLive.pipe(Layer.provide(Layer.merge(database, organization)));
 

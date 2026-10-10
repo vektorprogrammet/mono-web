@@ -1,4 +1,4 @@
-import { Effect, Match, Option, Predicate, Schema } from "effect";
+import { Effect, Match, Predicate, Schema } from "effect";
 import {
   Recruitment,
   RecruitmentMaintenanceCommand,
@@ -9,18 +9,12 @@ import {
 } from "@vektorprogrammet/domain/recruitment";
 import { Scope } from "@vektorprogrammet/domain/authz";
 import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
-import {
-  ReadQuestionnairesEndpoint,
-  ReadInterviewStaffingEndpoint,
-  MaintainRecruitmentEndpoint,
-  reflectAccessSpec,
-} from "@vektorprogrammet/http-api";
+
+import { Problem } from "@vektorprogrammet/http-api/http-semantics";
 import { resolveRequestCredentialInTransaction } from "../authority.js";
 import { genericContext } from "../native-operation.js";
 import {
-  authorizePerson,
   commandOutcomeResponse,
-  commandReceiptProblems,
   idempotencyKeyOf,
   personPresentation,
   requireNoQuery,
@@ -35,10 +29,12 @@ import {
   semanticRequestDigest,
 } from "../http-semantics.js";
 import { readRecruitmentBody } from "./http-decode.js";
+import { authorizeAt, type RecruitmentPersonAuthorize } from "./http-guard.js";
 import {
   admissionPeriodProblems,
   assignmentProblems,
   conductProblems,
+  maintenanceCommandProblems,
   maintenanceProblems,
   recruitmentProblems,
   schedulingProblems,
@@ -47,24 +43,23 @@ import {
 const authorizeTransport = Effect.fn("Recruitment.authorizeMaintenanceTransport")(function* (
   request: Request,
   operation: "questionnaires" | "staffing" | "command",
+  authorize: RecruitmentPersonAuthorize,
 ) {
   const resolved = yield* resolveRequestCredentialInTransaction(request, "OAuthUserBearer");
 
   if (!Predicate.isTagged(resolved.credential.principal, "Person"))
     return yield* new UnauthenticatedActor({ message: "authentication required" });
   const personId = resolved.credential.principal.personId;
-  yield* authorizePerson(
-    {
-      spec: Option.getOrThrow(
-        reflectAccessSpec(
-          Match.value(operation).pipe(
-            Match.when("command", () => MaintainRecruitmentEndpoint),
-            Match.when("questionnaires", () => ReadQuestionnairesEndpoint),
-            Match.when("staffing", () => ReadInterviewStaffingEndpoint),
-            Match.exhaustive,
-          ),
-        ),
-      ),
+  yield* authorizeAt(authorize, {
+    kind: "Person",
+    operation: Match.value(operation).pipe(
+      Match.when("command", () => "recruitment.maintainRecruitment" as const),
+      Match.when("questionnaires", () => "recruitment.readQuestionnaires" as const),
+      Match.when("staffing", () => "recruitment.readInterviewStaffing" as const),
+      Match.exhaustive,
+    ),
+    request,
+    input: {
       credential: resolved.credential,
       personId,
       resolution: {
@@ -76,8 +71,7 @@ const authorizeTransport = Effect.fn("Recruitment.authorizeMaintenanceTransport"
       grantScopes: [Scope.Global()],
       now: resolved.authorizationInstant,
     },
-    personPresentation(request),
-  );
+  });
 
   return personId;
 });
@@ -85,10 +79,11 @@ const authorizeTransport = Effect.fn("Recruitment.authorizeMaintenanceTransport"
 export const readRecruitmentMaintenanceHttp = (
   request: Request,
   operation: "questionnaires" | "staffing",
+  authorize: RecruitmentPersonAuthorize,
 ) =>
   Effect.gen(function* () {
     yield* requireNoQuery(request);
-    const personId = yield* authorizeTransport(request, operation);
+    const personId = yield* authorizeTransport(request, operation, authorize);
 
     // The domain decoded each view with its own schema, so encoding it cannot fail.
     const encoded =
@@ -124,7 +119,7 @@ export const readRecruitmentMaintenanceHttp = (
     ),
   );
 
-export const maintainRecruitmentHttp = (request: Request) =>
+export const maintainRecruitmentHttp = (request: Request, authorize: RecruitmentPersonAuthorize) =>
   Effect.gen(function* () {
     yield* requireNoQuery(request);
     const body = yield* readRecruitmentBody(request, 1_048_576);
@@ -133,6 +128,11 @@ export const maintainRecruitmentHttp = (request: Request) =>
       onExcessProperty: "error",
     }).pipe(Effect.mapError(() => new RecruitmentMaintenanceFailure({ code: "Invalid" })));
 
+    // The command is already decoded; failure to encode its digest is a server contract fault.
+    const encodedCommand = yield* Schema.encodeEffect(RecruitmentMaintenanceCommand)(command).pipe(
+      Effect.mapError(() => Problem.make("internal.error")),
+    );
+
     const key = yield* idempotencyKeyOf(request);
 
     if (key !== command.commandId)
@@ -140,7 +140,7 @@ export const maintainRecruitmentHttp = (request: Request) =>
 
     const outcome = yield* executeNativeHttpCommandPostgres(
       Effect.gen(function* () {
-        const personId = yield* authorizeTransport(request, "command");
+        const personId = yield* authorizeTransport(request, "command", authorize);
         // Current authority is resolved inside the receipt transaction, before replay.
         yield* Recruitment.use((service) => service.authorizeMaintenance(command, personId));
 
@@ -155,7 +155,7 @@ export const maintainRecruitmentHttp = (request: Request) =>
         return {
           identity: {
             identitySha256: identity.identitySha256,
-            requestSha256: semanticRequestDigest({ body: command }),
+            requestSha256: semanticRequestDigest({ body: encodedCommand }),
             operationId: "recruitment.maintainRecruitment",
           },
           execute: Effect.gen(function* () {
@@ -178,7 +178,7 @@ export const maintainRecruitmentHttp = (request: Request) =>
                   resourceIdentity: Predicate.isTagged(result, "QuestionnaireSaved")
                     ? result.interviewSchemaId
                     : result.interviewId,
-                  version: result.revision,
+                  version: "revision" in result ? result.revision : result.sequence,
                 }),
               },
               bodyBytes: new TextEncoder().encode(yield* jsonText(encoded)),
@@ -191,9 +191,7 @@ export const maintainRecruitmentHttp = (request: Request) =>
 
     return yield* commandOutcomeResponse(outcome);
   }).pipe(
-    commandReceiptProblems,
-    maintenanceProblems,
-    recruitmentProblems(personPresentation(request), "recruitment.unavailable"),
+    maintenanceCommandProblems(personPresentation(request)),
     // Maintenance answers no assignment, scheduling, conduct, or invitation problem.
     unreachable(
       ...admissionPeriodProblems,

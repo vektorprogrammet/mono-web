@@ -1,14 +1,20 @@
+/**
+ * EX-0021: native stable SQL carries upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+import * as SqlClient from "effect/sql/SqlClient";
+import { nativePgLayer } from "./pg-pool.js";
+import { NativeDatabaseStartupOptions } from "./search-path.js";
+import { executePostgresMigration } from "./postgres-migration-statements.js";
 import { expect, layer } from "@effect/vitest";
 import { type DisposablePostgres, startDisposablePostgres } from "@monoweb/postgres";
 import { Context, DateTime, Effect, FileSystem, Layer, Path } from "effect";
-import { Pool } from "pg";
 import {
   type DatabaseMigrationDefinition,
   databaseMigrationDefinitions,
   selectDatabaseMigration,
 } from "./migrations.js";
 import { openRefreshFamily, recordRefreshFamilyUse } from "./oauth-live.js";
-import { DatabasePgPool, pgQuery, pgTransaction } from "./pg-pool.js";
 import { TestPlatform } from "./test-support/platform.js";
 import { withPostgresTestDatabase } from "./test-support/postgres.js";
 
@@ -47,49 +53,52 @@ const osloDatabase = (name: string, migrations: ReadonlyArray<DatabaseMigrationD
     const cluster = yield* OsloCluster;
 
     const connect = (database: string) =>
-      Effect.acquireRelease(
-        Effect.sync(
-          () =>
-            new Pool({
-              host: cluster.socketDirectory,
-              port: cluster.port,
-              user: cluster.user,
-              database,
-              max: 1,
-            }),
+      Effect.map(
+        Layer.build(
+          nativePgLayer({
+            host: cluster.socketDirectory,
+            port: cluster.port,
+            username: cluster.user,
+            database,
+            maxConnections: 1,
+            applicationName: "oauth-window-native",
+            startupOptions: NativeDatabaseStartupOptions,
+          }),
         ),
-        (pool) => Effect.promise(() => pool.end()),
+        Context.get(SqlClient.SqlClient),
       );
 
     const admin = yield* connect(cluster.database);
-    yield* pgQuery(admin, `CREATE DATABASE ${name}`);
-    yield* pgQuery(admin, `ALTER DATABASE ${name} SET TimeZone = 'Europe/Oslo'`);
+    yield* admin.unsafe(`CREATE DATABASE ${name}`);
+    yield* admin.unsafe(`ALTER DATABASE ${name} SET TimeZone = 'Europe/Oslo'`);
 
     const pool = yield* connect(name);
 
-    for (const migration of migrations) yield* pgQuery(pool, yield* readSql(migration));
+    for (const migration of migrations)
+      yield* executePostgresMigration(yield* readSql(migration)).pipe(
+        Effect.provideService(SqlClient.SqlClient, pool),
+      );
 
     return pool;
   });
 
-const seed = (pool: Pool) =>
-  pgQuery(
-    pool,
-    `INSERT INTO public.person_profiles (person_id, first_name, last_name)
-       VALUES ('window-person', 'Window', 'Person');
-     INSERT INTO auth."user" (id, name, email, "emailVerified")
-       VALUES ('window-person', 'Window Person', 'window-person@example.invalid', true);
-     INSERT INTO auth."session" (id, "expiresAt", token, "updatedAt", "userId")
-       VALUES ('window-session', '2099-01-01T00:00:00Z', 'window-session-token',
-         '2026-01-01T00:00:00Z', 'window-person');
-     INSERT INTO auth."oauthClient" (id, "clientId", "redirectUris", scopes)
-       VALUES ('window-client', 'window-client', '["http://127.0.0.1/callback"]', '["native-api"]');
-     INSERT INTO auth.oauth_client_bindings (client_id, client_kind)
-       VALUES ('window-client', 'DelegatedPublic');`,
+const seed = (pool: SqlClient.SqlClient) =>
+  executePostgresMigration(`INSERT INTO public.person_profiles (person_id, first_name, last_name)
+     VALUES ('window-person', 'Window', 'Person');
+   INSERT INTO auth."user" (id, name, email, "emailVerified")
+     VALUES ('window-person', 'Window Person', 'window-person@example.invalid', true);
+   INSERT INTO auth."session" (id, "expiresAt", token, "updatedAt", "userId")
+     VALUES ('window-session', '2099-01-01T00:00:00Z', 'window-session-token',
+       '2026-01-01T00:00:00Z', 'window-person');
+   INSERT INTO auth."oauthClient" (id, "clientId", "redirectUris", scopes)
+     VALUES ('window-client', 'window-client', '["http://127.0.0.1/callback"]', '["native-api"]');
+   INSERT INTO auth.oauth_client_bindings (client_id, client_kind)
+     VALUES ('window-client', 'DelegatedPublic');`).pipe(
+    Effect.provideService(SqlClient.SqlClient, pool),
   );
 
 const osloApplicationDatabase = Layer.effect(
-  DatabasePgPool,
+  SqlClient.SqlClient,
   Effect.gen(function* () {
     const pool = yield* osloDatabase("refresh_window", databaseMigrationDefinitions);
     yield* seed(pool);
@@ -101,10 +110,10 @@ const osloApplicationDatabase = Layer.effect(
 /** Opens a family at `issuedAt` through the application's statement. */
 const openFamily = (familyId: string, issuedAt: string) =>
   Effect.gen(function* () {
-    const pool = yield* DatabasePgPool;
+    const pool = yield* SqlClient.SqlClient;
 
-    yield* pgTransaction(pool, (transaction) =>
-      openRefreshFamily(transaction, {
+    yield* pool.withTransaction(
+      openRefreshFamily(pool, {
         familyId,
         authorizationCodeId: `code-${familyId}`,
         clientId: "window-client",
@@ -123,26 +132,25 @@ interface FamilyRow {
   readonly absolute_expires_at: Date;
 }
 
-const readFamilies = (pool: Pool) =>
-  pgQuery<FamilyRow>(
-    pool,
-    `SELECT family_id, created_at, last_used_at, inactivity_expires_at, absolute_expires_at
-       FROM auth.oauth_refresh_families ORDER BY family_id`,
-  ).pipe(
-    Effect.map((result) =>
-      result.rows.map((row) => ({
-        familyId: row.family_id,
-        created: row.created_at.toISOString(),
-        lastUsed: row.last_used_at.toISOString(),
-        inactivityExpires: row.inactivity_expires_at.toISOString(),
-        absoluteExpires: row.absolute_expires_at.toISOString(),
-      })),
-    ),
-  );
+const readFamilies = (pool: SqlClient.SqlClient) =>
+  pool
+    .unsafe<FamilyRow>(`SELECT family_id, created_at, last_used_at, inactivity_expires_at, absolute_expires_at
+     FROM auth.oauth_refresh_families ORDER BY family_id`)
+    .pipe(
+      Effect.map((result) =>
+        result.map((row) => ({
+          familyId: row.family_id,
+          created: row.created_at.toISOString(),
+          lastUsed: row.last_used_at.toISOString(),
+          inactivityExpires: row.inactivity_expires_at.toISOString(),
+          absoluteExpires: row.absolute_expires_at.toISOString(),
+        })),
+      ),
+    );
 
 const readWindows = (familyId: string) =>
   Effect.gen(function* () {
-    const families = yield* readFamilies(yield* DatabasePgPool);
+    const families = yield* readFamilies(yield* SqlClient.SqlClient);
     const family = families.find((row) => row.familyId === familyId)!;
 
     return {
@@ -160,15 +168,15 @@ const readWindows = (familyId: string) =>
  * in that window, and its refresh ran 168 hours of inactivity or ended at the absolute bound.
  * The 7 calendar days of the "capped" refresh cross the autumn change after that bound.
  */
-const upgradeFromBefore0077 = (pool: Pool) =>
+const upgradeFromBefore0077 = (pool: SqlClient.SqlClient) =>
   Effect.gen(function* () {
     yield* seed(pool);
 
     const inOslo = (statement: string, values: ReadonlyArray<unknown>) =>
-      pgTransaction(pool, (transaction) =>
-        pgQuery(transaction, "SET LOCAL TimeZone = 'Europe/Oslo'").pipe(
-          Effect.andThen(pgQuery(transaction, statement, values)),
-        ),
+      pool.withTransaction(
+        pool
+          .unsafe("SET LOCAL TimeZone = 'Europe/Oslo'")
+          .pipe(Effect.andThen(pool.unsafe(statement, values))),
       );
 
     const open = (familyId: string, created: string) =>
@@ -202,7 +210,9 @@ const upgradeFromBefore0077 = (pool: Pool) =>
     yield* open("unused", "2026-11-02T12:00:00.000Z");
 
     const before = yield* readFamilies(pool);
-    yield* pgQuery(pool, yield* readSql(windows.migration));
+    yield* executePostgresMigration(yield* readSql(windows.migration)).pipe(
+      Effect.provideService(SqlClient.SqlClient, pool),
+    );
 
     return { before, after: yield* readFamilies(pool) };
   });
@@ -269,11 +279,11 @@ layer(Layer.merge(osloCluster, TestPlatform), { excludeTestServices: true, timeo
           Effect.gen(function* () {
             yield* openFamily("refresh", "2026-10-19T12:00:00.000Z");
 
-            const pool = yield* DatabasePgPool;
+            const pool = yield* SqlClient.SqlClient;
 
-            yield* pgTransaction(pool, (transaction) =>
+            yield* pool.withTransaction(
               recordRefreshFamilyUse(
-                transaction,
+                pool,
                 "refresh",
                 Date.parse("2026-10-20T12:00:00.000Z") / 1_000,
               ),
@@ -296,7 +306,13 @@ layer(Layer.merge(osloCluster, TestPlatform), { excludeTestServices: true, timeo
         expect(yield* upgradeFromBefore0077(pool)).toEqual(upgradeEvidence);
       }).pipe(Effect.scoped, Effect.orDie),
     );
+  },
+);
 
+// The PGlite case creates its database inside the test, so no disposable cluster starts.
+layer(TestPlatform, { excludeTestServices: true, timeout: "60 seconds" })(
+  "OAuth refresh window upgrade on PGlite",
+  (it) => {
     it.effect("upgrades families that the earlier statements wrote, on PGlite", () =>
       withPostgresTestDatabase(upgradeFromBefore0077, windows.preceding).pipe(
         Effect.map((evidence) => expect(evidence).toEqual(upgradeEvidence)),

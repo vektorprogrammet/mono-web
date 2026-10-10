@@ -71,3 +71,9 @@ Each folder of `src` holds a bounded context of [docs/model/contexts.cml](../../
 Local invariants, pitfalls, and recipes go below this generated part; `just guides write` keeps them.
 
 [//]: # "guide: end"
+
+## Local invariants
+
+- A RegExp given to `Schema.isPattern` needs the `u` flag when its schema reaches the public OpenAPI.
+  Stable Effect exports the JSON Schema `pattern` only for a Unicode-mode RegExp and omits the constraint otherwise, without a failure.
+  The canonical OpenAPI digest in `packages/http-api/test/openapi-semantics.test.ts` fails when a `pattern` disappears.

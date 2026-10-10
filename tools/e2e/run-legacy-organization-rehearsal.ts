@@ -1,10 +1,13 @@
-import * as BunServices from "@effect/platform-bun/BunServices";
+/**
+ * EX-0028: required public native SQL APIs in exact stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import assert from "node:assert/strict";
 import { chmod, lstat, mkdir, symlink, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import process from "node:process";
-import { DatabaseLive } from "@vektorprogrammet/database/live";
+import { Database } from "@vektorprogrammet/database";
 import { reachedDepartments, ReachedDepartments } from "@vektorprogrammet/domain/authz";
 import { databaseSchemaRevision } from "@vektorprogrammet/database/migrations";
 import {
@@ -23,8 +26,8 @@ import {
   PersonId,
   type ReviewedOrganizationSnapshot,
 } from "@vektorprogrammet/domain/organization";
-import { Console, Effect, flow, Layer, Predicate, Redacted, Schema } from "effect";
-import type { Pool } from "pg";
+import { Console, Effect, flow, Predicate, Result, Schema } from "effect";
+import * as SqlClient from "effect/sql/SqlClient";
 import { buildLegacyReferences, seedLegacyReferences } from "./legacy-cutover-references";
 import { buildLegacyOrganizationSnapshot } from "./legacy-organization-snapshot";
 import { buildLegacyPersonSnapshot } from "./legacy-person-snapshot";
@@ -38,13 +41,33 @@ import {
   withOrganizationDatabases,
   type RehearsalTarget,
 } from "./legacy-organization-rehearsal-runtime";
+import { executePostgresMigration } from "@vektorprogrammet/database/postgres-migration-statements";
 
-const importPersonCohort = flow(importPersonCohortEffect, Effect.runPromise);
-
-const importReviewedOrganizationCohort = flow(
-  importReviewedOrganizationCohortEffect,
-  Effect.runPromise,
+const decodeJsonRows = Schema.decodeUnknownEffect(
+  Schema.Array(Schema.Record(Schema.String, Schema.Json)),
 );
+
+/** A `count(*)::text AS count` query returns exactly one row; int8 would arrive as bigint, so the SQL projects text. */
+const decodeCountRow = Schema.decodeUnknownEffect(
+  Schema.Tuple([Schema.Struct({ count: Schema.String })]),
+);
+
+/** Promise host boundary: retain typed cohort errors without recovering defects or interruption. */
+const runCohort = <A, E>(effect: Effect.Effect<A, E>): Promise<A> =>
+  Effect.runPromise(Effect.result(effect)).then(Result.getOrThrow);
+
+const executeFixture = (sql: SqlClient.SqlClient, source: string) =>
+  Effect.runPromise(
+    sql.withTransaction(
+      executePostgresMigration(source).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
+    ),
+  );
+
+const importPersonCohort = flow(importPersonCohortEffect, runCohort);
+
+const importReviewedOrganizationCohort = flow(importReviewedOrganizationCohortEffect, runCohort);
+
+class RehearsalRollback extends Schema.TaggedError<RehearsalRollback>()("RehearsalRollback", {}) {}
 
 let stage = "Options";
 
@@ -219,29 +242,23 @@ const assertAuthority = async (target: RehearsalTarget, leaderActive = true): Pr
           `Person ${id} gained department reach`,
         );
       }
-    }).pipe(
-      Effect.provide(
-        DatabaseLive({
-          url: Redacted.make(target.url),
-          applicationName: "organization-native-authority-proof",
-          maxConnections: 2,
-        }).pipe(Layer.provide(BunServices.layer)),
-      ),
-    ),
+    }).pipe(Effect.provideService(Database, target.sql)),
   );
 };
 
-const assertCanonical = async (pool: Pool): Promise<void> => {
+const assertCanonical = async (sql: SqlClient.SqlClient): Promise<void> => {
   assert.deepEqual(
-    (
-      await pool.query(`
-    SELECT person_id,is_team_leader,is_suspended,position_name,
-      to_char(start_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS start_at,
-      to_char(end_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS end_at,
-      deleted_team_name
-    FROM public.organization_memberships ORDER BY person_id
-  `)
-    ).rows,
+    await Effect.runPromise(
+      sql
+        .unsafe(`
+        SELECT person_id,is_team_leader,is_suspended,position_name,
+    to_char(start_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS start_at,
+    to_char(end_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS end_at,
+    deleted_team_name
+        FROM public.organization_memberships ORDER BY person_id
+      `)
+        .pipe(Effect.flatMap(decodeJsonRows)),
+    ),
     [
       [1, true, false, "Leder", "2026-08-01", null, null],
       [14, true, false, "Medlem", "2026-08-01", null, null],
@@ -263,41 +280,48 @@ const assertCanonical = async (pool: Pool): Promise<void> => {
     })),
   );
   assert.deepEqual(
-    (
-      await pool.query(`
-    SELECT department_id FROM public.organization_departments ORDER BY department_id
-  `)
-    ).rows,
+    await Effect.runPromise(
+      sql
+        .unsafe(`
+        SELECT department_id FROM public.organization_departments ORDER BY department_id
+      `)
+        .pipe(Effect.flatMap(decodeJsonRows)),
+    ),
     [{ department_id: "legacy-department:1" }, { department_id: "legacy-department:2" }],
   );
   assert.deepEqual(
-    (
-      await pool.query(`
-    SELECT b.name,m.person_id FROM public.organization_memberships m
-    JOIN public.organization_national_boards b ON b.board_id=m.board_id
-  `)
-    ).rows,
+    await Effect.runPromise(
+      sql
+        .unsafe(`
+        SELECT b.name,m.person_id FROM public.organization_memberships m
+        JOIN public.organization_national_boards b ON b.board_id=m.board_id
+      `)
+        .pipe(Effect.flatMap(decodeJsonRows)),
+    ),
     [{ name: "Synthetic national board", person_id: "legacy-person-7" }],
   );
 };
 
-const forbiddenFacts = async (pool: Pool): Promise<Record<string, number>> => {
-  const tables = (
-    await pool.query<{ name: string }>(`
+const forbiddenFacts = async (sql: SqlClient.SqlClient): Promise<Record<string, number>> => {
+  const tables = await Effect.runPromise(
+    sql.unsafe<{ name: string }>(`
     SELECT format('%I.%I',schemaname,tablename) AS name FROM pg_tables
     WHERE schemaname IN ('public','auth') AND
       (tablename LIKE '%audit%' OR tablename LIKE '%outbox%' OR tablename LIKE '%grant%'
        OR tablename LIKE '%command_receipt%' OR tablename='service_principals')
       AND NOT (schemaname='auth' AND tablename='identity_security_audit') ORDER BY 1
-  `)
-  ).rows;
+  `),
+  );
 
   const counts: Record<string, number> = {};
 
   for (const { name } of tables) {
     counts[name] = Number(
-      (await pool.query<{ count: string }>(`SELECT count(*)::text AS count FROM ${name}`)).rows[0]!
-        .count,
+      (
+        await Effect.runPromise(
+          sql.unsafe<{ count: string }>(`SELECT count(*)::text AS count FROM ${name}`),
+        )
+      )[0]!.count,
     );
     assert.equal(counts[name], 0, `Import fabricated facts in ${name}`);
   }
@@ -305,7 +329,7 @@ const forbiddenFacts = async (pool: Pool): Promise<Record<string, number>> => {
   return counts;
 };
 
-const appendOnly = async (pool: Pool): Promise<void> => {
+const appendOnly = async (sql: SqlClient.SqlClient): Promise<void> => {
   for (const [table, column] of [
     ["organization_cohort_snapshots", "snapshot_id"],
     ["organization_cohort_imports", "source_id"],
@@ -316,18 +340,12 @@ const appendOnly = async (pool: Pool): Promise<void> => {
       `DELETE FROM public.${table}`,
       `TRUNCATE public.${table} CASCADE`,
     ]) {
-      const client = await pool.connect();
-
-      try {
-        await client.query("BEGIN");
-        await assert.rejects(
-          client.query(statement),
-          /append.only|immutable|not (allowed|permitted)/i,
-        );
-      } finally {
-        await client.query("ROLLBACK");
-        client.release();
-      }
+      await assert.rejects(
+        Effect.runPromise(
+          sql.withTransaction(sql.unsafe(statement).pipe(Effect.flatMap(decodeJsonRows))),
+        ),
+        /append.only|immutable|not (allowed|permitted)/i,
+      );
     }
   }
 };
@@ -381,7 +399,7 @@ const rehearse = async () =>
       organization: review,
     };
 
-    const pristine = await targetFingerprint(primary.pool);
+    const pristine = await targetFingerprint(primary.sql);
     const refusals: string[] = [];
 
     const refuseReview = async (
@@ -392,9 +410,9 @@ const rehearse = async () =>
       stage = name;
       await assert.rejects(
         runLegacyServiceCutover({ ...options, organization: candidate }),
-        (cause: unknown) => cause instanceof CutoverStageFailure && cause.stage === expectedStage,
+        (cause: unknown) => Schema.is(CutoverStageFailure)(cause) && cause.stage === expectedStage,
       );
-      assert.equal(await targetFingerprint(primary.pool), pristine, `${name} left partial facts`);
+      assert.equal(await targetFingerprint(primary.sql), pristine, `${name} left partial facts`);
       refusals.push(name);
     };
 
@@ -452,22 +470,26 @@ const rehearse = async () =>
     await mysql("UPDATE vektor.team_membership SET isSuspended=0 WHERE id=101");
 
     stage = "LaterAccountFailureRollsBackWholeCutover";
-    await primary.pool.query(`
+    await executeFixture(
+      primary.sql,
+      `
     CREATE FUNCTION auth.fail_organization_rehearsal() RETURNS trigger LANGUAGE plpgsql AS $$
     BEGIN RAISE EXCEPTION 'synthetic later-stage failure'; END; $$;
     CREATE TRIGGER fail_organization_rehearsal BEFORE INSERT ON auth.account_cohort_imports
     FOR EACH ROW EXECUTE FUNCTION auth.fail_organization_rehearsal();
-  `);
+    `,
+    );
     await assert.rejects(
       runLegacyServiceCutover(options),
-      (cause: unknown) => cause instanceof CutoverStageFailure && cause.stage === "AccountImport",
+      (cause: unknown) => Schema.is(CutoverStageFailure)(cause) && cause.stage === "AccountImport",
     );
     assert.equal(
-      await targetFingerprint(primary.pool),
+      await targetFingerprint(primary.sql),
       pristine,
       "Later account failure leaked Organization or Person facts",
     );
-    await primary.pool.query(
+    await executeFixture(
+      primary.sql,
       `DROP TRIGGER fail_organization_rehearsal ON auth.account_cohort_imports; DROP FUNCTION auth.fail_organization_rehearsal();`,
     );
 
@@ -493,7 +515,7 @@ const rehearse = async () =>
 
     const refuseCLI = async (name: string, command: ReadonlyArray<string>) => {
       await assert.rejects(runLocal(command, undefined, environment));
-      assert.equal(await targetFingerprint(primary.pool), pristine, name);
+      assert.equal(await targetFingerprint(primary.sql), pristine, name);
       refusals.push(name);
     };
 
@@ -536,29 +558,31 @@ const rehearse = async () =>
     const first = await runLegacyServiceCutover(options);
     assert.ok(first.organization !== "NotRequested");
     assert.deepEqual(
-      (
-        await primary.pool.query(
-          "SELECT result,reason,target_id FROM public.organization_cohort_occurrences WHERE source_kind='TeamMembership' AND source_id='119'",
-        )
-      ).rows,
+      await Effect.runPromise(
+        primary.sql
+          .unsafe(
+            "SELECT result,reason,target_id FROM public.organization_cohort_occurrences WHERE source_kind='TeamMembership' AND source_id='119'",
+          )
+          .pipe(Effect.flatMap(decodeJsonRows)),
+      ),
       [{ result: "Quarantined", reason: "InvalidRow", target_id: null }],
     );
     assert.equal(first.person.accepted, 16);
     assert.equal(first.historicalService.accepted, 1);
-    await assertCanonical(primary.pool);
+    await assertCanonical(primary.sql);
     await assertAuthority(primary);
-    const noFabricatedFacts = await forbiddenFacts(primary.pool);
-    await appendOnly(primary.pool);
-    const committed = await targetFingerprint(primary.pool);
+    const noFabricatedFacts = await forbiddenFacts(primary.sql);
+    await appendOnly(primary.sql);
+    const committed = await targetFingerprint(primary.sql);
     await runLegacyServiceCutover(options);
-    assert.equal(await targetFingerprint(primary.pool), committed);
+    assert.equal(await targetFingerprint(primary.sql), committed);
     await assert.rejects(
       runLegacyServiceCutover({
         ...options,
         organization: { ...review, evidenceRef: "changed-review" },
       }),
     );
-    assert.equal(await targetFingerprint(primary.pool), committed);
+    assert.equal(await targetFingerprint(primary.sql), committed);
 
     stage = "ExactPersonBinding";
     const references = buildLegacyReferences(source);
@@ -584,17 +608,17 @@ const rehearse = async () =>
       });
 
     const provenance = await target("organization_provenance");
-    await seedLegacyReferences(provenance.pool, identity, references);
-    const personReport = await importPersonCohort(provenance.pool, people);
+    await Effect.runPromise(seedLegacyReferences(provenance.sql, identity, references));
+    const personReport = await importPersonCohort(provenance.sql, people);
     const projected = project(personReport);
-    const before = await targetFingerprint(provenance.pool);
+    const before = await targetFingerprint(provenance.sql);
 
     for (const candidate of [
       { ...projected, referenceDigest: "0".repeat(64) },
       { ...projected, personSnapshotKey: "0".repeat(64) },
     ]) {
-      await assert.rejects(importReviewedOrganizationCohort(provenance.pool, rehash(candidate)));
-      assert.equal(await targetFingerprint(provenance.pool), before);
+      await assert.rejects(importReviewedOrganizationCohort(provenance.sql, rehash(candidate)));
+      assert.equal(await targetFingerprint(provenance.sql), before);
     }
 
     const leaderOccurrence = projected.occurrences.find((row) => row.sourceId === "101")!;
@@ -611,34 +635,39 @@ const rehearse = async () =>
       },
     });
 
-    const client = await provenance.pool.connect();
+    await Effect.runPromise(
+      provenance.sql
+        .withTransaction(
+          Effect.gen(function* () {
+            const wrong = yield* importReviewedOrganizationCohortEffect(
+              provenance.sql,
+              wrongMapping,
+            );
 
-    try {
-      await client.query("BEGIN");
-      const wrong = await importReviewedOrganizationCohort(provenance.pool, wrongMapping, client);
-      assert.equal(
-        wrong.occurrences.find((row) => row.occurrenceId === leaderOccurrence.occurrenceId)?.reason,
-        "PersonReconciliationMissing",
-      );
-      assert.equal(
-        (
-          await client.query(
-            "SELECT count(*)::text AS count FROM public.organization_memberships WHERE membership_id=$1",
-            [reviewedOrganizationTargetId("TeamMembership", repository, "101")],
-          )
-        ).rows[0].count,
-        "0",
-      );
-    } finally {
-      await client.query("ROLLBACK");
-      client.release();
-    }
+            assert.equal(
+              wrong.occurrences.find((row) => row.occurrenceId === leaderOccurrence.occurrenceId)
+                ?.reason,
+              "PersonReconciliationMissing",
+            );
 
-    assert.equal(await targetFingerprint(provenance.pool), before);
+            const rows = yield* provenance.sql.unsafe<{ count: string }>(
+              "SELECT count(*)::text AS count FROM public.organization_memberships WHERE membership_id=$1",
+              [reviewedOrganizationTargetId("TeamMembership", repository, "101")],
+            );
+
+            assert.equal(rows[0]!.count, "0");
+
+            return yield* new RehearsalRollback();
+          }),
+        )
+        .pipe(Effect.catchTag("RehearsalRollback", () => Effect.void)),
+    );
+
+    assert.equal(await targetFingerprint(provenance.sql), before);
 
     stage = "SnapshotLocalPersonOccurrenceCollision";
     const collision = await target("organization_person_collision");
-    await seedLegacyReferences(collision.pool, identity, references);
+    await Effect.runPromise(seedLegacyReferences(collision.sql, identity, references));
 
     const priorPerson = decodePersonCohort({
       ...people,
@@ -647,7 +676,7 @@ const rehearse = async () =>
       mappings: people.mappings.filter((row) => row.sourceUserId === "legacy-user:1"),
     });
 
-    assert.equal((await importPersonCohort(collision.pool, priorPerson)).accepted, 1);
+    assert.equal((await importPersonCohort(collision.sql, priorPerson)).accepted, 1);
 
     const collidingPeople = decodePersonCohort({
       ...people,
@@ -657,12 +686,12 @@ const rehearse = async () =>
       mappings: people.mappings.filter((row) => row.sourceUserId === "legacy-user:2"),
     });
 
-    const collidingReport = await importPersonCohort(collision.pool, collidingPeople);
+    const collidingReport = await importPersonCohort(collision.sql, collidingPeople);
     assert.equal(collidingReport.accepted, 1);
     const collisionProjection = project(collidingReport, collidingPeople);
 
     const collided = await importReviewedOrganizationCohort(
-      collision.pool,
+      collision.sql,
       rehash({
         ...collisionProjection,
         mappings: {
@@ -682,18 +711,22 @@ const rehearse = async () =>
       "PersonReconciliationMissing",
     );
     assert.deepEqual(
-      (await collision.pool.query("SELECT person_id FROM public.organization_memberships")).rows,
+      await Effect.runPromise(
+        collision.sql
+          .unsafe("SELECT person_id FROM public.organization_memberships")
+          .pipe(Effect.flatMap(decodeJsonRows)),
+      ),
       [{ person_id: "legacy-person-2" }],
     );
     await assertAuthority(collision, false);
 
     stage = "ValidCrossSnapshotPersonReplay";
     const personReplay = await target("organization_person_replay");
-    await seedLegacyReferences(personReplay.pool, identity, references);
+    await Effect.runPromise(seedLegacyReferences(personReplay.sql, identity, references));
     assert.equal(
       (
         await importPersonCohort(
-          personReplay.pool,
+          personReplay.sql,
           decodePersonCohort({ ...people, snapshotId: "earlier-accepted-people" }),
         )
       ).accepted,
@@ -708,7 +741,7 @@ const rehearse = async () =>
       })),
     });
 
-    const laterReport = await importPersonCohort(personReplay.pool, laterPeople);
+    const laterReport = await importPersonCohort(personReplay.sql, laterPeople);
     assert.deepEqual(
       laterReport.occurrences
         .filter((row) => row.disposition === "Accepted")
@@ -716,22 +749,26 @@ const rehearse = async () =>
       Array(16).fill("ExactReplay"),
     );
     assert.equal(
-      (await importReviewedOrganizationCohort(personReplay.pool, project(laterReport, laterPeople)))
+      (await importReviewedOrganizationCohort(personReplay.sql, project(laterReport, laterPeople)))
         .accepted,
       9,
     );
-    await assertCanonical(personReplay.pool);
+    await assertCanonical(personReplay.sql);
     await assertAuthority(personReplay);
 
     stage = "UnownedTargetCollision";
     // The matching native team is deliberately not source-owned. It must not be adopted,
     // even though its fields match. Board and deleted-team appointments remain importable.
     const teamId = reviewedOrganizationTargetId("Team", repository, "1");
-    await provenance.pool.query(
-      "INSERT INTO public.organization_teams(team_id,department_id,name,active) VALUES($1,$2,$3,true)",
-      [teamId, "legacy-department:1", "Synthetic active team"],
+    await Effect.runPromise(
+      provenance.sql
+        .unsafe(
+          "INSERT INTO public.organization_teams(team_id,department_id,name,active) VALUES($1,$2,$3,true)",
+          [teamId, "legacy-department:1", "Synthetic active team"],
+        )
+        .pipe(Effect.flatMap(decodeJsonRows)),
     );
-    const targetConflict = await importReviewedOrganizationCohort(provenance.pool, projected);
+    const targetConflict = await importReviewedOrganizationCohort(provenance.sql, projected);
     assert.equal(
       targetConflict.occurrences.find((row) => row.occurrenceId === leaderOccurrence.occurrenceId)
         ?.reason,
@@ -739,19 +776,27 @@ const rehearse = async () =>
     );
     assert.equal(
       (
-        await provenance.pool.query(
-          "SELECT count(*)::text AS count FROM public.organization_cohort_imports WHERE target_id=$1",
-          [teamId],
+        await Effect.runPromise(
+          provenance.sql
+            .unsafe(
+              "SELECT count(*)::text AS count FROM public.organization_cohort_imports WHERE target_id=$1",
+              [teamId],
+            )
+            .pipe(Effect.flatMap(decodeCountRow)),
         )
-      ).rows[0].count,
+      )[0].count,
       "0",
     );
     assert.equal(
       (
-        await provenance.pool.query(
-          "SELECT count(*)::text AS count FROM public.organization_memberships WHERE person_id='legacy-person-1'",
+        await Effect.runPromise(
+          provenance.sql
+            .unsafe(
+              "SELECT count(*)::text AS count FROM public.organization_memberships WHERE person_id='legacy-person-1'",
+            )
+            .pipe(Effect.flatMap(decodeCountRow)),
         )
-      ).rows[0].count,
+      )[0].count,
       "0",
     );
 
@@ -789,25 +834,28 @@ const rehearse = async () =>
         snapshotId: "later-source-conflict",
         organization: repointed,
       }),
-      (cause: unknown) => cause instanceof CutoverStageFailure && cause.stage === "ReferenceSeed",
+      (cause: unknown) => Schema.is(CutoverStageFailure)(cause) && cause.stage === "ReferenceSeed",
     );
 
-    assert.equal(await targetFingerprint(primary.pool), committed);
+    assert.equal(await targetFingerprint(primary.sql), committed);
     await mysql("UPDATE vektor.team_membership SET user_id=1 WHERE id=101");
     await assert.rejects(
       importReviewedOrganizationCohort(
-        primary.pool,
+        primary.sql,
         rehash({ ...projected, transformationRevision: "different-transform" }),
       ),
     );
-    assert.equal(await targetFingerprint(primary.pool), committed);
+    assert.equal(await targetFingerprint(primary.sql), committed);
 
     stage = "NativeEditAndConcurrentReplay";
-    await primary.pool.query(`
+    await executeFixture(
+      primary.sql,
+      `
     UPDATE public.organization_memberships SET end_at='2026-09-01T00:00:00Z',revision=revision+1 WHERE person_id='legacy-person-1';
     UPDATE public.organization_memberships SET is_suspended=true,position_name='Native edited title',revision=revision+1 WHERE person_id='legacy-person-2';
-  `);
-    const nativeEdited = await targetFingerprint(primary.pool);
+      `,
+    );
+    const nativeEdited = await targetFingerprint(primary.sql);
 
     const replayed = await Promise.all([
       runLegacyServiceCutover(options),
@@ -816,9 +864,9 @@ const rehearse = async () =>
 
     assert.deepEqual(replayed[0]!.organization, first.organization);
     assert.deepEqual(replayed[1]!.organization, first.organization);
-    assert.equal(await targetFingerprint(primary.pool), nativeEdited);
+    assert.equal(await targetFingerprint(primary.sql), nativeEdited);
     await assertAuthority(primary, false);
-    await forbiddenFacts(primary.pool);
+    await forbiddenFacts(primary.sql);
 
     stage = "ConcurrentFirstImport";
     const concurrent = await target("organization_concurrent");
@@ -835,17 +883,19 @@ const rehearse = async () =>
     ]);
 
     assert.deepEqual(imported[0]!.organization, imported[1]!.organization);
-    await assertCanonical(concurrent.pool);
+    await assertCanonical(concurrent.sql);
     await assertAuthority(concurrent);
     assert.equal(
       (
-        await concurrent.pool.query(
-          "SELECT count(*)::text AS count FROM public.organization_cohort_snapshots",
+        await Effect.runPromise(
+          concurrent.sql
+            .unsafe("SELECT count(*)::text AS count FROM public.organization_cohort_snapshots")
+            .pipe(Effect.flatMap(decodeCountRow)),
         )
-      ).rows[0].count,
+      )[0].count,
       "1",
     );
-    await forbiddenFacts(concurrent.pool);
+    await forbiddenFacts(concurrent.sql);
 
     stage = "ExplicitOrganizationOmission";
     const omitted = await target("organization_omitted");
@@ -862,15 +912,19 @@ const rehearse = async () =>
     assert.equal(omittedReport.historicalService.accepted, 1);
     assert.deepEqual(
       (
-        await omitted.pool.query(`SELECT
-    (SELECT count(*) FROM public.organization_memberships)::text AS appointments,
-    (SELECT count(*) FROM public.organization_cohort_snapshots)::text AS snapshots
-  `)
-      ).rows[0],
+        await Effect.runPromise(
+          omitted.sql
+            .unsafe(`SELECT
+          (SELECT count(*)::text FROM public.organization_memberships)::text AS appointments,
+          (SELECT count(*)::text FROM public.organization_cohort_snapshots)::text AS snapshots
+        `)
+            .pipe(Effect.flatMap(decodeJsonRows)),
+        )
+      )[0],
       { appointments: "0", snapshots: "0" },
     );
     await assertAuthority(omitted, false);
-    await forbiddenFacts(omitted.pool);
+    await forbiddenFacts(omitted.sql);
 
     stage = "OrganizationWithoutHistoricalService";
     await mysql("DELETE FROM vektor.assistant_history");
@@ -898,9 +952,9 @@ const rehearse = async () =>
     assert.ok(organizationOnlyReport.organization !== "NotRequested");
     assert.equal(organizationOnlyReport.organization.accepted, 9);
     assert.equal(organizationOnlyReport.historicalService.stage, "NotImported");
-    await assertCanonical(organizationOnly.pool);
+    await assertCanonical(organizationOnly.sql);
     await assertAuthority(organizationOnly);
-    await forbiddenFacts(organizationOnly.pool);
+    await forbiddenFacts(organizationOnly.sql);
 
     stage = "EmptyRequestedOrganization";
     // Keep another selected cohort present, so this proves the Organization guard, not
@@ -909,16 +963,16 @@ const rehearse = async () =>
       "INSERT INTO vektor.assistant_history VALUES (301,1,1,1,1,'8','Bolk 1','Mandag'); DELETE FROM vektor.team_membership; DELETE FROM vektor.executive_board_membership",
     );
     const emptyOrganization = await readLegacySourceSnapshot(sourceUrl, "Include", "NotRequested");
-    const beforeEmpty = await targetFingerprint(organizationOnly.pool);
+    const beforeEmpty = await targetFingerprint(organizationOnly.sql);
     await assert.rejects(
       runLegacyServiceCutover({
         ...organizationOnlyOptions,
         organization: reviewFor(emptyOrganization),
       }),
       (cause: unknown) =>
-        cause instanceof CutoverStageFailure && cause.stage === "OrganizationProjection",
+        Schema.is(CutoverStageFailure)(cause) && cause.stage === "OrganizationProjection",
     );
-    assert.equal(await targetFingerprint(organizationOnly.pool), beforeEmpty);
+    assert.equal(await targetFingerprint(organizationOnly.sql), beforeEmpty);
     refusals.push("empty-requested-organization");
 
     return {

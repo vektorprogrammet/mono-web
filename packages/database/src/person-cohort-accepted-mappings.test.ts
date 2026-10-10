@@ -1,51 +1,34 @@
-import { createHash } from "node:crypto";
-import { PGlite } from "@electric-sql/pglite";
-import { btree_gist } from "@electric-sql/pglite/contrib/btree_gist";
-import { PGLiteSocketServer } from "@electric-sql/pglite-socket";
-import { Pool } from "pg";
 import { expect, layer } from "@effect/vitest";
-import { canonicalJson } from "@vektorprogrammet/domain/shared-kernel";
+import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import { PersonId } from "@vektorprogrammet/domain/organization";
-import { Effect, Exit, FileSystem, flow, Path, Schema } from "effect";
+import { Effect, Exit, FileSystem, flow, Path, Redacted } from "effect";
 import { selectDatabaseMigration } from "./migrations.js";
 import { decodePersonCohort, importPersonCohort, PersonMapping } from "./person-cohort.js";
 import { TestPlatform } from "./test-support/platform.js";
+import {
+  pgliteSocketDatabase,
+  postgresTestClient,
+  refusingRejectedStatements,
+} from "./test-support/postgres.js";
+import { NativeDatabaseStartupOptions } from "./search-path.js";
 
-const digest = flow(Schema.decodeUnknownSync(Schema.Json), (value) =>
-  createHash("sha256").update(canonicalJson(value)).digest("hex"),
-);
+const digest = flow(canonicalJsonBytes, sha256Hex);
 
-const readMigrationSource = (url: URL) =>
-  Effect.gen(function* () {
-    const path = yield* Path.Path;
-    const fileSystem = yield* FileSystem.FileSystem;
+const readMigrationSource = Effect.fnUntraced(function* (url: URL) {
+  const path = yield* Path.Path;
+  const fileSystem = yield* FileSystem.FileSystem;
 
-    return yield* fileSystem.readFileString(yield* path.fromFileUrl(url));
-  });
+  return yield* fileSystem.readFileString(yield* path.fromFileUrl(url));
+});
 
 layer(TestPlatform, { excludeTestServices: true })((it) => {
   it.effect(
     "backfills only original Person bindings and requires matching input to recover an older replay",
     () =>
       Effect.gen(function* () {
-        // Released in reverse: the pool ends, the socket server stops, the PGlite closes.
-        const database = yield* Effect.acquireRelease(
-          Effect.promise(() => PGlite.create({ extensions: { btree_gist } })),
-          (database) => Effect.promise(() => database.close()),
-        );
-
-        const server = yield* Effect.acquireRelease(
-          Effect.sync(
-            () =>
-              new PGLiteSocketServer({
-                db: database,
-                host: "127.0.0.1",
-                port: 0,
-                maxConnections: 1,
-              }),
-          ),
-          (server) => Effect.promise(() => server.stop()),
-        );
+        // Released in reverse: the native client ends, the socket server stops, then PGlite closes.
+        const socket = yield* pgliteSocketDatabase();
+        const { database, server } = socket;
 
         for (const migration of selectDatabaseMigration("65_person-cohort-accepted-mappings")
           .preceding) {
@@ -127,48 +110,53 @@ layer(TestPlatform, { excludeTestServices: true })((it) => {
             ),
           )).rows,
         ).toEqual([{ snapshot_key: originalKey, source_user_id: "user" }]);
-        yield* Effect.promise(() => server.start());
 
-        const pool = yield* Effect.acquireRelease(
-          Effect.sync(
-            () =>
-              new Pool({
-                connectionString: `postgres://postgres@${server.getServerConn()}/postgres`,
-                max: 1,
-              }),
-          ),
-          (pool) => Effect.promise(() => pool.end()),
+        return yield* refusingRejectedStatements(
+          socket,
+          Effect.gen(function* () {
+            yield* Effect.promise(() => server.start());
+
+            const sql = yield* postgresTestClient({
+              url: Redacted.make(`postgres://postgres@${server.getServerConn()}/postgres`),
+              maxConnections: 1,
+              minConnections: 0,
+              idleTimeout: "10 seconds",
+              connectionTTL: undefined,
+              prepare: false,
+              startupOptions: NativeDatabaseStartupOptions,
+            });
+
+            expect(
+              yield* Effect.flip(importPersonCohort(sql, { ...olderReplay, mappings: [] })),
+            ).toMatchObject({ code: "SnapshotConflict" });
+            expect((yield* importPersonCohort(sql, olderReplay)).occurrences).toEqual([
+              { occurrenceId: "reused-row", disposition: "Accepted", reason: "ExactReplay" },
+            ]);
+            expect(
+              (yield* Effect.promise(() =>
+                database.query(
+                  "SELECT source_user_id FROM person_cohort_accepted_mappings WHERE snapshot_key=$1",
+                  [laterKey],
+                ),
+              )).rows,
+            ).toEqual([{ source_user_id: "user" }]);
+            expect(
+              (yield* Effect.promise(() =>
+                database.query("SELECT first_name FROM person_profiles WHERE person_id='person'"),
+              )).rows,
+            ).toEqual([{ first_name: "Native" }]);
+
+            for (const mutation of [
+              "UPDATE person_cohort_accepted_mappings SET source_user_id='changed'",
+              "DELETE FROM person_cohort_accepted_mappings",
+              "TRUNCATE person_cohort_accepted_mappings",
+            ]) {
+              const rejected = yield* Effect.exit(Effect.tryPromise(() => database.exec(mutation)));
+
+              expect(Exit.isFailure(rejected)).toBe(true);
+            }
+          }),
         );
-
-        expect(
-          yield* Effect.flip(importPersonCohort(pool, { ...olderReplay, mappings: [] })),
-        ).toMatchObject({ code: "SnapshotConflict" });
-        expect((yield* importPersonCohort(pool, olderReplay)).occurrences).toEqual([
-          { occurrenceId: "reused-row", disposition: "Accepted", reason: "ExactReplay" },
-        ]);
-        expect(
-          (yield* Effect.promise(() =>
-            database.query(
-              "SELECT source_user_id FROM person_cohort_accepted_mappings WHERE snapshot_key=$1",
-              [laterKey],
-            ),
-          )).rows,
-        ).toEqual([{ source_user_id: "user" }]);
-        expect(
-          (yield* Effect.promise(() =>
-            database.query("SELECT first_name FROM person_profiles WHERE person_id='person'"),
-          )).rows,
-        ).toEqual([{ first_name: "Native" }]);
-
-        for (const mutation of [
-          "UPDATE person_cohort_accepted_mappings SET source_user_id='changed'",
-          "DELETE FROM person_cohort_accepted_mappings",
-          "TRUNCATE person_cohort_accepted_mappings",
-        ]) {
-          const rejected = yield* Effect.exit(Effect.tryPromise(() => database.exec(mutation)));
-
-          expect(Exit.isFailure(rejected)).toBe(true);
-        }
       }),
     15_000,
   );

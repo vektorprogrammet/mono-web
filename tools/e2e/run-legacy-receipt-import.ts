@@ -1,3 +1,4 @@
+import { webcrypto } from "node:crypto";
 import { lstat, mkdir, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, resolve } from "node:path";
 import process from "node:process";
@@ -6,6 +7,7 @@ import { Database } from "@vektorprogrammet/database";
 import { readPrivateCohortJson } from "@vektorprogrammet/database/cohort-cli";
 import { databaseSchemaRevision } from "@vektorprogrammet/database/migrations";
 import { DatabaseRuntimeLive } from "@vektorprogrammet/database/runtime";
+import { NativeDatabaseStartupOptions } from "@vektorprogrammet/database/search-path";
 import { ReceiptCohortFailure, ReceiptReview } from "@vektorprogrammet/domain/receipt";
 import { Console, Effect, Layer, Predicate, Redacted, Schema } from "effect";
 import {
@@ -147,14 +149,17 @@ export const runLegacyReceiptImport = async (input: LegacyReceiptImportOptions) 
 
     stage = "KeyRead";
 
-    const cipher = decodePaymentAccountCipher(
-      await Effect.runPromise(
-        readPrivateCohortJson(
-          options.paymentKeyPath,
-          () => new ReceiptCohortFailure({ code: "InvalidSnapshot" }),
-          4096,
+    const cipher = await Effect.runPromise(
+      decodePaymentAccountCipher(
+        webcrypto.subtle,
+        await Effect.runPromise(
+          readPrivateCohortJson(
+            options.paymentKeyPath,
+            () => new ReceiptCohortFailure({ code: "InvalidSnapshot" }),
+            4096,
+          ),
         ),
-      ),
+      ).pipe(Effect.provide(BunServices.layer)),
     );
 
     stage = "Transformation";
@@ -168,7 +173,7 @@ export const runLegacyReceiptImport = async (input: LegacyReceiptImportOptions) 
     stage = "SourceRead";
     const source = await readLegacySourceSnapshot(sourceUrl, options.organizationSource, "Include");
     stage = "Projection";
-    const snapshot = buildLegacyReceiptSnapshot(source, review, cipher);
+    const snapshot = await Effect.runPromise(buildLegacyReceiptSnapshot(source, review, cipher));
     const accounts = legacyReceiptAccounts(source);
     stage = "FileRoots";
     await privateDirectory(options.archiveRoot, false);
@@ -239,6 +244,7 @@ export const runLegacyReceiptImport = async (input: LegacyReceiptImportOptions) 
                 caEnv === null ? undefined : { ca: process.env[caEnv], rejectUnauthorized: true },
               applicationName: "reviewed-legacy-receipt-import",
               maxConnections: 2,
+              startupOptions: NativeDatabaseStartupOptions,
             }),
           ),
         ),

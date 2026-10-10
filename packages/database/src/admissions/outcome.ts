@@ -1,5 +1,9 @@
+/**
+ * EX-0021: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { Effect, Option, Predicate, Schema } from "effect";
-import { SqlSchema } from "effect/unstable/sql";
+import { SqlSchema } from "effect/sql";
 import type { OrganizationPersonAuthority, PersonId } from "@vektorprogrammet/domain/organization";
 import type { OutcomeMailRenderer } from "@vektorprogrammet/domain/admissions/template";
 import {
@@ -11,11 +15,11 @@ import {
   AdmissionOutcomeScopes,
   admissionOutcomePermission,
   canAnnounceAdmissionOutcome,
-  effectiveAdmissionOutcome,
   type AdmissionsOperations,
 } from "@vektorprogrammet/domain/admissions";
 import { Database, type DatabaseOperations } from "../service.js";
 import { OutcomeMailQueueFailure, queueOutcomeMail } from "./outcome-mail-queue.js";
+import { lockApplicationDecisionWithSql } from "./evidence.js";
 
 const findDepartments = SqlSchema.findAll({
   Request: Schema.Void,
@@ -54,15 +58,9 @@ const readScopes = Effect.fnUntraced(function* (authority: OrganizationPersonAut
   return { departments, semesters: yield* findSemesters() };
 });
 
-/**
- * Canonical application and applicant fields stay in their owning tables. The rows carry the
- * highest recorded revision as `outcome`; `readEntries` turns it into the effective outcome.
- *
- * The basis is the effective recommendation of the application's one interview
- * (`recruitment_interview_effective_assessments`: a correction replaces the conduct), else a
- * returning-assistant registration, else nothing. `placed` is an active
- * `assistant_placements` row of the account-linked person in the application's department and
- * semester. The revision counts the recorded revisions and the announcement.
+/** Public outcomes consume the application's canonical evidence view. Closed decisions use
+ * their frozen citation; announcements remain final even when live assessment evidence changes.
+ * Canonical identity and placement fields remain in their owning tables.
  */
 const readRows = SqlSchema.findAll({
   Request: Schema.Union([
@@ -82,17 +80,10 @@ const readRows = SqlSchema.findAll({
       period.department_id AS "departmentId", period.semester_id AS "semesterId",
       applicant.first_name AS "firstName", applicant.last_name AS "lastName", applicant.email, applicant.phone,
       application.year_of_study AS "yearOfStudy",
-      CASE
-        WHEN interview.recommendation IS NOT NULL THEN interview.recommendation
-        WHEN EXISTS (
-          SELECT 1 FROM public.admission_returning_registrations AS registration
-          WHERE registration.application_id = application.application_id
-        ) THEN 'Returning'
-        ELSE 'Unreviewed'
-      END AS basis,
+      evidence.basis,
       CASE WHEN announcement.application_id IS NULL THEN 'ApplicationSubmitted'
         ELSE 'OutcomeAnnounced' END AS state,
-      current.outcome,
+      evidence.outcome,
       EXISTS (
         SELECT 1 FROM public.applicant_account_links AS link
         INNER JOIN public.assistant_placements AS placement ON placement.person_id = link.person_id
@@ -105,12 +96,7 @@ const readRows = SqlSchema.findAll({
     INNER JOIN public.admission_periods AS period ON period.admission_period_id = application.admission_period_id
       AND period.department_id = application.department_id
     INNER JOIN public.admission_applicants AS applicant ON applicant.applicant_id = application.applicant_id
-    LEFT JOIN LATERAL (
-      SELECT assessment.recommendation FROM public.recruitment_interviews AS recruitment_interview
-      INNER JOIN public.recruitment_interview_effective_assessments AS assessment
-        ON assessment.interview_id = recruitment_interview.interview_id
-      WHERE recruitment_interview.application_id = application.application_id
-    ) AS interview ON true
+    INNER JOIN public.application_admission_evidence AS evidence ON evidence.application_id=application.application_id
     LEFT JOIN LATERAL (
       SELECT outcome.outcome, outcome.revision FROM public.admission_application_outcomes AS outcome
       WHERE outcome.application_id = application.application_id
@@ -122,12 +108,7 @@ const readRows = SqlSchema.findAll({
     }),
 });
 
-const readEntries = (selection: Parameters<typeof readRows>[0]) =>
-  readRows(selection).pipe(
-    Effect.map((rows) =>
-      rows.map((row) => ({ ...row, outcome: effectiveAdmissionOutcome(row.basis, row.outcome) })),
-    ),
-  );
+const readEntries = (selection: Parameters<typeof readRows>[0]) => readRows(selection);
 
 const readEntry = (applicationId: AdmissionOutcomeEntry["applicationId"]) =>
   readEntries({ applicationId }).pipe(
@@ -264,10 +245,7 @@ const lockOutcomeScope = (applicationId: AdmissionOutcomeEntry["applicationId"])
 
     if (department.length === 0) return yield* refuse("scope.invalid", 422);
 
-    yield* Database.use(
-      (sql) =>
-        sql`SELECT application_id FROM public.admission_applications WHERE application_id = ${applicationId} FOR UPDATE`,
-    );
+    yield* Database.use((sql) => lockApplicationDecisionWithSql(sql, applicationId));
   });
 
 /**

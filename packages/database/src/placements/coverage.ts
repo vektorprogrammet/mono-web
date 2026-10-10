@@ -1,5 +1,9 @@
+/**
+ * EX-0021: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { Match, Effect, Schema } from "effect";
-import type * as Statement from "effect/unstable/sql/Statement";
+import type * as Statement from "effect/sql/Statement";
 import { Database, type DatabaseOperations } from "../service.js";
 import {
   CoverageBoard,

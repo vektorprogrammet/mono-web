@@ -6,7 +6,6 @@ import {
 } from "@vektorprogrammet/domain/content";
 import { observePostgresStatements } from "../src/test-support/observe-postgres.js";
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
 import {
   createDraftPostgres,
   publishPostgres,
@@ -21,8 +20,20 @@ import {
 import { Database, type DatabaseOperations } from "../src/service.js";
 import { OrganizationLive } from "@vektorprogrammet/database/organization";
 import { ProfileLive } from "@vektorprogrammet/database/profile";
-import { Clock, Config, Deferred, Effect, Fiber, Layer, Predicate, Redacted, Schema } from "effect";
+import {
+  Clock,
+  Config,
+  Crypto,
+  Deferred,
+  Effect,
+  Fiber,
+  Layer,
+  Predicate,
+  Redacted,
+  Schema,
+} from "effect";
 import { DatabaseLive } from "../src/layers.js";
+import { NativeDatabaseStartupOptions } from "../src/search-path.js";
 import { TestPlatform } from "../src/test-support/platform.js";
 
 const makeProofLayer = (url: Redacted.Redacted<string>, applicationName: string) => {
@@ -30,6 +41,7 @@ const makeProofLayer = (url: Redacted.Redacted<string>, applicationName: string)
     url: Redacted.make(Redacted.value(url)),
     applicationName,
     maxConnections: 1,
+    startupOptions: NativeDatabaseStartupOptions,
   });
 
   const organizationLayer = OrganizationLive.pipe(Layer.provide(databaseLayer));
@@ -158,7 +170,8 @@ const program = Effect.scoped(
   Effect.gen(function* () {
     const databaseUrl = yield* Config.Redacted("DATABASE_URL");
     assertDisposablePostgres(databaseUrl);
-    const runId = `${(yield* Clock.currentTimeMillis).toString(36)}-${randomUUID()}`;
+    const crypto = yield* Crypto.Crypto;
+    const runId = `${(yield* Clock.currentTimeMillis).toString(36)}-${yield* crypto.randomUUIDv4}`;
     const personId = `content-proof-admin-${runId}`;
 
     const authorizationInstant = OrganizationAuthorityInstantSchema.make(

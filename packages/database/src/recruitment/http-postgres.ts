@@ -2,6 +2,7 @@ import {
   guardInterviewApplicantIdentity,
   readInterviewApplicantIdentity,
 } from "./conduct-identity.js";
+import { invitationOpen } from "./invitation-open.js";
 
 import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
 import { Database, type DatabaseOperations } from "../service.js";
@@ -105,7 +106,7 @@ export const readRecruitmentInvitationHttpSnapshotPostgres = (
           ON schedule.interview_id = invitation.interview_id
           AND schedule.schedule_revision = invitation.schedule_revision
         WHERE invitation.capability_sha256 = ${capabilitySha256}
-          AND invitation.superseded_at IS NULL
+          AND ${invitationOpen(database)}
       `.pipe(
         Effect.catchTag("SqlError", (cause) =>
           Effect.fail(persistenceError("read recruitment invitation HTTP snapshot", cause)),

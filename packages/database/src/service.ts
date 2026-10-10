@@ -1,9 +1,13 @@
+/**
+ * EX-0021: required public native SQL APIs in exact stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { Schema, Context, Data, Effect } from "effect";
-import type * as Migrator from "effect/unstable/sql/Migrator";
-import type * as SqlClient from "effect/unstable/sql/SqlClient";
-import type { Row } from "effect/unstable/sql/SqlConnection";
-import type * as Statement from "effect/unstable/sql/Statement";
-import { isSqlError, type SqlError } from "effect/unstable/sql/SqlError";
+import type * as Migrator from "effect/sql/Migrator";
+import type * as SqlClient from "effect/sql/SqlClient";
+import type { Row } from "effect/sql/SqlConnection";
+import type * as Statement from "effect/sql/Statement";
+import { isSqlError, type SqlError } from "effect/sql/SqlError";
 
 export class DatabaseUnavailable extends Data.TaggedError("DatabaseUnavailable")<{
   readonly operation: "health";
@@ -16,9 +20,9 @@ export class DatabaseMigrationExternallyManaged extends Data.TaggedError(
 ) {}
 
 /**
- * A value bound as one SQL parameter. node-postgres serializes any other object with
- * `JSON.stringify`, so a DateTime, Option, or Redacted would bind its JSON text: bind the
- * encoded value instead, such as an `Instant` encoded as RFC 3339 text.
+ * A value bound as one SQL parameter. The native driver rejects unencoded objects.
+ * Bind the encoded value, such as an Instant encoded as RFC 3339 text.
+ * JSON values use Database.json. Array predicates use the native SQL helpers.
  */
 export type SqlParameter =
   | string
@@ -32,11 +36,11 @@ export type SqlParameter =
   | ReadonlyArray<SqlParameter>;
 
 /**
- * SqlClient whose tagged template accepts only bindable parameters, fragments, and helpers.
- * The mapped base drops SqlClient's template signature, which accepts any argument; the
- * narrower signature still lets a DatabaseOperations stand in wherever a SqlClient is expected.
+ * The native SqlClient capability with bindable domain parameters and database operations.
+ * Inheriting SqlClient preserves its runtime identity, reservations, transforms, and channels.
+ * The domain overload documents encoded SQL inputs without erasing the native capability.
  */
-export interface DatabaseOperations extends Omit<SqlClient.SqlClient, never> {
+export interface DatabaseOperations extends SqlClient.SqlClient {
   <A extends object = Row>(
     strings: TemplateStringsArray,
     ...args: ReadonlyArray<SqlParameter | Statement.Fragment | Statement.Helper>

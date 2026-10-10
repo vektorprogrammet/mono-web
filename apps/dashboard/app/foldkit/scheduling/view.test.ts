@@ -1,6 +1,8 @@
 import { Dialog } from "@foldkit/ui";
+import { AssessmentCorrection } from "@vektorprogrammet/domain/recruitment";
+import { openObservation, expiredObservation } from "../recruitment-maintenance/test-support";
 import { Predicate } from "effect";
-import { RecruitmentInterviewConductObservationSchema } from "@vektorprogrammet/http-api"
+import { RecruitmentInterviewConductObservationSchema } from "@vektorprogrammet/http-api";
 import { IdempotencyKey, SchedulingBoard, StrongETag } from "@vektorprogrammet/http-api";
 import { Scene } from "foldkit/test";
 import { AsyncData, FieldValidation } from "foldkit";
@@ -92,6 +94,12 @@ const detailFor = (state: "Completed" | "Cancelled") =>
     revision: 2,
     canFinalize: false,
     canCancel: false,
+    assessmentCorrection: AssessmentCorrection.cases.Ordinary.make({
+      sequence: 0,
+      canCorrect: state === "Completed",
+      canReopen: false,
+      canClose: false,
+    }),
   });
 
 const terminalModel = (
@@ -150,7 +158,8 @@ const terminalModel = (
           suitability: FieldValidation.NotValidated({ value: String(detail.score.suitability) }),
         };
 
-  if (!Predicate.isTagged(initial, "Ready") || score === undefined) throw new Error("expected ready model");
+  if (!Predicate.isTagged(initial, "Ready") || score === undefined)
+    throw new Error("expected ready model");
 
   const model: ReadyModel = {
     ...initial,
@@ -162,8 +171,6 @@ const terminalModel = (
 
   return model;
 };
-
-
 
 const config = { update: updateFor(commandsFor(createBrowserRecruitmentClient())), view };
 
@@ -183,7 +190,9 @@ describe("Foldkit scheduling conduct view", () => {
       room: FieldValidation.NotValidated({ value: "Retained replacement room" }),
     };
 
-    Scene.scene(config, Scene.given(committed),
+    Scene.scene(
+      config,
+      Scene.given(committed),
       Scene.Mount.resolve(Dialog.AcquireResources, Dialog.Message.SucceededAcquireResources()),
       Scene.expect(Scene.label("Rom")).toHaveValue("Retained replacement room"),
       Scene.expect(Scene.label("Rom")).toBeDisabled(),
@@ -197,30 +206,49 @@ describe("Foldkit scheduling conduct view", () => {
 
     if (!Predicate.isTagged(data, "Some")) throw new Error("expected board");
 
-    const board = S.decodeUnknownSync(SchedulingBoard)({ ...data.value, interviews: data.value.interviews.map((interview) => ({
-      ...interview, responseState: "RequestedNewTime", responseMessage: "Etter klokken fire, takk.",
-    })) });
+    const board = S.decodeUnknownSync(SchedulingBoard)({
+      ...data.value,
+      interviews: data.value.interviews.map((interview) => ({
+        ...interview,
+        responseState: "RequestedNewTime",
+        responseMessage: "Etter klokken fire, takk.",
+      })),
+    });
 
-    const initial = init(LoadedSchedulingInput.make({ board }), IdempotencyKey.make("replacement-view-test-command"));
-    const opened = config.update(initial, OpenedSchedule({ interviewId: board.interviews[0]!.interviewId })).model;
-    Scene.scene(config, Scene.given(opened),
+    const initial = init(
+      LoadedSchedulingInput.make({ board }),
+      IdempotencyKey.make("replacement-view-test-command"),
+    );
+
+    const opened = config.update(
+      initial,
+      OpenedSchedule({ interviewId: board.interviews[0]!.interviewId }),
+    ).model;
+
+    Scene.scene(
+      config,
+      Scene.given(opened),
       Scene.Mount.resolve(Dialog.AcquireResources, Dialog.Message.SucceededAcquireResources()),
-      Scene.expect(Scene.selector('dialog .fs-details')).toContainText("Etter klokken fire, takk."),
-      Scene.expect(Scene.selector('dialog .fs-details')).toContainText(schedule.room),
+      Scene.expect(Scene.selector("dialog .fs-details")).toContainText("Etter klokken fire, takk."),
+      Scene.expect(Scene.selector("dialog .fs-details")).toContainText(schedule.room),
       Scene.expect(Scene.label("Tidspunkt")).toHaveValue(""),
       Scene.expect(Scene.selector('dialog button[type="submit"]')).toBeEnabled(),
     );
   });
   it("permits correcting completed assessments while cancelled answers stay read-only", () => {
-    Scene.scene(config, Scene.given(terminalModel("Completed")),
-      Scene.expect(Scene.role("heading", {name: "Planlegg intervjuer"})).toBeVisible(),
+    Scene.scene(
+      config,
+      Scene.given(terminalModel("Completed")),
+      Scene.expect(Scene.role("heading", { name: "Planlegg intervjuer" })).toBeVisible(),
       Scene.expect(Scene.selector("#question-question-text")).toHaveValue("Persisted answer"),
       Scene.expect(Scene.selector("#question-question-text")).toBeEnabled(),
       Scene.expect(Scene.selector("#score-explanatoryPower")).toHaveValue("7"),
       Scene.expect(Scene.selector("#score-roleModel")).toHaveValue("8"),
       Scene.expect(Scene.selector("#score-suitability")).toHaveValue("9"),
     );
-    Scene.scene(config, Scene.given(terminalModel("Cancelled")),
+    Scene.scene(
+      config,
+      Scene.given(terminalModel("Cancelled")),
       Scene.expect(Scene.selector("#question-question-text")).toBeDisabled(),
       Scene.expect(Scene.selector("#question-question-check-0")).toBeDisabled(),
       Scene.expect(Scene.selector("#question-question-check-1")).toBeDisabled(),
@@ -228,29 +256,81 @@ describe("Foldkit scheduling conduct view", () => {
     );
   });
   it("renders the co-interviewer from the board projection", () => {
-    Scene.scene(config, Scene.given(terminalModel("Completed", {personId: "person-co-interviewer", displayName: "Cora Medintervjuer"})),
+    Scene.scene(
+      config,
+      Scene.given(
+        terminalModel("Completed", {
+          personId: "person-co-interviewer",
+          displayName: "Cora Medintervjuer",
+        }),
+      ),
       Scene.expect(Scene.text("Medintervjuer: Cora Medintervjuer")).toBeVisible(),
     );
   });
   it("blocks conduct edits while a refreshed observation is pending", () => {
-    Scene.scene(config, Scene.given({...terminalModel("Completed"), conduct: ConductData.Refreshing({data: detailFor("Completed")})}),
+    Scene.scene(
+      config,
+      Scene.given({
+        ...terminalModel("Completed"),
+        conduct: ConductData.Refreshing({ data: detailFor("Completed") }),
+      }),
       Scene.expect(Scene.selector("#question-question-text")).toBeDisabled(),
       Scene.expect(Scene.selector("#score-explanatoryPower")).toBeDisabled(),
       Scene.expect(Scene.selector("#question-question-check-0")).toBeDisabled(),
     );
   });
   it("associates the native answer with its visible label and question legend", () => {
-    Scene.scene(config, Scene.given(terminalModel("Completed")),
+    Scene.scene(
+      config,
+      Scene.given(terminalModel("Completed")),
       Scene.expect(Scene.label("Svar")).toHaveId("question-question-text"),
-      Scene.expect(Scene.selector("#question-question-text-legend")).toHaveText("1. Hva motiverer deg?"),
+      Scene.expect(Scene.selector("#question-question-text-legend")).toHaveText(
+        "1. Hva motiverer deg?",
+      ),
     );
   });
   it("shows stored checkbox answers without allowing cancelled interview edits", () => {
-    Scene.scene(config, Scene.given(terminalModel("Cancelled")),
+    Scene.scene(
+      config,
+      Scene.given(terminalModel("Cancelled")),
       Scene.expect(Scene.selector("#question-question-check-0")).toBeChecked(),
       Scene.expect(Scene.selector("#question-question-check-1")).not.toBeChecked(),
       Scene.expect(Scene.selector("#question-question-check-0")).toBeDisabled(),
       Scene.expect(Scene.selector("#question-question-check-1")).toBeDisabled(),
     );
+  });
+});
+
+describe("R2 correction view permission negative controls", () => {
+  it("completed detail remains readable but its answers, score and correction action follow the server flag", () => {
+    const source = terminalModel("Completed");
+    const detail = detailFor("Completed");
+
+    for (const assessmentCorrection of [
+      AssessmentCorrection.cases.Closed.make({
+        sequence: 2,
+        canCorrect: false,
+        canReopen: false,
+        canClose: false,
+      }),
+      openObservation(),
+      expiredObservation(),
+    ]) {
+      Scene.scene(
+        config,
+        Scene.given({
+          ...source,
+          conduct: ConductData.Success({ data: { ...detail, assessmentCorrection } }),
+        }),
+        Scene.expect(Scene.role("heading", { name: "Intervju med Ada Lovelace" })).toBeVisible(),
+        Scene.expect(Scene.selector("#question-question-text")).toHaveValue("Persisted answer"),
+        Scene.expect(Scene.selector("#question-question-text")).toBeDisabled(),
+        Scene.expect(Scene.selector("#score-explanatoryPower")).toBeDisabled(),
+        Scene.expect(Scene.role("button", { name: "Rett intervju" })).toBeDisabled(),
+        Scene.expect(Scene.selector('[aria-label="Rettingsvindu"]')).toContainText(
+          `Vinduversjon ${assessmentCorrection.sequence}`,
+        ),
+      );
+    }
   });
 });

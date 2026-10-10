@@ -1,3 +1,7 @@
+/**
+ * EX-0027: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { type Server } from "bun";
 /** Spec0054.2: real PostgreSQL, HTTP acknowledgement mailbox and production browser journey. */
 import assert from "node:assert/strict";
@@ -9,7 +13,7 @@ import { join } from "node:path";
 import { createRequire } from "node:module";
 import process from "node:process";
 import { Predicate, Console, Effect, Layer, Schema } from "effect";
-import { FetchHttpClient, type HttpClient } from "effect/unstable/http";
+import { FetchHttpClient, type HttpClient } from "effect/http";
 import { MailDeliveryRequest, Mail } from "../../packages/domain/src/mail.js";
 import { stopOwnedProcess } from "./owned-process.js";
 import {
@@ -67,7 +71,7 @@ const wait = async (test: () => Promise<boolean>) => {
   for (let i = 0; i < 150; i++) {
     try {
       if (await test()) return;
-    } catch {}
+    } catch { }
 
     await new Promise((ok) => setTimeout(ok, 100));
   }
@@ -116,8 +120,8 @@ try {
     OAUTH_DASHBOARD_ORIGIN: dashboardOrigin,
     OAUTH_NATIVE_API_RESOURCE: "urn:vektorprogrammet:native-api",
     PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
-  PASSWORD_RESET_DELIVERY_MODE: "disabled",
-  RECEIPT_DELIVERY_MODE: "disabled",
+    PASSWORD_RESET_DELIVERY_MODE: "disabled",
+    RECEIPT_DELIVERY_MODE: "disabled",
     JOURNEY_SEED_PG_URL: pg,
     API_URL: canonicalOrigin,
     VITE_API_URL: canonicalOrigin,
@@ -210,15 +214,15 @@ try {
     Effect.runPromise(
       Mail.use((mail) =>
         drainPasswordResetMail(pool,
-        {
-          oauth: {
-            canonicalOrigin,
-            dashboardOrigin,
-            nativeApiResource: "urn:vektorprogrammet:native-api",
+          {
+            oauth: {
+              canonicalOrigin,
+              dashboardOrigin,
+              nativeApiResource: "urn:vektorprogrammet:native-api",
+            },
           },
-        },
-        mail,
-        "recovery@example.invalid",),
+          mail,
+          "recovery@example.invalid",),
       ).pipe(Effect.provide(provider.pipe(Layer.provide(FetchHttpClient.layer)))),
     );
 
@@ -570,9 +574,9 @@ try {
 } catch (error) {
   let text = page
     ? await page
-        .locator("body")
-        .innerText()
-        .catch(() => "")
+      .locator("body")
+      .innerText()
+      .catch(() => "")
     : "";
 
   for (const secret of secrets) text = text.replaceAll(secret, "[redacted]");
@@ -582,17 +586,17 @@ try {
         failure: error instanceof Error ? error.name : "Failure",
         assertion:
           error !== null &&
-          (error === null || Predicate.isObjectOrArray(error)) &&
-          "actual" in error &&
-          "expected" in error
+            (error === null || Predicate.isObjectOrArray(error)) &&
+            "actual" in error &&
+            "expected" in error
             ? {
-                actual: Predicate.isNumber(error.actual)
-                  ? error.actual
-                  : Object.prototype.toString.call(error.actual),
-                expected: Predicate.isNumber(error.expected)
-                  ? error.expected
-                  : Object.prototype.toString.call(error.expected),
-              }
+              actual: Predicate.isNumber(error.actual)
+                ? error.actual
+                : Object.prototype.toString.call(error.actual),
+              expected: Predicate.isNumber(error.expected)
+                ? error.expected
+                : Object.prototype.toString.call(error.expected),
+            }
             : null,
         gates,
         submissions,

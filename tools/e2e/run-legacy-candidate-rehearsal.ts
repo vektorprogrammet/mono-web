@@ -1,5 +1,9 @@
+/**
+ * EX-0028: required public native SQL APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import assert from "node:assert/strict";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, webcrypto } from "node:crypto";
 import {
   chmod,
   cp,
@@ -26,7 +30,9 @@ import {
 import { CurrentAssignmentReview } from "@vektorprogrammet/domain/placements";
 import * as BunServices from "@effect/platform-bun/BunServices";
 import { Console, Effect, Schema } from "effect";
-import type { Pool } from "pg";
+import type { DatabaseOperations } from "@vektorprogrammet/database";
+import { executePostgresMigration } from "@vektorprogrammet/database/postgres-migration-statements";
+import { SqlClient } from "effect/sql";
 import * as PaymentCustody from "@vektorprogrammet/backend/receipt/payment-account";
 import { buildLegacyReferences } from "./legacy-cutover-references";
 import {
@@ -138,14 +144,13 @@ const privateJson = async (path: string, value: Schema.Json): Promise<void> => {
   await writeFile(path, JSON.stringify(value) + "\n", { mode: 0o600, flag: "wx" });
 };
 
-const storedReceipts = async (pool: Pool) =>
-  Schema.decodeSync(Schema.Array(StoredReceipt))(
-    (
-      await pool.query(`
- SELECT receipt_id,visual_id,owner_person_id,description,payment_account_ciphertext,file_ref,file_object_key,file_sha256
- FROM public.economy_receipts ORDER BY visual_id
-`)
-    ).rows,
+const storedReceipts = (sql: DatabaseOperations) =>
+  Effect.runPromise(
+    sql
+      .unsafe(
+        "SELECT receipt_id,visual_id,owner_person_id,description,payment_account_ciphertext,file_ref,file_object_key,file_sha256 FROM public.economy_receipts ORDER BY visual_id",
+      )
+      .pipe(Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(StoredReceipt)))),
   );
 
 const fileEvidence = async (root: string): Promise<Record<string, string>> => {
@@ -170,21 +175,27 @@ const fileEvidence = async (root: string): Promise<Record<string, string>> => {
   return entries;
 };
 
-const noInventedEffects = async (pool: Pool): Promise<void> => {
-  const tables = (
-    await pool.query<{ name: string }>(`
- SELECT format('%I.%I',schemaname,tablename) AS name FROM pg_tables
- WHERE schemaname='public' AND (tablename LIKE '%audit%' OR tablename LIKE '%outbox%'
- OR tablename LIKE '%grant%' OR tablename LIKE '%settlement%' OR tablename LIKE '%transfer%'
- OR tablename LIKE '%command_receipt%' OR tablename LIKE 'economy_%authorities' OR tablename='service_principals') ORDER BY 1
- `)
-  ).rows;
+const noInventedEffects = async (sql: DatabaseOperations): Promise<void> => {
+  const tables = await Effect.runPromise(
+    sql
+      .unsafe(
+        "SELECT format('%I.%I',schemaname,tablename) AS name FROM pg_tables WHERE schemaname='public' AND (tablename LIKE '%audit%' OR tablename LIKE '%outbox%' OR tablename LIKE '%grant%' OR tablename LIKE '%settlement%' OR tablename LIKE '%transfer%' OR tablename LIKE '%command_receipt%' OR tablename LIKE 'economy_%authorities' OR tablename='service_principals') ORDER BY 1",
+      )
+      .pipe(
+        Effect.flatMap(
+          Schema.decodeUnknownEffect(Schema.Array(Schema.Struct({ name: Schema.String }))),
+        ),
+      ),
+  );
 
   for (const { name } of tables)
     assert.equal(
       Number(
-        (await pool.query<{ count: string }>(`SELECT count(*)::text AS count FROM ${name}`))
-          .rows[0]!.count,
+        (
+          await Effect.runPromise(
+            sql.unsafe<{ count: string }>(`SELECT count(*)::text AS count FROM ${name}`),
+          )
+        )[0]!.count,
       ),
       0,
       "Import fabricated native authority or effects",
@@ -199,31 +210,42 @@ const rehearse = async () =>
       const checked = (name: string) => checks.push(name);
       const key = randomBytes(32);
 
-      const cipher = PaymentCustody.makePaymentAccountCipher({
-        keyId: "synthetic-candidate-payment-v1",
-        key,
-      });
+      const cipher = await Effect.runPromise(
+        PaymentCustody.makePaymentAccountCipher({
+          subtle: webcrypto.subtle,
+          keyId: "synthetic-candidate-payment-v1",
+          key,
+        }).pipe(Effect.provide(BunServices.layer)),
+      );
 
       stage = "ReadCombinedSource";
       const source = await readLegacySourceSnapshot(sourceUrl, "Include", "Include");
 
-      const evidenceFor = (snapshot: LegacySourceSnapshot) => ({
+      const evidenceFor = async (snapshot: LegacySourceSnapshot) => ({
         baseRevision: legacyReceiptBaseSourceRevision(snapshot),
         credentialRevision: digest(snapshot.credentials),
-        receiptRevision: receiptSourceRevision(legacyReceiptRows(snapshot, cipher)),
+        receiptRevision: receiptSourceRevision(
+          await Effect.runPromise(legacyReceiptRows(snapshot, cipher)),
+        ),
         accountRevision: digest(
-          snapshot.paymentAccounts!.map((row) => [
-            String(row.id),
-            row.accountNumber === null ? null : cipher.commitment(row.accountNumber),
-          ]),
+          await Effect.runPromise(
+            Effect.forEach(snapshot.paymentAccounts!, (row) =>
+              Effect.gen(function* () {
+                return [
+                  String(row.id),
+                  row.accountNumber === null ? null : yield* cipher.commitment(row.accountNumber),
+                ];
+              }),
+            ),
+          ),
         ),
       });
 
-      const baseline = evidenceFor(source);
+      const baseline = await evidenceFor(source);
 
       const assertFrozen = async () =>
         assert.deepEqual(
-          evidenceFor(await readLegacySourceSnapshot(sourceUrl, "Include", "Include")),
+          await evidenceFor(await readLegacySourceSnapshot(sourceUrl, "Include", "Include")),
           baseline,
           "Selected source changed between candidate phases",
         );
@@ -300,7 +322,7 @@ const rehearse = async () =>
         referenceDigest,
         attestedBy: "synthetic-candidate-reviewer",
         evidenceRef: "synthetic-receipt-evidence",
-        entries: legacyReceiptRows(source, cipher).map((row) => {
+        entries: (await Effect.runPromise(legacyReceiptRows(source, cipher))).map((row) => {
           const common = {
             sourcePrimaryKey: row.sourcePrimaryKey,
             sourceRowDigest: receiptSourceRowDigest(row),
@@ -465,16 +487,21 @@ const rehearse = async () =>
       };
 
       stage = "WholeCutoverRollback";
-      const pristine = await targetFingerprint(primary.pool);
-      await primary.pool
-        .query(`CREATE FUNCTION auth.fail_candidate() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic last-stage failure'; END; $$;
-    CREATE TRIGGER fail_candidate BEFORE INSERT ON auth.account_cohort_imports FOR EACH ROW EXECUTE FUNCTION auth.fail_candidate();`);
+      const pristine = await targetFingerprint(primary.sql);
+      await Effect.runPromise(
+        executePostgresMigration(`CREATE FUNCTION auth.fail_candidate() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic last-stage failure'; END; $$;
+          CREATE TRIGGER fail_candidate BEFORE INSERT ON auth.account_cohort_imports FOR EACH ROW EXECUTE FUNCTION auth.fail_candidate();`).pipe(
+          Effect.provideService(SqlClient.SqlClient, primary.sql),
+        ),
+      );
       const failed = await invoke(primary);
       assert.notEqual(failed.code, 0);
       assert.match(failed.stderr, /AccountImport/);
-      assert.equal(await targetFingerprint(primary.pool), pristine);
-      await primary.pool.query(
-        "DROP TRIGGER fail_candidate ON auth.account_cohort_imports; DROP FUNCTION auth.fail_candidate();",
+      assert.equal(await targetFingerprint(primary.sql), pristine);
+      await Effect.runPromise(
+        executePostgresMigration(
+          "DROP TRIGGER fail_candidate ON auth.account_cohort_imports; DROP FUNCTION auth.fail_candidate();",
+        ).pipe(Effect.provideService(SqlClient.SqlClient, primary.sql)),
       );
       checked(
         "last-stage Account failure rolls back references, People, Organization, history and assignments",
@@ -516,9 +543,9 @@ const rehearse = async () =>
         ],
         [1, 1, 1, 1, 1, 1],
       );
-      await noInventedEffects(primary.pool);
-      assert.deepEqual(await storedReceipts(primary.pool), []);
-      const sqlOnly = await targetFingerprint(primary.pool);
+      await noInventedEffects(primary.sql);
+      assert.deepEqual(await storedReceipts(primary.sql), []);
+      const sqlOnly = await targetFingerprint(primary.sql);
 
       const interrupted = {
         cutover: "Committed",
@@ -529,7 +556,7 @@ const rehearse = async () =>
       await privateJson(join(temporaryRoot, "interrupted-candidate.json"), interrupted);
       const resumed = await cutover();
       assert.equal(resumed.person.stage, "ExactReplay");
-      assert.equal(await targetFingerprint(primary.pool), sqlOnly);
+      assert.equal(await targetFingerprint(primary.sql), sqlOnly);
       checked(
         "cutover process exits before receipt phase; incomplete checkpoint and fresh CLI resume preserve SQL state",
       );
@@ -539,7 +566,7 @@ const rehearse = async () =>
       await mysql("UPDATE vektor.receipt SET `sum`=99.99 WHERE id=1");
       const changedReceipt = await invoke(primary, roots);
       assert.notEqual(changedReceipt.code, 0);
-      assert.equal(await targetFingerprint(primary.pool), sqlOnly);
+      assert.equal(await targetFingerprint(primary.sql), sqlOnly);
       assert.deepEqual(await fileEvidence(roots.staging), beforeFiles);
       assert.deepEqual(await fileEvidence(roots.committed), {});
       await mysql("UPDATE vektor.receipt SET `sum`=12.34 WHERE id=1");
@@ -547,9 +574,9 @@ const rehearse = async () =>
       await mysql("UPDATE vektor.user SET password='changed-source' WHERE id=1");
       const changedCredential = await invoke(primary);
       assert.notEqual(changedCredential.code, 0);
-      assert.equal(await targetFingerprint(primary.pool), sqlOnly);
+      assert.equal(await targetFingerprint(primary.sql), sqlOnly);
       await assert.rejects(receiptImport(), /Selected source changed between candidate phases/);
-      assert.equal(await targetFingerprint(primary.pool), sqlOnly);
+      assert.equal(await targetFingerprint(primary.sql), sqlOnly);
       assert.deepEqual(await fileEvidence(roots.staging), beforeFiles);
       assert.deepEqual(await fileEvidence(roots.committed), {});
       await mysql(
@@ -558,7 +585,7 @@ const rehearse = async () =>
       await assertFrozen();
       await mysql("UPDATE vektor.user SET accountNumber='12345678903' WHERE id=1");
       await assert.rejects(receiptImport(), /Selected source changed between candidate phases/);
-      assert.equal(await targetFingerprint(primary.pool), sqlOnly);
+      assert.equal(await targetFingerprint(primary.sql), sqlOnly);
       assert.deepEqual(await fileEvidence(roots.staging), beforeFiles);
       assert.deepEqual(await fileEvidence(roots.committed), {});
       await mysql(`UPDATE vektor.user SET accountNumber='${candidateAccount}' WHERE id=1`);
@@ -575,24 +602,26 @@ const rehearse = async () =>
       assert.equal(pending.complete, false);
       assert.equal(pending.pending, 2);
       assert.equal(pending.reconciled, 0);
-      const pendingReceipts = await storedReceipts(primary.pool);
+      const pendingReceipts = await storedReceipts(primary.sql);
 
       for (const receipt of pendingReceipts)
         assert.equal(
           sha256(await readFile(join(roots.staging, receipt.file_ref))),
           receipt.file_sha256,
         );
-      await noInventedEffects(primary.pool);
+      await noInventedEffects(primary.sql);
       await rm(join(roots.committed, "committed"));
       const recovered = await receiptImport();
       assert.equal(recovered.replay, true);
       assert.equal(recovered.complete, true);
       assert.equal(recovered.pending, 0);
-      assert.deepEqual(await storedReceipts(primary.pool), pendingReceipts);
+      assert.deepEqual(await storedReceipts(primary.sql), pendingReceipts);
 
       for (const receipt of pendingReceipts) {
         assert.equal(
-          cipher.decrypt(receipt.payment_account_ciphertext, receipt.receipt_id),
+          await Effect.runPromise(
+            cipher.decrypt(receipt.payment_account_ciphertext, receipt.receipt_id),
+          ),
           candidateAccount.replaceAll(".", ""),
         );
         assert.equal(
@@ -601,7 +630,7 @@ const rehearse = async () =>
         );
       }
 
-      await noInventedEffects(primary.pool);
+      await noInventedEffects(primary.sql);
       checked(
         "receipt SQL commits explicit Pending; fresh CLI recovers retained private bytes without replacing ciphertext or facts",
       );
@@ -633,34 +662,36 @@ const rehearse = async () =>
       );
 
       stage = "NativeEditAndWholeCandidateReplay";
-      await primary.pool.query(
-        "UPDATE economy_receipts SET description='Native edited candidate receipt',revision=revision+1 WHERE receipt_id=$1",
-        [owned.receipt_id],
+      await Effect.runPromise(
+        primary.sql.unsafe(
+          "UPDATE economy_receipts SET description='Native edited candidate receipt',revision=revision+1 WHERE receipt_id=$1",
+          [owned.receipt_id],
+        ),
       );
-      const editedReceipts = await storedReceipts(primary.pool);
+      const editedReceipts = await storedReceipts(primary.sql);
 
-      const credentialsAfterNativeChange = (
-        await primary.pool.query('SELECT * FROM auth."account" ORDER BY id')
-      ).rows;
+      const credentialsAfterNativeChange = await Effect.runPromise(
+        primary.sql.unsafe('SELECT * FROM auth."account" ORDER BY id'),
+      );
 
-      const beforeReconciliation = await targetFingerprint(primary.pool);
+      const beforeReconciliation = await targetFingerprint(primary.sql);
       const nativeFiles = await fileEvidence(roots.committed);
       await cutover();
-      assert.equal(await targetFingerprint(primary.pool), beforeReconciliation);
+      assert.equal(await targetFingerprint(primary.sql), beforeReconciliation);
       const editedReplay = await receiptImport();
       assert.equal(editedReplay.replay, true);
       assert.equal(editedReplay.complete, false);
       assert.equal(editedReplay.pending, 1, "Native receipt drift must remain unresolved");
-      assert.deepEqual(await storedReceipts(primary.pool), editedReceipts);
+      assert.deepEqual(await storedReceipts(primary.sql), editedReceipts);
       assert.deepEqual(
-        (await primary.pool.query('SELECT * FROM auth."account" ORDER BY id')).rows,
+        await Effect.runPromise(primary.sql.unsafe('SELECT * FROM auth."account" ORDER BY id')),
         credentialsAfterNativeChange,
       );
-      const nativeState = await targetFingerprint(primary.pool);
+      const nativeState = await targetFingerprint(primary.sql);
       await cutover();
       assert.deepEqual(await receiptImport(), editedReplay);
       assert.equal(
-        await targetFingerprint(primary.pool),
+        await targetFingerprint(primary.sql),
         nativeState,
         "Replay changed native edits, credentials or imported identities",
       );
@@ -702,13 +733,13 @@ const rehearse = async () =>
 
       for (const key of ["archive", "staging", "committed"] as const)
         await cp(roots[key], restoredRoots[key], { recursive: true, dereference: false });
-      assert.equal(await targetFingerprint(restored.pool), nativeState);
+      assert.equal(await targetFingerprint(restored.sql), nativeState);
       assert.deepEqual(await fileEvidence(restoredRoots.committed), nativeFiles);
       await cutover(restored);
       const restoredReplay = await receiptImport(restored, restoredRoots);
       assert.deepEqual(restoredReplay, editedReplay);
-      assert.equal(await targetFingerprint(restored.pool), nativeState);
-      assert.deepEqual(await storedReceipts(restored.pool), await storedReceipts(primary.pool));
+      assert.equal(await targetFingerprint(restored.sql), nativeState);
+      assert.deepEqual(await storedReceipts(restored.sql), await storedReceipts(primary.sql));
 
       const restoredNative = await observeLegacyCandidateNativeJourney({
         target: restored,

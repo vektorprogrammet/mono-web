@@ -1,5 +1,6 @@
 /** Generated from the frozen 0080.1 endpoint-specific Problem Details table. */
 import { Schema, Struct } from "effect";
+import { decodeDeclaredOrThrow } from "./declaration-decoding.js";
 import {
   endpointProblemResponses,
   NativeProblemRegistry,
@@ -147,7 +148,7 @@ export const ProfileUpdateOwnProfileProblem = problemUnion(
 
 const nativeProblemCode = Schema.Literals(Struct.keys(NativeProblemRegistry));
 
-const decodeProblemCodes = Schema.decodeUnknownSync(
+const decodeProblemCodes = decodeDeclaredOrThrow(
   Schema.TupleWithRest(Schema.Tuple([nativeProblemCode]), [nativeProblemCode]),
 );
 
@@ -629,260 +630,218 @@ export const AdmissionsReviseAdmissionPeriodProblem = problemUnion(
 );
 
 /** Problems for `recruitment.readInvitationResponse`. */
+export const RecruitmentReadInvitationResponseCodes = [
+  "request.malformed",
+  "header.malformed",
+  "precondition.invalid",
+  "precondition.failed",
+  "resource.not-found",
+  "internal.error",
+  "recruitment.unavailable",
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
+
 export const RecruitmentReadInvitationResponseProblem = problemUnion(
   "RecruitmentReadInvitationResponseProblem",
-  [
-    "request.malformed",
-    "header.malformed",
-    "precondition.invalid",
-    "precondition.failed",
-    "resource.not-found",
-    "internal.error",
-    "recruitment.unavailable",
-  ],
+  RecruitmentReadInvitationResponseCodes,
 );
 
 /** Problems for `recruitment.confirmInvitation`. */
+export const RecruitmentConfirmInvitationCodes = [
+  "request.malformed",
+  "header.malformed",
+  "authority.denied",
+  "origin.denied",
+  "resource.not-found",
+  "precondition.invalid",
+  "precondition.failed",
+  "precondition.required",
+  "internal.error",
+  "dependency.unavailable",
+  "invitation.already-responded",
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
+
 export const RecruitmentConfirmInvitationProblem = problemUnion(
   "RecruitmentConfirmInvitationProblem",
-  [
-    "request.malformed",
-    "header.malformed",
-    "authority.denied",
-    "origin.denied",
-    "resource.not-found",
-    "precondition.invalid",
-    "precondition.failed",
-    "precondition.required",
-    "internal.error",
-    "dependency.unavailable",
-    "invitation.already-responded",
-  ],
+  RecruitmentConfirmInvitationCodes,
 );
 
 /** Problems for `recruitment.rejectInvitation`. */
+export const RecruitmentRejectInvitationCodes = [
+  "request.malformed",
+  "header.malformed",
+  "authority.denied",
+  "origin.denied",
+  "resource.not-found",
+  "request.too-large",
+  "media-type.unsupported",
+  "validation.failed",
+  "precondition.invalid",
+  "precondition.failed",
+  "precondition.required",
+  "internal.error",
+  "dependency.unavailable",
+  "invitation.already-responded",
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
+
 export const RecruitmentRejectInvitationProblem = problemUnion(
   "RecruitmentRejectInvitationProblem",
-  [
-    "request.malformed",
-    "header.malformed",
-    "authority.denied",
-    "origin.denied",
-    "resource.not-found",
-    "request.too-large",
-    "media-type.unsupported",
-    "validation.failed",
-    "precondition.invalid",
-    "precondition.failed",
-    "precondition.required",
-    "internal.error",
-    "dependency.unavailable",
-    "invitation.already-responded",
-  ],
+  RecruitmentRejectInvitationCodes,
 );
 
 /** Problems for `recruitment.requestNewInvitationTime`. */
+export const RecruitmentRequestNewInvitationTimeCodes = [
+  "request.malformed",
+  "header.malformed",
+  "authority.denied",
+  "origin.denied",
+  "resource.not-found",
+  "request.too-large",
+  "media-type.unsupported",
+  "validation.failed",
+  "precondition.invalid",
+  "precondition.failed",
+  "precondition.required",
+  "internal.error",
+  "dependency.unavailable",
+  "invitation.already-responded",
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
+
 export const RecruitmentRequestNewInvitationTimeProblem = problemUnion(
   "RecruitmentRequestNewInvitationTimeProblem",
-  [
-    "request.malformed",
-    "header.malformed",
-    "authority.denied",
-    "origin.denied",
-    "resource.not-found",
-    "request.too-large",
-    "media-type.unsupported",
-    "validation.failed",
-    "precondition.invalid",
-    "precondition.failed",
-    "precondition.required",
-    "internal.error",
-    "dependency.unavailable",
-    "invitation.already-responded",
-  ],
+  RecruitmentRequestNewInvitationTimeCodes,
 );
 
 /** Problems for `recruitment.readAssignmentBoard`. */
+export const RecruitmentReadAssignmentBoardCodes = [
+  "request.malformed",
+  "header.malformed",
+  "authority.denied",
+  "origin.denied",
+  "internal.error",
+  "recruitment.admission-period-not-found",
+  "application.ambiguous-period",
+  "recruitment.unavailable",
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
+
 export const RecruitmentReadAssignmentBoardProblem = problemUnion(
   "RecruitmentReadAssignmentBoardProblem",
-  [
-    "request.malformed",
-    "header.malformed",
-    "authority.denied",
-    "origin.denied",
-    "internal.error",
-    "recruitment.admission-period-not-found",
-    "application.ambiguous-period",
-    "recruitment.unavailable",
-  ],
+  RecruitmentReadAssignmentBoardCodes,
 );
 
 /** Problems for `recruitment.readSchedulingBoard`. */
+export const RecruitmentReadSchedulingBoardCodes = [
+  "request.malformed",
+  "header.malformed",
+  "authority.denied",
+  "origin.denied",
+  "internal.error",
+  "recruitment.unavailable",
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
+
 export const RecruitmentReadSchedulingBoardProblem = problemUnion(
   "RecruitmentReadSchedulingBoardProblem",
-  [
-    "request.malformed",
-    "header.malformed",
-    "authority.denied",
-    "origin.denied",
-    "internal.error",
-    "recruitment.unavailable",
-  ],
+  RecruitmentReadSchedulingBoardCodes,
 );
 
 /** Problems for the dedicated completed-interview report. */
+export const RecruitmentReadInterviewReportCodes = [
+  "request.malformed",
+  "header.malformed",
+  "validation.failed",
+  "authority.denied",
+  "origin.denied",
+  "transaction.conflict",
+  "internal.error",
+  "recruitment.unavailable",
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
+
 export const RecruitmentReadInterviewReportProblem = problemUnion(
   "RecruitmentReadInterviewReportProblem",
-  [
-    "request.malformed",
-    "header.malformed",
-    "validation.failed",
-    "authority.denied",
-    "origin.denied",
-    "transaction.conflict",
-    "internal.error",
-    "recruitment.unavailable",
-  ],
+  RecruitmentReadInterviewReportCodes,
 );
 
 /** Problems for `recruitment.createApplicationInterview`. */
+export const RecruitmentCreateApplicationInterviewCodes = [
+  "request.malformed",
+  "header.malformed",
+  "authority.denied",
+  "origin.denied",
+  "idempotency-key.invalid",
+  "idempotency.in-flight",
+  "idempotency.digest-conflict",
+  "idempotency.response-expired",
+  "transaction.conflict",
+  "request.too-large",
+  "media-type.unsupported",
+  "validation.failed",
+  "internal.error",
+  "dependency.unavailable",
+  "idempotency.unavailable",
+  "recruitment.admission-period-not-found",
+  "recruitment.application-not-found",
+  "application.ambiguous-period",
+  "recruitment.interview-schema-not-found",
+  "recruitment.application-already-assigned",
+  "recruitment.interview-schema-inactive",
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
+
 export const RecruitmentCreateApplicationInterviewProblem = problemUnion(
   "RecruitmentCreateApplicationInterviewProblem",
-  [
-    "request.malformed",
-    "header.malformed",
-    "authority.denied",
-    "origin.denied",
-    "idempotency-key.invalid",
-    "idempotency.in-flight",
-    "idempotency.digest-conflict",
-    "idempotency.response-expired",
-    "transaction.conflict",
-    "request.too-large",
-    "media-type.unsupported",
-    "validation.failed",
-    "internal.error",
-    "dependency.unavailable",
-    "idempotency.unavailable",
-    "recruitment.admission-period-not-found",
-    "recruitment.application-not-found",
-    "application.ambiguous-period",
-    "recruitment.interview-schema-not-found",
-    "recruitment.application-already-assigned",
-    "recruitment.interview-schema-inactive",
-  ],
+  RecruitmentCreateApplicationInterviewCodes,
 );
 
 /** Problems for `recruitment.scheduleInterview`. */
+export const RecruitmentScheduleInterviewCodes = [
+  "request.malformed",
+  "header.malformed",
+  "authority.denied",
+  "origin.denied",
+  "idempotency-key.invalid",
+  "idempotency.in-flight",
+  "idempotency.digest-conflict",
+  "idempotency.response-expired",
+  "transaction.conflict",
+  "request.too-large",
+  "media-type.unsupported",
+  "validation.failed",
+  "precondition.invalid",
+  "precondition.failed",
+  "precondition.required",
+  "internal.error",
+  "dependency.unavailable",
+  "idempotency.unavailable",
+  "recruitment.interview-not-found",
+  "recruitment.already-scheduled",
+  "recruitment.schedule-in-past",
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
+
 export const RecruitmentScheduleInterviewProblem = problemUnion(
   "RecruitmentScheduleInterviewProblem",
-  [
-    "request.malformed",
-    "header.malformed",
-    "authority.denied",
-    "origin.denied",
-    "idempotency-key.invalid",
-    "idempotency.in-flight",
-    "idempotency.digest-conflict",
-    "idempotency.response-expired",
-    "transaction.conflict",
-    "request.too-large",
-    "media-type.unsupported",
-    "validation.failed",
-    "precondition.invalid",
-    "precondition.failed",
-    "precondition.required",
-    "internal.error",
-    "dependency.unavailable",
-    "idempotency.unavailable",
-    "recruitment.interview-not-found",
-    "recruitment.already-scheduled",
-    "recruitment.schedule-in-past",
-  ],
+  RecruitmentScheduleInterviewCodes,
 );
 
 /** Problems for `recruitment.readInterviewConduct`. */
+export const RecruitmentReadInterviewConductCodes = [
+  "request.malformed",
+  "header.malformed",
+  "precondition.invalid",
+  "precondition.failed",
+  "authority.denied",
+  "origin.denied",
+  "internal.error",
+  "recruitment.interview-not-found",
+  "recruitment.interview-not-scheduled",
+  "recruitment.invitation-not-accepted",
+  "recruitment.unavailable",
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
+
 export const RecruitmentReadInterviewConductProblem = problemUnion(
   "RecruitmentReadInterviewConductProblem",
-  [
-    "request.malformed",
-    "header.malformed",
-    "precondition.invalid",
-    "precondition.failed",
-    "authority.denied",
-    "origin.denied",
-    "internal.error",
-    "recruitment.interview-not-found",
-    "recruitment.interview-not-scheduled",
-    "recruitment.invitation-not-accepted",
-    "recruitment.unavailable",
-  ],
+  RecruitmentReadInterviewConductCodes,
 );
 
 /** Problems for `recruitment.finalizeInterview`. */
-export const RecruitmentFinalizeInterviewProblem = problemUnion(
-  "RecruitmentFinalizeInterviewProblem",
-  [
-    "request.malformed",
-    "header.malformed",
-    "authority.denied",
-    "origin.denied",
-    "idempotency-key.invalid",
-    "idempotency.in-flight",
-    "idempotency.digest-conflict",
-    "idempotency.response-expired",
-    "transaction.conflict",
-    "request.too-large",
-    "media-type.unsupported",
-    "validation.failed",
-    "precondition.invalid",
-    "precondition.failed",
-    "precondition.required",
-    "internal.error",
-    "dependency.unavailable",
-    "idempotency.unavailable",
-    "recruitment.interview-not-found",
-    "recruitment.already-finalized",
-    "recruitment.already-cancelled",
-    "recruitment.interview-not-scheduled",
-    "recruitment.invitation-not-accepted",
-    "recruitment.conduct-invalid",
-  ],
-);
-
-/** Problems for `recruitment.correctInterviewAssessment`. */
-export const RecruitmentCorrectInterviewAssessmentProblem = problemUnion(
-  "RecruitmentCorrectInterviewAssessmentProblem",
-  [
-    "request.malformed",
-    "header.malformed",
-    "authority.denied",
-    "origin.denied",
-    "idempotency-key.invalid",
-    "idempotency.in-flight",
-    "idempotency.digest-conflict",
-    "idempotency.response-expired",
-    "transaction.conflict",
-    "request.too-large",
-    "media-type.unsupported",
-    "validation.failed",
-    "precondition.invalid",
-    "precondition.failed",
-    "precondition.required",
-    "internal.error",
-    "dependency.unavailable",
-    "idempotency.unavailable",
-    "recruitment.interview-not-found",
-    "recruitment.already-finalized",
-    "recruitment.already-cancelled",
-    "recruitment.interview-not-scheduled",
-    "recruitment.invitation-not-accepted",
-    "recruitment.conduct-invalid",
-  ],
-);
-
-/** Problems for `recruitment.cancelInterview`. */
-export const RecruitmentCancelInterviewProblem = problemUnion("RecruitmentCancelInterviewProblem", [
+export const RecruitmentFinalizeInterviewCodes = [
   "request.malformed",
   "header.malformed",
   "authority.denied",
@@ -905,7 +864,153 @@ export const RecruitmentCancelInterviewProblem = problemUnion("RecruitmentCancel
   "recruitment.already-finalized",
   "recruitment.already-cancelled",
   "recruitment.interview-not-scheduled",
-]);
+  "recruitment.invitation-not-accepted",
+  "recruitment.conduct-invalid",
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
+
+export const RecruitmentFinalizeInterviewProblem = problemUnion(
+  "RecruitmentFinalizeInterviewProblem",
+  RecruitmentFinalizeInterviewCodes,
+);
+
+/** Problems for `recruitment.correctInterviewAssessment`. */
+export const RecruitmentCorrectInterviewAssessmentCodes = [
+  "request.malformed",
+  "header.malformed",
+  "authority.denied",
+  "origin.denied",
+  "idempotency-key.invalid",
+  "idempotency.in-flight",
+  "idempotency.digest-conflict",
+  "idempotency.response-expired",
+  "transaction.conflict",
+  "request.too-large",
+  "media-type.unsupported",
+  "validation.failed",
+  "precondition.invalid",
+  "precondition.failed",
+  "precondition.required",
+  "internal.error",
+  "dependency.unavailable",
+  "idempotency.unavailable",
+  "recruitment.interview-not-found",
+  "recruitment.already-finalized",
+  "recruitment.already-cancelled",
+  "recruitment.interview-not-scheduled",
+  "recruitment.invitation-not-accepted",
+  "recruitment.conduct-invalid",
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
+
+export const RecruitmentCorrectInterviewAssessmentProblem = problemUnion(
+  "RecruitmentCorrectInterviewAssessmentProblem",
+  RecruitmentCorrectInterviewAssessmentCodes,
+);
+
+/** Problems for `recruitment.cancelInterview`. */
+export const RecruitmentCancelInterviewCodes = [
+  "request.malformed",
+  "header.malformed",
+  "authority.denied",
+  "origin.denied",
+  "idempotency-key.invalid",
+  "idempotency.in-flight",
+  "idempotency.digest-conflict",
+  "idempotency.response-expired",
+  "transaction.conflict",
+  "request.too-large",
+  "media-type.unsupported",
+  "validation.failed",
+  "precondition.invalid",
+  "precondition.failed",
+  "precondition.required",
+  "internal.error",
+  "dependency.unavailable",
+  "idempotency.unavailable",
+  "recruitment.interview-not-found",
+  "recruitment.already-finalized",
+  "recruitment.already-cancelled",
+  "recruitment.interview-not-scheduled",
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
+
+export const RecruitmentCancelInterviewProblem = problemUnion(
+  "RecruitmentCancelInterviewProblem",
+  RecruitmentCancelInterviewCodes,
+);
+
+/** One problem contract for questionnaire reads, staffing reads, and maintenance commands. */
+export const RecruitmentMaintenanceCodes = [
+  "authority.denied",
+  "origin.denied",
+  "request.malformed",
+  "request.too-large",
+  "media-type.unsupported",
+  "header.malformed",
+  "idempotency-key.invalid",
+  "idempotency.in-flight",
+  "idempotency.digest-conflict",
+  "idempotency.response-expired",
+  "transaction.conflict",
+  "resource.not-found",
+  "precondition.failed",
+  "recruitment.invalid-command",
+  "recruitment.ineligible",
+  "recruitment.empty-active-questionnaire",
+  "recruitment.terminal",
+  "recruitment.unavailable",
+  "idempotency.unavailable",
+  "internal.error",
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
+
+export const RecruitmentMaintenanceProblem = problemUnion(
+  "RecruitmentMaintenanceProblem",
+  RecruitmentMaintenanceCodes,
+);
+
+/** Shared problem source of the onboarding board and the unchanged Identity claim. */
+export const OnboardingCodes = [
+  "request.malformed",
+  "request.too-large",
+  "validation.failed",
+  "authority.denied",
+  "resource.not-found",
+  "precondition.required",
+  "precondition.invalid",
+  "precondition.failed",
+  "idempotency-key.invalid",
+  "idempotency.in-flight",
+  "idempotency.digest-conflict",
+  "idempotency.response-expired",
+  "transaction.conflict",
+  "internal.error",
+  "media-type.unsupported",
+  "onboarding.claim-invalid",
+  "onboarding.sign-in-required",
+  "onboarding.already-linked",
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
+
+export const OnboardingProblem = problemUnion("OnboardingProblem", OnboardingCodes);
+
+/** The authoritative command tuple retains its shared Identity problem source. */
+export const OnboardingCommandCodes = [
+  ...OnboardingCodes,
+  "idempotency.unavailable",
+  "onboarding.not-admitted",
+  "onboarding.delivery-not-retryable",
+  "dependency.unavailable",
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
+
+export const OnboardingCommandProblem = problemUnion(
+  "OnboardingCommandProblem",
+  OnboardingCommandCodes,
+);
+
+export const OnboardingClaimCodes = [
+  ...OnboardingCodes,
+  "credential.missing",
+  "credential.invalid",
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
+
+export const OnboardingClaimProblem = problemUnion("OnboardingClaimProblem", OnboardingClaimCodes);
 
 /** Problems for `receipts.submitReceipt`. */
 export const ReceiptsSubmitReceiptProblem = problemUnion("ReceiptsSubmitReceiptProblem", [

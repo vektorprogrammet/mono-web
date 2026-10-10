@@ -1,3 +1,7 @@
+/**
+ * EX-0024: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { Scope } from "@vektorprogrammet/domain/authz";
 import type { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
 import { IdentitySnapshot, type IdentitySnapshotService } from "@vektorprogrammet/database";
@@ -27,8 +31,8 @@ import {
   nativeCookieChallenge,
   Problem,
 } from "@vektorprogrammet/http-api/http-semantics";
-import { Schema, DateTime, Effect, Option } from "effect";
-import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { Schema, DateTime, Crypto, Effect, Option } from "effect";
+import { HttpApiBuilder } from "effect/http-api";
 import {
   resolveAuthenticatedPersonAtInstant,
   resolveRequestCredentialInTransaction,
@@ -229,7 +233,7 @@ const executeSessionMutation = (input: {
   ) => Effect.Effect<
     unknown,
     IdentityEngineError | IdentitySessionNotFound | IdentityOwnedSessionNotFound,
-    Database
+    Database | Crypto.Crypto
   >;
 }) => {
   const presentation = sessionPresentation(input.request);
@@ -330,7 +334,9 @@ export const SystemApiHandlers = (options: SystemOptions = {}) =>
               operationId: "system.deleteSession",
               normalizedTarget: "/api/session",
               mutate: (identity, actor) =>
-                identity.revokeCurrentSession(actor, identityRequestContext(webRequest)),
+                Effect.flatMap(identityRequestContext(webRequest), (context) =>
+                  identity.revokeCurrentSession(actor, context),
+                ),
             }).pipe(
               // Only the owned-session delete names a session other than the caller's own.
               unreachable("resource.not-found"),
@@ -350,7 +356,9 @@ export const SystemApiHandlers = (options: SystemOptions = {}) =>
               normalizedTarget: `/api/sessions/${encodePathIdentity(params.sessionId)}`,
               resourceId: params.sessionId,
               mutate: (identity, actor) =>
-                identity.revokeSession(actor, params.sessionId, identityRequestContext(webRequest)),
+                Effect.flatMap(identityRequestContext(webRequest), (context) =>
+                  identity.revokeSession(actor, params.sessionId, context),
+                ),
             }),
           ),
         )
@@ -363,7 +371,9 @@ export const SystemApiHandlers = (options: SystemOptions = {}) =>
               operationId: "system.revokeOtherSessions",
               normalizedTarget: "/api/sessions::revoke-others",
               mutate: (identity, actor) =>
-                identity.revokeOtherSessions(actor, identityRequestContext(webRequest)),
+                Effect.flatMap(identityRequestContext(webRequest), (context) =>
+                  identity.revokeOtherSessions(actor, context),
+                ),
             }).pipe(
               // Only the owned-session delete names a session other than the caller's own.
               unreachable("resource.not-found"),
@@ -379,7 +389,9 @@ export const SystemApiHandlers = (options: SystemOptions = {}) =>
               operationId: "system.revokeAllSessions",
               normalizedTarget: "/api/sessions::revoke-all",
               mutate: (identity, actor) =>
-                identity.revokeAllSessions(actor, identityRequestContext(webRequest)),
+                Effect.flatMap(identityRequestContext(webRequest), (context) =>
+                  identity.revokeAllSessions(actor, context),
+                ),
             }).pipe(
               // Only the owned-session delete names a session other than the caller's own.
               unreachable("resource.not-found"),

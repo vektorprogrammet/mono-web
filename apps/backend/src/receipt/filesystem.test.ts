@@ -1,12 +1,12 @@
 import { expect, layer } from "@effect/vitest";
-import { Effect, FileSystem, Path, Result } from "effect";
+import { Crypto, Effect, FileSystem, Path, PlatformError, Result } from "effect";
 import {
   receiptOutboxRequest,
   ReceiptFileEffectConflict,
   ReceiptFileInjectedFailure,
 } from "@vektorprogrammet/domain/receipt";
 import { TestPlatform } from "../test/platform.js";
-import { makeReceiptFileStore } from "./filesystem.js";
+import { makeReceiptFileStore, ReceiptFileStoreError } from "./filesystem.js";
 
 const privateRoots = (prefix: string) =>
   Effect.gen(function* () {
@@ -113,6 +113,141 @@ layer(TestPlatform, { excludeTestServices: true })("private receipt file custody
 
       expect(results.filter(Result.isSuccess)).toHaveLength(1);
       expect(results.find(Result.isFailure)?.failure).toBeInstanceOf(ReceiptFileEffectConflict);
+    }),
+  );
+});
+
+const abcDigest = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+
+const digestFailure = PlatformError.badArgument({
+  module: "Crypto",
+  method: "digest",
+  description: "injected digest failure",
+});
+
+// Fixed entropy names the temporary files; the digest delegates to the platform unless it fails.
+const fixedCrypto = (digestFails: boolean) =>
+  Effect.gen(function* () {
+    const platform = yield* Crypto.Crypto;
+
+    return Crypto.make({
+      randomBytes: (size) => new Uint8Array(size).fill(7),
+      digest: (algorithm, data) =>
+        digestFails ? Effect.fail(digestFailure) : platform.digest(algorithm, data),
+    });
+  });
+
+layer(TestPlatform, { excludeTestServices: true })("receipt file custody crypto", (it) => {
+  it.effect("pins the SHA-256 identity of staged bytes and of the command", () =>
+    Effect.gen(function* () {
+      const config = yield* privateRoots("receipt-custody-digest-");
+      const store = yield* makeReceiptFileStore(config);
+
+      const staged = yield* store.stageBytes(
+        new File([new TextEncoder().encode("abc")], "receipt.png"),
+        "abc",
+        "image/png",
+        1024,
+      );
+
+      // sha256("abc") is the FIPS 180-4 known answer; the first 32 digits name the command.
+      expect(staged.file.sha256).toBe(abcDigest);
+      expect(staged.file.fileRef).toBe(`staging/${abcDigest.slice(0, 32)}-${abcDigest}-png`);
+    }),
+  );
+
+  it.effect("names temporary files from the captured Crypto service", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const config = yield* privateRoots("receipt-custody-entropy-");
+      const crypto = yield* fixedCrypto(false);
+
+      const store = yield* makeReceiptFileStore(config).pipe(
+        Effect.provideService(Crypto.Crypto, crypto),
+      );
+
+      const uuid = "07070707-0707-4707-8707-070707070707";
+      // Hold the temporary name, so a staging attempt under this entropy cannot create it.
+      yield* fs.makeDirectory(config.stagingRoot, { recursive: true });
+      yield* fs.writeFileString(path.join(config.stagingRoot, `.incoming-${uuid}.part`), "taken");
+
+      const failure = yield* Effect.flip(
+        store.stageBytes(
+          new File([new Uint8Array([1])], "receipt.png"),
+          "named",
+          "image/png",
+          1024,
+        ),
+      );
+
+      expect(failure).toBeInstanceOf(ReceiptFileStoreError);
+    }),
+  );
+
+  it.effect("fails a staging digest as a typed store error and leaves no staged file", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const config = yield* privateRoots("receipt-custody-digest-failure-");
+      const crypto = yield* fixedCrypto(true);
+
+      const store = yield* makeReceiptFileStore(config).pipe(
+        Effect.provideService(Crypto.Crypto, crypto),
+      );
+
+      const failure = yield* Effect.flip(
+        store.stageBytes(
+          new File([new Uint8Array([1])], "receipt.png"),
+          "failing",
+          "image/png",
+          1024,
+        ),
+      );
+
+      expect(failure).toBeInstanceOf(ReceiptFileStoreError);
+      expect(failure).toMatchObject({ operation: "stageBytes" });
+      // The command digest comes first: a failing platform digest creates nothing at all.
+      expect(yield* fs.exists(config.stagingRoot)).toBe(false);
+    }),
+  );
+
+  it.effect("reports a committed read whose digest fails as a typed store error", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const config = yield* privateRoots("receipt-custody-read-");
+      const platformStore = yield* makeReceiptFileStore(config);
+
+      const staged = yield* platformStore.stageBytes(
+        new File([new Uint8Array([4, 5])], "receipt.png"),
+        "readable",
+        "image/png",
+        1024,
+      );
+
+      yield* fs.makeDirectory(
+        path.dirname(path.join(config.committedRoot, staged.file.objectKey)),
+        {
+          recursive: true,
+        },
+      );
+
+      yield* fs.copyFile(
+        path.join(config.stagingRoot, staged.file.fileRef),
+        path.join(config.committedRoot, staged.file.objectKey),
+      );
+
+      const crypto = yield* fixedCrypto(true);
+
+      const failing = yield* makeReceiptFileStore(config).pipe(
+        Effect.provideService(Crypto.Crypto, crypto),
+      );
+
+      expect(yield* platformStore.readCommitted(staged.file, 1024)).toEqual(Buffer.from([4, 5]));
+      const failure = yield* Effect.flip(failing.readCommitted(staged.file, 1024));
+
+      expect(failure).toBeInstanceOf(ReceiptFileStoreError);
+      expect(failure).toMatchObject({ operation: "readCommitted" });
     }),
   );
 });

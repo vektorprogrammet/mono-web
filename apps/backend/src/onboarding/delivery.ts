@@ -1,5 +1,5 @@
 import { Database } from "@vektorprogrammet/database";
-import { Crypto, Effect, Schema } from "effect";
+import { Crypto, Effect, Schema, flow, Result } from "effect";
 import { ContactEmail } from "@vektorprogrammet/domain/contact";
 import { deliverJson, type HttpDeliveryConfig } from "../delivery/http.js";
 import { pollForever } from "../worker-support.js";
@@ -30,7 +30,11 @@ export const onboardingDeliveryConfig = (
     const claimUrl = new URL("/konto-aktivering", origin);
     const token = env.ONBOARDING_DELIVERY_TOKEN!;
     const timeout = Number(env.ONBOARDING_DELIVERY_TIMEOUT_MS);
-    const sender = Schema.decodeUnknownSync(ContactEmail)(env.ONBOARDING_DELIVERY_SENDER);
+
+    const sender = flow(
+      Schema.decodeUnknownResult(ContactEmail),
+      Result.getOrThrow,
+    )(env.ONBOARDING_DELIVERY_SENDER);
 
     for (const url of [endpoint, claimUrl])
       if (
@@ -58,10 +62,15 @@ export const onboardingDeliveryConfig = (
   }
 };
 
-/** One durable queue, explicit operator retry; receiver must deduplicate deliveryId. */
+/**
+ * One postcommit attempt of admitted work; the receiver deduplicates the immutable invitation ID.
+ * Lost claims and provider failures cannot revise the committed command capsule. Pending work
+ * needs a new authorized retry; interruption retains its lease until stale recovery or expiry.
+ */
 export const drainOnboardingDelivery = (
   applicationId: string,
   config: OnboardingDeliveryConfig | undefined,
+  invitationId?: string,
 ) =>
   Database.use((sql) =>
     Effect.gen(function* () {
@@ -75,7 +84,7 @@ export const drainOnboardingDelivery = (
         secret: string;
         recipient: string;
         envelope: unknown;
-      }>`UPDATE public.applicant_account_delivery d SET state='Claimed',claim_id=${claimId},claimed_at=date_trunc('milliseconds',clock_timestamp(),'UTC'),attempts=attempts+1 FROM public.applicant_account_invitations i WHERE d.invitation_id=i.invitation_id AND i.application_id=${applicationId} AND i.state='Open' AND i.expires_at>clock_timestamp() AND (d.state='Pending' OR(d.state='Claimed' AND d.claimed_at<clock_timestamp()-interval '60 seconds')) RETURNING d.invitation_id AS "invitationId",d.secret,d.recipient,d.envelope`;
+      }>`UPDATE public.applicant_account_delivery d SET state='Claimed',claim_id=${claimId},claimed_at=date_trunc('milliseconds',clock_timestamp(),'UTC'),attempts=attempts+1 FROM public.applicant_account_invitations i WHERE d.invitation_id=i.invitation_id AND i.application_id=${applicationId} AND (${invitationId ?? null}::text IS NULL OR d.invitation_id=${invitationId ?? null}) AND i.state='Open' AND i.expires_at>clock_timestamp() AND (d.state='Pending' OR(d.state='Claimed' AND d.claimed_at<clock_timestamp()-interval '60 seconds')) RETURNING d.invitation_id AS "invitationId",d.secret,d.recipient,d.envelope`;
 
       const row = selected[0];
 
@@ -105,7 +114,15 @@ export const drainOnboardingDelivery = (
         {
           "idempotency-key": row.invitationId,
         },
-      ).pipe(Effect.match({ onSuccess: () => true, onFailure: () => false }));
+      ).pipe(
+        Effect.matchEffect({
+          onSuccess: () => Effect.succeed(true),
+          onFailure: () =>
+            Effect.logWarning(
+              "Onboarding provider did not acknowledge delivery; explicit retry required",
+            ).pipe(Effect.as(false)),
+        }),
+      );
 
       if (delivered) {
         const acknowledged =

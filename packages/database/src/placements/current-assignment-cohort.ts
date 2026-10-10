@@ -1,7 +1,16 @@
-import { createHash } from "node:crypto";
+/**
+ * EX-0021: required public native SQL APIs in exact stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { Data, Effect, FileSystem, flow, Option, Path, Schema } from "effect";
-import type { Pool, PoolClient } from "pg";
-import { canonicalJson } from "@vektorprogrammet/domain/shared-kernel";
+import type * as SqlClient from "effect/sql/SqlClient";
+import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
+import { withTypedTransactionFailures } from "../service.js";
+import {
+  canonicalJson,
+  canonicalJsonBytes,
+  sha256Hex,
+} from "@vektorprogrammet/domain/shared-kernel";
 import { DepartmentId, SemesterId } from "@vektorprogrammet/domain/organization";
 import { SchoolId } from "@vektorprogrammet/domain/schools";
 
@@ -10,7 +19,6 @@ import {
   CurrentAssignmentSnapshot,
   ReconciledCurrentAssignmentSnapshot,
 } from "@vektorprogrammet/domain/placements";
-import { pgQuery, pgTransaction } from "../pg-pool.js";
 
 export const currentAssignmentImportSourceDigest = Effect.fn("currentAssignmentImportSourceDigest")(
   function* () {
@@ -82,27 +90,40 @@ export class CurrentAssignmentFailure extends Data.TaggedError("CurrentAssignmen
   }
 }
 
-export type CurrentAssignmentReason =
-  | "Imported"
-  | "ExactReplay"
-  | "InvalidRow"
-  | "Inactive"
-  | "DuplicateSource"
-  | "MappingMissing"
-  | "MappingAmbiguous"
-  | "SourceReferenceMismatch"
-  | "PersonReconciliationMissing"
-  | "NativeReferenceMissing"
-  | "SchoolDepartmentMismatch"
-  | "DuplicateTarget"
-  | "PlacementOverlap"
-  | "TargetConflict";
+const CurrentAssignmentReason = Schema.Literals([
+  "Imported",
+  "ExactReplay",
+  "InvalidRow",
+  "Inactive",
+  "DuplicateSource",
+  "MappingMissing",
+  "MappingAmbiguous",
+  "SourceReferenceMismatch",
+  "PersonReconciliationMissing",
+  "NativeReferenceMissing",
+  "SchoolDepartmentMismatch",
+  "DuplicateTarget",
+  "PlacementOverlap",
+  "TargetConflict",
+]);
+
+export type CurrentAssignmentReason = typeof CurrentAssignmentReason.Type;
 
 export interface CurrentAssignmentOccurrence {
   readonly occurrenceId: string;
   readonly disposition: "Accepted" | "Quarantined";
   readonly reason: CurrentAssignmentReason;
 }
+
+const decodeOccurrenceRows = Schema.decodeUnknownEffect(
+  Schema.Array(
+    Schema.Struct({
+      occurrenceId: Schema.String,
+      disposition: Schema.Literals(["Accepted", "Quarantined"]),
+      reason: CurrentAssignmentReason,
+    }),
+  ),
+);
 
 export interface CurrentAssignmentReport {
   readonly snapshotKey: string;
@@ -114,7 +135,7 @@ export interface CurrentAssignmentReport {
   readonly audit: "ImportProvenanceOnly";
 }
 
-const digest = flow(canonicalJson, (json) => createHash("sha256").update(json).digest("hex"));
+const digest = flow(canonicalJsonBytes, sha256Hex);
 
 const declaredSnapshotDigest = (snapshot: AssignmentSnapshot): string => {
   const { snapshotDigest: _snapshotDigest, ...unsignedSnapshot } = snapshot;
@@ -208,7 +229,11 @@ export const decodeReconciledCurrentAssignmentSnapshot = flow(
 
       for (const occurrence of snapshot.occurrences) {
         // Invalid operational values remain available for quarantine, but review identity cannot vary.
-        const row = Schema.decodeUnknownSync(ReviewedAssignmentEnvelope)(occurrence.row);
+        const row = Option.getOrThrowWith(
+          Schema.decodeUnknownOption(ReviewedAssignmentEnvelope)(occurrence.row),
+          () => new CurrentAssignmentFailure({ code: "InvalidSnapshot" }),
+        );
+
         const entry = entries.get(row.sourceAssignmentId);
 
         if (
@@ -274,21 +299,61 @@ const ReferenceMappings = Schema.Struct({
 
 const encodeReview = Schema.encodeEffect(Schema.fromJsonString(CurrentAssignmentReview));
 
+const decodeProvenanceRows = Schema.decodeUnknownEffect(
+  Schema.Array(
+    Schema.Struct({
+      source_revision: Schema.String,
+      reference_digest: Schema.String,
+      source_id_mappings: Schema.Unknown,
+    }),
+  ),
+);
+
+const decodeSnapshotRows = Schema.decodeUnknownEffect(
+  Schema.Array(Schema.Struct({ snapshot_digest: Schema.String })),
+);
+
+const decodeImportRows = Schema.decodeUnknownEffect(
+  Schema.Array(
+    Schema.Struct({ source_assignment_id: Schema.String, source_digest: Schema.String }),
+  ),
+);
+
+const decodeReferenceRows = Schema.decodeUnknownEffect(
+  Schema.Array(
+    Schema.Struct({
+      department_exists: Schema.Boolean,
+      semester_exists: Schema.Boolean,
+      school_active: Schema.Boolean,
+      school_department_exists: Schema.Boolean,
+    }),
+  ),
+);
+
+const decodeAffiliationRows = Schema.decodeUnknownEffect(
+  Schema.Array(Schema.Struct({ status: Schema.String, revision: Schema.Int })),
+);
+
+const decodeAffiliationProvenanceRows = Schema.decodeUnknownEffect(
+  Schema.Array(Schema.Struct({ source_repository: Schema.String })),
+);
+
 const validateReconciledProvenance = Effect.fnUntraced(function* (
-  tx: PoolClient,
+  tx: SqlClient.SqlClient,
   snapshot: ReconciledCurrentAssignmentSnapshot,
 ) {
-  const evidence = (yield* pgQuery<{
-    source_revision: string;
-    reference_digest: string;
-    source_id_mappings: unknown;
-  }>(
-    tx,
-    `SELECT source_revision, reference_digest, source_id_mappings
-       FROM public.historical_service_reference_provenance
-      WHERE source_repository = $1 AND snapshot_id = $2 FOR SHARE`,
-    [snapshot.sourceRepository, snapshot.snapshotId],
-  )).rows[0];
+  const evidence = (yield* tx
+    .unsafe<{
+      source_revision: string;
+      reference_digest: string;
+      source_id_mappings: unknown;
+    }>(
+      `SELECT source_revision, reference_digest, source_id_mappings
+     FROM public.historical_service_reference_provenance
+    WHERE source_repository = $1 AND snapshot_id = $2 FOR SHARE`,
+      [snapshot.sourceRepository, snapshot.snapshotId],
+    )
+    .pipe(Effect.flatMap(decodeProvenanceRows)))[0];
 
   if (!evidence) return yield* new CurrentAssignmentFailure({ code: "ReferenceProvenanceMissing" });
 
@@ -349,22 +414,20 @@ const validateReconciledProvenance = Effect.fnUntraced(function* (
   )
     return yield* new CurrentAssignmentFailure({ code: "ReferenceProvenanceConflict" });
 
-  const semester = yield* pgQuery(
-    tx,
+  const semester = yield* tx.unsafe(
     `SELECT 1 FROM public.admission_period_semesters
-      WHERE semester_id = $1
-        AND $2::date BETWEEN (start_at AT TIME ZONE 'UTC')::date AND (end_at AT TIME ZONE 'UTC')::date
-      FOR SHARE`,
+    WHERE semester_id = $1
+      AND $2::date BETWEEN (start_at AT TIME ZONE 'UTC')::date AND (end_at AT TIME ZONE 'UTC')::date
+    FOR SHARE`,
     [semesterId, snapshot.review.asOf],
   );
 
-  if (!semester.rowCount) return yield* new CurrentAssignmentFailure({ code: "InvalidSnapshot" });
+  if (!semester.length) return yield* new CurrentAssignmentFailure({ code: "InvalidSnapshot" });
 
-  const personSnapshot = yield* pgQuery(
-    tx,
+  const personSnapshot = yield* tx.unsafe(
     `SELECT 1 FROM public.person_cohort_snapshots
-      WHERE snapshot_key = $1 AND source_repository = $2 AND source_revision = $3 AND snapshot_id = $4
-      FOR SHARE`,
+    WHERE snapshot_key = $1 AND source_repository = $2 AND source_revision = $3 AND snapshot_id = $4
+    FOR SHARE`,
     [
       snapshot.personSnapshotKey,
       snapshot.sourceRepository,
@@ -373,57 +436,54 @@ const validateReconciledProvenance = Effect.fnUntraced(function* (
     ],
   );
 
-  if (!personSnapshot.rowCount)
+  if (!personSnapshot.length)
     return yield* new CurrentAssignmentFailure({ code: "PersonSnapshotConflict" });
 
   return relationships;
 });
 
-const cohortReport = (tx: PoolClient, snapshotKey: string) =>
-  pgQuery<CurrentAssignmentOccurrence>(
-    tx,
-    `SELECT occurrence_id AS "occurrenceId", disposition, reason
-       FROM public.current_assignment_occurrences
-      WHERE snapshot_key = $1
-      ORDER BY occurrence_id`,
-    [snapshotKey],
-  ).pipe(
-    Effect.map((rows): CurrentAssignmentReport => {
-      const accepted = rows.rows.filter(({ disposition }) => disposition === "Accepted").length;
+const cohortReport = (tx: SqlClient.SqlClient, snapshotKey: string) =>
+  tx
+    .unsafe<CurrentAssignmentOccurrence>(
+      `SELECT occurrence_id AS "occurrenceId", disposition, reason
+     FROM public.current_assignment_occurrences
+    WHERE snapshot_key = $1
+    ORDER BY occurrence_id`,
+      [snapshotKey],
+    )
+    .pipe(
+      Effect.flatMap(decodeOccurrenceRows),
+      Effect.map((rows): CurrentAssignmentReport => {
+        const accepted = rows.filter(({ disposition }) => disposition === "Accepted").length;
 
-      return {
-        snapshotKey,
-        input: rows.rows.length,
-        accepted,
-        quarantined: rows.rows.length - accepted,
-        occurrences: rows.rows,
-        currentState: "EstablishedThroughCanonicalAffiliationAndPlacement",
-        audit: "ImportProvenanceOnly",
-      };
-    }),
-  );
+        return {
+          snapshotKey,
+          input: rows.length,
+          accepted,
+          quarantined: rows.length - accepted,
+          occurrences: rows,
+          currentState: "EstablishedThroughCanonicalAffiliationAndPlacement",
+          audit: "ImportProvenanceOnly",
+        };
+      }),
+    );
 
-/** One serialized transaction establishes canonical current facts and immutable import provenance. */
+/** Canonical current facts and immutable provenance commit together; nested reports are provisional until the caller commits. */
 const importAssignmentCohort = Effect.fnUntraced(function* (
-  pool: Pool,
+  sql: SqlClient.SqlClient,
   snapshot: AssignmentSnapshot,
-  client?: PoolClient,
 ) {
   const snapshotKey = digest([snapshot.sourceRepository, snapshot.snapshotId]);
   const snapshotDigest = snapshot.snapshotDigest;
 
-  const decoded = snapshot.occurrences.map((occurrence) => {
-    try {
-      return {
-        ...occurrence,
-        value: Schema.decodeUnknownSync(LegacyAssignmentRow)(occurrence.row, {
-          onExcessProperty: "error",
-        }),
-      };
-    } catch {
-      return { ...occurrence, value: undefined };
-    }
-  });
+  const decoded = snapshot.occurrences.map((occurrence) => ({
+    ...occurrence,
+    value: Option.getOrUndefined(
+      Schema.decodeUnknownOption(LegacyAssignmentRow)(occurrence.row, {
+        onExcessProperty: "error",
+      }),
+    ),
+  }));
 
   const mappingsBySource = new Map<string, CurrentAssignmentMapping[]>();
 
@@ -441,32 +501,29 @@ const importAssignmentCohort = Effect.fnUntraced(function* (
     increment(sourceCounts, sourceIdOf(occurrence.row));
   }
 
-  const importInTransaction = Effect.fnUntraced(function* (tx: PoolClient) {
-    yield* pgQuery(
-      tx,
-      "SELECT pg_advisory_xact_lock(hashtextextended('native-current-assignment-import', 0))",
-    );
+  const importInTransaction = Effect.fnUntraced(function* (tx: SqlClient.SqlClient) {
+    yield* lockAdvisory(tx, AdvisoryLockKey.currentAssignmentImport);
 
-    const prior = yield* pgQuery<{ snapshot_digest: string }>(
-      tx,
-      `SELECT snapshot_digest FROM public.current_assignment_snapshots WHERE snapshot_key = $1`,
-      [snapshotKey],
-    );
+    const prior = yield* tx
+      .unsafe<{ snapshot_digest: string }>(
+        `SELECT snapshot_digest FROM public.current_assignment_snapshots WHERE snapshot_key = $1`,
+        [snapshotKey],
+      )
+      .pipe(Effect.flatMap(decodeSnapshotRows));
 
-    if (prior.rows[0] && prior.rows[0].snapshot_digest !== snapshotDigest)
+    if (prior[0] && prior[0].snapshot_digest !== snapshotDigest)
       return yield* new CurrentAssignmentFailure({ code: "SnapshotConflict" });
 
     const sourceRelationships = snapshot.synthetic
       ? undefined
       : yield* validateReconciledProvenance(tx, snapshot);
 
-    if (prior.rows[0]) {
+    if (prior[0]) {
       if (!snapshot.synthetic) {
-        const review = yield* pgQuery(
-          tx,
+        const review = yield* tx.unsafe(
           `SELECT 1 FROM public.current_assignment_reviews
-            WHERE snapshot_key = $1 AND reference_digest = $2 AND person_snapshot_key = $3
-              AND source_semester_id = $4 AND as_of = $5::date AND review = $6::jsonb`,
+          WHERE snapshot_key = $1 AND reference_digest = $2 AND person_snapshot_key = $3
+            AND source_semester_id = $4 AND as_of = $5::date AND review = $6::jsonb`,
           [
             snapshotKey,
             snapshot.referenceDigest,
@@ -477,7 +534,7 @@ const importAssignmentCohort = Effect.fnUntraced(function* (
           ],
         );
 
-        if (!review.rowCount)
+        if (!review.length)
           return yield* new CurrentAssignmentFailure({ code: "SnapshotConflict" });
       }
 
@@ -502,26 +559,24 @@ const importAssignmentCohort = Effect.fnUntraced(function* (
     }
 
     // Share the canonical writer protocol before reading or writing any target state.
-    yield* pgQuery(
-      tx,
-      `SELECT department_id FROM public.organization_departments
-        WHERE department_id = ANY($1::text[]) ORDER BY department_id FOR UPDATE`,
-      [[...new Set(snapshot.mappings.map(({ departmentId }) => departmentId))].sort()],
-    );
+    yield* tx`SELECT department_id FROM public.organization_departments
+      WHERE ${tx.in("department_id", [...new Set(snapshot.mappings.map(({ departmentId }) => departmentId))].sort())}
+      ORDER BY department_id FOR UPDATE`;
 
-    const acceptedImports = yield* pgQuery<{
-      source_assignment_id: string;
-      source_digest: string;
-    }>(
-      tx,
-      `SELECT source_assignment_id, source_digest
-         FROM public.current_assignment_imports
-        WHERE source_repository = $1`,
-      [snapshot.sourceRepository],
-    );
+    const acceptedImports = yield* tx
+      .unsafe<{
+        source_assignment_id: string;
+        source_digest: string;
+      }>(
+        `SELECT source_assignment_id, source_digest
+       FROM public.current_assignment_imports
+      WHERE source_repository = $1`,
+        [snapshot.sourceRepository],
+      )
+      .pipe(Effect.flatMap(decodeImportRows));
 
     const importedBySource = new Map(
-      acceptedImports.rows.map((row) => [row.source_assignment_id, row.source_digest] as const),
+      acceptedImports.map((row) => [row.source_assignment_id, row.source_digest] as const),
     );
 
     for (const occurrence of decoded) {
@@ -545,12 +600,11 @@ const importAssignmentCohort = Effect.fnUntraced(function* (
         return yield* new CurrentAssignmentFailure({ code: "SourceIdentityConflict" });
     }
 
-    yield* pgQuery(
-      tx,
+    yield* tx.unsafe(
       `INSERT INTO public.current_assignment_snapshots
-         (snapshot_key, source_repository, source_revision, snapshot_id, source_watermark,
-          transformation_revision, snapshot_digest, occurrence_count)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+       (snapshot_key, source_repository, source_revision, snapshot_id, source_watermark,
+        transformation_revision, snapshot_digest, occurrence_count)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
       [
         snapshotKey,
         snapshot.sourceRepository,
@@ -564,11 +618,10 @@ const importAssignmentCohort = Effect.fnUntraced(function* (
     );
 
     if (!snapshot.synthetic)
-      yield* pgQuery(
-        tx,
+      yield* tx.unsafe(
         `INSERT INTO public.current_assignment_reviews
-           (snapshot_key, source_kind, reference_digest, person_snapshot_key, source_semester_id, as_of, review)
-         VALUES ($1,'ReviewedLegacy',$2,$3,$4,$5::date,$6::jsonb)`,
+         (snapshot_key, source_kind, reference_digest, person_snapshot_key, source_semester_id, as_of, review)
+       VALUES ($1,'ReviewedLegacy',$2,$3,$4,$5::date,$6::jsonb)`,
         [
           snapshotKey,
           snapshot.referenceDigest,
@@ -609,13 +662,12 @@ const importAssignmentCohort = Effect.fnUntraced(function* (
 
         if (previous === sourceDigest) reason = "ExactReplay";
         else {
-          const personEvidence = yield* pgQuery(
-            tx,
+          const personEvidence = yield* tx.unsafe(
             `SELECT 1 FROM public.person_cohort_accepted_mappings a
-              JOIN public.person_cohort_imports i USING (source_repository, source_user_id)
-              WHERE a.source_repository = $1 AND a.source_user_id = $2 AND i.person_id = $3
-                AND ($4::text IS NULL OR a.snapshot_key = $4)
-              FOR SHARE`,
+            JOIN public.person_cohort_imports i USING (source_repository, source_user_id)
+            WHERE a.source_repository = $1 AND a.source_user_id = $2 AND i.person_id = $3
+              AND ($4::text IS NULL OR a.snapshot_key = $4)
+            FOR SHARE`,
             [
               snapshot.sourceRepository,
               row.sourceUserId,
@@ -624,23 +676,24 @@ const importAssignmentCohort = Effect.fnUntraced(function* (
             ],
           );
 
-          if (!personEvidence.rowCount) reason = "PersonReconciliationMissing";
+          if (!personEvidence.length) reason = "PersonReconciliationMissing";
           else {
-            const references = (yield* pgQuery<{
-              department_exists: boolean;
-              semester_exists: boolean;
-              school_active: boolean;
-              school_department_exists: boolean;
-            }>(
-              tx,
-              `SELECT
-                   EXISTS(SELECT 1 FROM public.organization_departments WHERE department_id = $1) AS department_exists,
-                   EXISTS(SELECT 1 FROM public.admission_period_semesters WHERE semester_id = $2) AS semester_exists,
-                   COALESCE((SELECT active FROM public.schools_directory_schools WHERE school_id = $3), false) AS school_active,
-                   EXISTS(SELECT 1 FROM public.schools_directory_departments
-                           WHERE school_id = $3 AND department_id = $1) AS school_department_exists`,
-              [mapping!.departmentId, mapping!.semesterId, mapping!.schoolId],
-            )).rows[0]!;
+            const references = (yield* tx
+              .unsafe<{
+                department_exists: boolean;
+                semester_exists: boolean;
+                school_active: boolean;
+                school_department_exists: boolean;
+              }>(
+                `SELECT
+                 EXISTS(SELECT 1 FROM public.organization_departments WHERE department_id = $1) AS department_exists,
+                 EXISTS(SELECT 1 FROM public.admission_period_semesters WHERE semester_id = $2) AS semester_exists,
+                 COALESCE((SELECT active FROM public.schools_directory_schools WHERE school_id = $3), false) AS school_active,
+                 EXISTS(SELECT 1 FROM public.schools_directory_departments
+                         WHERE school_id = $3 AND department_id = $1) AS school_department_exists`,
+                [mapping!.departmentId, mapping!.semesterId, mapping!.schoolId],
+              )
+              .pipe(Effect.flatMap(decodeReferenceRows)))[0]!;
 
             if (
               !references.department_exists ||
@@ -654,59 +707,52 @@ const importAssignmentCohort = Effect.fnUntraced(function* (
             )
               reason = "DuplicateTarget";
             else {
-              const affiliation = (yield* pgQuery<{ status: string; revision: number }>(
-                tx,
-                `SELECT status, revision
-                     FROM public.organization_volunteer_affiliations
-                    WHERE person_id = $1 AND department_id = $2
-                    FOR SHARE`,
-                [mapping!.personId, mapping!.departmentId],
-              )).rows[0];
-
-              const affiliationProvenance = yield* pgQuery<{ source_repository: string }>(
-                tx,
-                `SELECT source_repository
-                   FROM public.current_assignment_affiliation_imports
+              const affiliation = (yield* tx
+                .unsafe<{ status: string; revision: number }>(
+                  `SELECT status, revision
+                   FROM public.organization_volunteer_affiliations
                   WHERE person_id = $1 AND department_id = $2
                   FOR SHARE`,
-                [mapping!.personId, mapping!.departmentId],
-              );
+                  [mapping!.personId, mapping!.departmentId],
+                )
+                .pipe(Effect.flatMap(decodeAffiliationRows)))[0];
 
-              const deterministicPlacement = yield* pgQuery(
-                tx,
+              const affiliationProvenance = yield* tx
+                .unsafe<{ source_repository: string }>(
+                  `SELECT source_repository
+                 FROM public.current_assignment_affiliation_imports
+                WHERE person_id = $1 AND department_id = $2
+                FOR SHARE`,
+                  [mapping!.personId, mapping!.departmentId],
+                )
+                .pipe(Effect.flatMap(decodeAffiliationProvenanceRows));
+
+              const deterministicPlacement = yield* tx.unsafe(
                 `SELECT 1 FROM public.assistant_placements WHERE placement_id = $1 FOR SHARE`,
                 [placementId],
               );
 
-              const overlappingPlacement = yield* pgQuery(
-                tx,
-                `SELECT 1
-                   FROM public.assistant_placements
-                  WHERE active AND person_id = $1 AND school_id = $2 AND semester_id = $3
-                    AND (block = ANY($4::text[]) OR block = 'Both')
-                  FOR SHARE`,
-                [
-                  mapping!.personId,
-                  mapping!.schoolId,
-                  mapping!.semesterId,
-                  row.block === "Both" ? ["1", "2"] : [row.block],
-                ],
-              );
+              const overlappingPlacement = yield* tx`SELECT 1
+                 FROM public.assistant_placements
+                WHERE active AND person_id = ${mapping!.personId}
+                  AND school_id = ${mapping!.schoolId} AND semester_id = ${mapping!.semesterId}
+                  AND (${tx.in("block", row.block === "Both" ? ["1", "2"] : [row.block])} OR block = 'Both')
+                FOR SHARE`;
 
               if (affiliation) {
                 if (
                   affiliation.status !== "Active" ||
                   affiliation.revision !== 1 ||
-                  affiliationProvenance.rows.length !== 1 ||
-                  affiliationProvenance.rows[0]!.source_repository !== snapshot.sourceRepository
+                  affiliationProvenance.length !== 1 ||
+                  affiliationProvenance[0]!.source_repository !== snapshot.sourceRepository
                 )
                   reason = "TargetConflict";
-                else if (deterministicPlacement.rowCount) reason = "TargetConflict";
-                else if (overlappingPlacement.rowCount) reason = "PlacementOverlap";
+                else if (deterministicPlacement.length) reason = "TargetConflict";
+                else if (overlappingPlacement.length) reason = "PlacementOverlap";
                 else reason = "Imported";
-              } else if (affiliationProvenance.rowCount || deterministicPlacement.rowCount) {
+              } else if (affiliationProvenance.length || deterministicPlacement.length) {
                 reason = "TargetConflict";
-              } else if (overlappingPlacement.rowCount) reason = "PlacementOverlap";
+              } else if (overlappingPlacement.length) reason = "PlacementOverlap";
               else {
                 createAffiliation = true;
                 reason = "Imported";
@@ -717,29 +763,26 @@ const importAssignmentCohort = Effect.fnUntraced(function* (
       }
 
       const accepted = reason === "Imported" || reason === "ExactReplay";
-      yield* pgQuery(
-        tx,
+      yield* tx.unsafe(
         `INSERT INTO public.current_assignment_occurrences
-           (snapshot_key, occurrence_id, disposition, reason)
-         VALUES ($1,$2,$3,$4)`,
+         (snapshot_key, occurrence_id, disposition, reason)
+       VALUES ($1,$2,$3,$4)`,
         [snapshotKey, occurrence.occurrenceId, accepted ? "Accepted" : "Quarantined", reason],
       );
 
       if (reason === "Imported" && row && mapping && sourceDigest && placementId) {
         if (createAffiliation)
-          yield* pgQuery(
-            tx,
+          yield* tx.unsafe(
             `INSERT INTO public.organization_volunteer_affiliations
-               (person_id, department_id, status, revision)
-             VALUES ($1,$2,'Active',1)`,
+             (person_id, department_id, status, revision)
+           VALUES ($1,$2,'Active',1)`,
             [mapping.personId, mapping.departmentId],
           );
-        yield* pgQuery(
-          tx,
+        yield* tx.unsafe(
           `INSERT INTO public.assistant_placements
-             (placement_id, person_id, department_id, semester_id, school_id, day, workdays,
-              block, active, revision)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,true,1)`,
+           (placement_id, person_id, department_id, semester_id, school_id, day, workdays,
+            block, active, revision)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,true,1)`,
           [
             placementId,
             mapping.personId,
@@ -751,14 +794,13 @@ const importAssignmentCohort = Effect.fnUntraced(function* (
             row.block,
           ],
         );
-        yield* pgQuery(
-          tx,
+        yield* tx.unsafe(
           `INSERT INTO public.current_assignment_imports
-             (source_repository, source_assignment_id, source_user_id, source_department_id,
-              source_semester_id, source_school_id, source_row_digest, person_id, department_id,
-              semester_id, school_id, day, workdays, block, affiliation_evidence_ref,
-              placement_evidence_ref, placement_id, source_digest, snapshot_key, occurrence_id)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
+           (source_repository, source_assignment_id, source_user_id, source_department_id,
+            source_semester_id, source_school_id, source_row_digest, person_id, department_id,
+            semester_id, school_id, day, workdays, block, affiliation_evidence_ref,
+            placement_evidence_ref, placement_id, source_digest, snapshot_key, occurrence_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
           [
             snapshot.sourceRepository,
             row.sourceAssignmentId,
@@ -784,12 +826,11 @@ const importAssignmentCohort = Effect.fnUntraced(function* (
         );
 
         if (createAffiliation)
-          yield* pgQuery(
-            tx,
+          yield* tx.unsafe(
             `INSERT INTO public.current_assignment_affiliation_imports
-               (source_repository, person_id, department_id, source_assignment_id, snapshot_key,
-                occurrence_id)
-             VALUES ($1,$2,$3,$4,$5,$6)`,
+             (source_repository, person_id, department_id, source_assignment_id, snapshot_key,
+              occurrence_id)
+           VALUES ($1,$2,$3,$4,$5,$6)`,
             [
               snapshot.sourceRepository,
               mapping.personId,
@@ -810,18 +851,16 @@ const importAssignmentCohort = Effect.fnUntraced(function* (
     return result;
   });
 
-  return yield* (
-    client === undefined ? pgTransaction(pool, importInTransaction) : importInTransaction(client)
-  ).pipe(
+  return yield* withTypedTransactionFailures(sql.withTransaction)(importInTransaction(sql)).pipe(
     Effect.catchTags({
-      PgQueryError: () => Effect.fail(new CurrentAssignmentFailure({ code: "PersistenceFailure" })),
+      SqlError: () => Effect.fail(new CurrentAssignmentFailure({ code: "PersistenceFailure" })),
       SchemaError: () => Effect.fail(new CurrentAssignmentFailure({ code: "PersistenceFailure" })),
     }),
   );
 });
 
 export const importCurrentAssignmentCohort = Effect.fn("importCurrentAssignmentCohort")(function* (
-  pool: Pool,
+  sql: SqlClient.SqlClient,
   input: typeof CurrentAssignmentSnapshot.Encoded,
 ) {
   const snapshot = yield* Effect.try({
@@ -829,20 +868,16 @@ export const importCurrentAssignmentCohort = Effect.fn("importCurrentAssignmentC
     catch: () => new CurrentAssignmentFailure({ code: "InvalidSnapshot" }),
   });
 
-  return yield* importAssignmentCohort(pool, snapshot);
+  return yield* importAssignmentCohort(sql, snapshot);
 });
 
 export const importReconciledCurrentAssignmentCohort = Effect.fn(
   "importReconciledCurrentAssignmentCohort",
-)(function* (
-  pool: Pool,
-  input: typeof ReconciledCurrentAssignmentSnapshot.Encoded,
-  client?: PoolClient,
-) {
+)(function* (sql: SqlClient.SqlClient, input: typeof ReconciledCurrentAssignmentSnapshot.Encoded) {
   const snapshot = yield* Effect.try({
     try: () => decodeReconciledCurrentAssignmentSnapshot(input),
     catch: () => new CurrentAssignmentFailure({ code: "InvalidSnapshot" }),
   });
 
-  return yield* importAssignmentCohort(pool, snapshot, client);
+  return yield* importAssignmentCohort(sql, snapshot);
 });

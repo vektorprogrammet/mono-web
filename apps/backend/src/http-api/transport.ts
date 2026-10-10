@@ -1,3 +1,7 @@
+/**
+ * EX-0024: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import {
   ContactSsrSecurity,
   InvitationCapabilitySecurity,
@@ -6,8 +10,11 @@ import {
   RequestSchemaErrorMiddleware,
   SessionSecurity,
 } from "@vektorprogrammet/http-api";
-import { timingSafeEqual } from "node:crypto";
-import { OAuthCredentialAuthority } from "@vektorprogrammet/database";
+import {
+  OAuthCredentialAuthority,
+  SecretEquality,
+  SecretEqualityLive,
+} from "@vektorprogrammet/database";
 import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
 import { CONTACT_BACKEND_HEADER } from "@vektorprogrammet/domain/contact";
 import { Identity } from "@vektorprogrammet/domain/identity";
@@ -17,8 +24,8 @@ import {
   Problem,
 } from "@vektorprogrammet/http-api/http-semantics";
 import { Match, Effect, Layer, Redacted, Result, Schema, type SchemaIssue } from "effect";
-import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
-import { HttpApiError, HttpApiMiddleware } from "effect/unstable/httpapi";
+import { HttpServerRequest, HttpServerResponse } from "effect/http";
+import { HttpApiError, HttpApiMiddleware } from "effect/http-api";
 import {
   headerCredentialCount,
   resolveAuthenticatedPerson,
@@ -269,33 +276,46 @@ const invitationCapabilitySecurityLayer = Layer.succeed(
   }),
 );
 
-const contactSsrSecurityLayer = (contact: ContactConfig | undefined) => {
-  const expected = contact === undefined ? undefined : Buffer.from(contact.backendToken);
+const noContactSsrSecurityLayer = Layer.succeed(
+  ContactSsrSecurity,
+  ContactSsrSecurity.of({ contactBackend: (httpEffect) => httpEffect }),
+);
 
-  return Layer.succeed(
-    ContactSsrSecurity,
-    ContactSsrSecurity.of({
-      contactBackend: (httpEffect, { credential }) => {
-        if (expected === undefined) return httpEffect;
-        const supplied = Buffer.from(Redacted.value(credential));
+export const ContactSsrSecurityLive = (
+  contact: ContactConfig | undefined,
+  subtle: Pick<typeof globalThis.crypto.subtle, "importKey" | "sign" | "verify">,
+) =>
+  contact === undefined
+    ? noContactSsrSecurityLayer
+    : Layer.effect(
+        ContactSsrSecurity,
+        Effect.gen(function* () {
+          const equality = yield* SecretEquality;
 
-        // A request without the header presented no credential; a wrong token presented an invalid one.
-        return supplied.length === expected.length && timingSafeEqual(supplied, expected)
-          ? httpEffect.pipe(Effect.provideService(ContactBackendAdmission, true))
-          : Effect.flatMap(HttpServerRequest.HttpServerRequest, (request) =>
-              Effect.fail(
-                Problem.unauthenticated(
+          return ContactSsrSecurity.of({
+            contactBackend: (httpEffect, { credential }) =>
+              Effect.gen(function* () {
+                const accepted = yield* equality.equal(
+                  contact.backendToken,
+                  Redacted.value(credential),
+                );
+
+                if (accepted)
+                  return yield* httpEffect.pipe(
+                    Effect.provideService(ContactBackendAdmission, true),
+                  );
+                const request = yield* HttpServerRequest.HttpServerRequest;
+
+                return yield* Problem.unauthenticated(
                   credentialPresentation({
                     presented: request.headers[CONTACT_BACKEND_HEADER] !== undefined,
                     challenge: 'ContactSSR realm="native-contact"',
                   }),
-                ),
-              ),
-            );
-      },
-    }),
-  );
-};
+                );
+              }),
+          });
+        }),
+      ).pipe(Layer.provide(SecretEqualityLive(subtle)));
 
 const RequestSchemaErrorLive = HttpApiMiddleware.layerSchemaErrorTransform(
   RequestSchemaErrorMiddleware,
@@ -307,9 +327,16 @@ const RequestSchemaErrorLive = HttpApiMiddleware.layerSchemaErrorTransform(
  * transaction-scoped authorization so command authority is re-evaluated under
  * the serializable transaction that commits the command.
  */
-export const nativeHttpApiMiddlewareLayer = (contact?: ContactConfig) =>
+export const nativeHttpApiMiddlewareLayer = (
+  ...args:
+    | []
+    | [
+        contact: ContactConfig | undefined,
+        subtle: Pick<typeof globalThis.crypto.subtle, "importKey" | "sign" | "verify">,
+      ]
+) =>
   Layer.mergeAll(
-    contactSsrSecurityLayer(contact),
+    args.length === 0 ? noContactSsrSecurityLayer : ContactSsrSecurityLive(...args),
     sessionSecurityLayer,
     personSecurityLayer,
     personOrServiceSecurityLayer,

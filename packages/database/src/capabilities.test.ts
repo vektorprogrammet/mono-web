@@ -14,7 +14,7 @@ import { Schools } from "@vektorprogrammet/domain/schools";
 import { SchoolsLive } from "./schools/postgres-layer.js";
 import { SocialEvents } from "@vektorprogrammet/domain/social-events";
 import { SocialEventsLive } from "./social-events/postgres-layer.js";
-import type { Layer } from "effect";
+import type { Crypto, Layer } from "effect";
 import {
   capabilityAuthorityDependencies,
   capabilityNames,
@@ -49,7 +49,7 @@ const implementedCapabilityLayers = {
   SocialEvents: SocialEventsLive,
 } satisfies {
   readonly Admissions: Layer.Layer<Admissions, never, Database>;
-  readonly Economy: Layer.Layer<Economy, never, Database>;
+  readonly Economy: Layer.Layer<Economy, never, Database | Crypto.Crypto>;
   readonly Organization: Layer.Layer<Organization, never, Database>;
   readonly Profile: Layer.Layer<Profile, never, Database | Organization>;
   readonly Schools: Layer.Layer<Schools, never, Database>;

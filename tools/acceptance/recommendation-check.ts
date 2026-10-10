@@ -1,3 +1,7 @@
+/**
+ * EX-0027: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 /**0101: previous-schema history -> actual migration -> production browser/API/PostgreSQL. */
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
@@ -39,6 +43,7 @@ import {
   coInterviewerCorrection0106IdentitySeeds,
   seedCoInterviewerCorrection0106Fixture,
   seedInterviewCorrectionPre0039Fixture,
+  seedRecruitmentMaintenanceJourneyFixture,
   type CoInterviewerCorrection0106Fixture,
   type InterviewCorrectionPre0039Fixture,
 } from "./recommendation-preupgrade-fixture.ts";
@@ -49,6 +54,7 @@ import {
 import { assertInterviewCorrectionIntegrity } from "./interview-correction-integrity.ts";
 import { runCoInterviewerCorrectionJourney } from "./co-interviewer-correction-0106.ts";
 import { DatabaseLive } from "../../packages/database/src/layers.js";
+import { NativeDatabaseStartupOptions } from "../../packages/database/src/search-path.js";
 import { TestPlatform } from "../../packages/database/src/test-support/platform.js";
 import { AdmissionsLive } from "../../packages/database/src/admissions/index.js";
 import { OrganizationLive } from "../../packages/database/src/organization/index.js";
@@ -62,9 +68,23 @@ import {
   RecruitmentNotificationEvidenceSchema,
 } from "../../packages/domain/src/recruitment/index.js";
 import { deliverJson } from "../../apps/backend/src/delivery/http.js";
+import { deriveHttpIdentity, normalizeTarget } from "../../apps/backend/src/http-semantics.js";
 import { NotificationGateway } from "../../packages/domain/src/notification/service.js";
-import { Array as Arr, Predicate, Schema } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { Array as Arr, Console, Effect, Predicate, Schema } from "effect";
+import { FetchHttpClient } from "effect/http";
+import { admissionJourneyClock } from "../e2e/journey-clock.ts";
+import {
+  AdmissionOutcomeResource,
+  AdmissionOutcomeAnnounceResource,
+  NativeProblem,
+  RecruitmentInterviewConductObservationSchema,
+  RecruitmentMaintenanceCommand,
+  RecruitmentMaintenanceResult,
+  QuestionnaireManagement,
+  InterviewStaffingManagement,
+  CorrectInterviewAssessmentRequest,
+} from "../../packages/http-api/src/index.js";
+import nativeOperations from "../../packages/sdk/native-api-operations.json";
 
 const root = new URL("../../", import.meta.url).pathname;
 
@@ -127,12 +147,11 @@ const applicantProgressMode = process.argv.includes("--applicant-progress-mode")
 if (process.argv.includes("--report")) validateInterviewReportFixture();
 
 if (process.argv.includes("--validate-fixture")) {
-  // oxlint-effect-plugin allow(no-ambient-console): dev only: EX-0009: local fixture validation result.
-  console.log("All recommendation fixture idempotency keys satisfy the canonical schema");
+  Effect.runSync(Console.log("All recommendation fixture idempotency keys satisfy the canonical schema"));
   process.exit(0);
 }
 
-const { chromium } = uiRequire("@playwright/test");
+const { chromium, expect } = uiRequire("@playwright/test");
 
 const AxeBuilder = uiRequire("@axe-core/playwright").default;
 
@@ -176,7 +195,7 @@ const ready = async (test: () => Promise<boolean>) => {
   for (let i = 0; i < 150; i++) {
     try {
       if (await test()) return;
-    } catch {}
+    } catch { }
 
     await new Promise((r) => setTimeout(r, 100));
   }
@@ -210,8 +229,7 @@ const gates: string[] = [];
 
 const recordGate = (...observations: string[]) => {
   gates.push(...observations);
-  // oxlint-effect-plugin allow(no-ambient-console): dev only: EX-0009: bounded synthetic rehearsal milestones.
-  console.log(JSON.stringify({ observed: observations }));
+  Effect.runSync(Console.log(JSON.stringify({ observed: observations })));
 };
 
 const secrets: string[] = [];
@@ -360,6 +378,7 @@ const deliverRecruitmentInvitationOnce = async ({
     url: Redacted.make(pgUrl),
     applicationName: "native-returning-invitation-delivery",
     maxConnections: 1,
+    startupOptions: NativeDatabaseStartupOptions,
   }).pipe(Layer.provide(TestPlatform));
 
   const admissionsLayer = AdmissionsLive.pipe(Layer.provide(databaseLayer));
@@ -488,11 +507,12 @@ try {
     OAUTH_DASHBOARD_ORIGIN: ui,
     OAUTH_NATIVE_API_RESOURCE: "urn:vektorprogrammet:native-api",
     PUBLIC_APPLICATION_EFFECT_MODE: effectMode,
-  PASSWORD_RESET_DELIVERY_MODE: "disabled",
-  RECEIPT_DELIVERY_MODE: "disabled",
+    PASSWORD_RESET_DELIVERY_MODE: "disabled",
+    RECEIPT_DELIVERY_MODE: "disabled",
 
     API_URL: api,
-    VITE_API_URL: api,
+    // Browser SDK calls use the dashboard proxy; SSR keeps the upstream API origin.
+    VITE_API_URL: ui,
     DASHBOARD_MOUNT: "/",
     HOST: "127.0.0.1",
     PORT: String(uiPort),
@@ -555,6 +575,10 @@ try {
   // Also classifies team-native-conduct-0063 as the board (Styret) of an independent department,
   // so promoting the conduct leader to its leader below grants department reach (O8-11).
   await seedInterviewReportCoordinator({ pool, secrets });
+
+  const maintenanceFixture = process.argv.includes("--correction-mode")
+    ? await seedRecruitmentMaintenanceJourneyFixture(pool)
+    : undefined;
 
   if (effectMode === "http") {
     effectServer = await startEffectReceiver(effectToken, effectPort, (interviewId, capability) => {
@@ -643,6 +667,10 @@ try {
   recordGate(
     "0039/0040 upgrades preserved original interview/schedule/invitation/conduct/lifecycle rows",
   );
+  assert.equal(new URL(env.API_URL!).origin, api);
+  const browserSameOrigin = new URL(env.VITE_API_URL!).origin === ui;
+  assert.ok(browserSameOrigin);
+  Effect.runSync(Effect.log("Runner browser API boundary", { sameOrigin: browserSameOrigin }));
   run("bun", ["run", "build"], env, join(root, "packages/sdk"));
   run("bun", ["run", "build"], env, join(root, "apps/dashboard"));
   start("bun", ["server.mjs"], env, join(root, "apps/dashboard"));
@@ -771,8 +799,7 @@ try {
     const stage = (name: string) => {
       currentStage = name;
       returningStages.push(name);
-      // oxlint-effect-plugin allow(no-ambient-console): dev only: EX-0009: emit bounded returning-stage evidence.
-      console.log(JSON.stringify({ returningStage: name }));
+      Effect.runSync(Console.log(JSON.stringify({ returningStage: name })));
     };
 
     const bounded = async <T>(
@@ -931,9 +958,9 @@ try {
           (rows) =>
             hasExactReturningEffects(rows) &&
             rows.filter((row) => row.ordinal === 0).length ===
-              acceptedReturningRegistrations.rows.length &&
+            acceptedReturningRegistrations.rows.length &&
             rows.filter((row) => row.ordinal !== 0).length ===
-              acceptedReturningRegistrations.rows.length * 2 &&
+            acceptedReturningRegistrations.rows.length * 2 &&
             rows
               .filter((row) => row.ordinal === 0)
               .every(
@@ -1255,6 +1282,155 @@ try {
     const correctionStages: string[] = [];
     const stage = (name: string) => correctionStages.push(name);
 
+    // Gate 5 observes native requests, not the dashboard bridge's operation envelope.
+    const nativeOperation = (operationId: string) => {
+      const matches = nativeOperations.operations.filter(
+        (entry) => entry.operationId === operationId,
+      );
+
+      assert.equal(matches.length, 1, operationId);
+
+      return matches[0]!;
+    };
+
+    const questionnairesOperation = nativeOperation("recruitment.readQuestionnaires");
+    const staffingOperation = nativeOperation("recruitment.readInterviewStaffing");
+    const maintenanceOperation = nativeOperation("recruitment.maintainRecruitment");
+    const correctionOperation = nativeOperation("recruitment.correctInterviewAssessment");
+    const decodeQuestionnaires = Schema.decodeUnknownSync(QuestionnaireManagement);
+    const decodeStaffing = Schema.decodeUnknownSync(InterviewStaffingManagement);
+    const decodeMaintenanceCommand = Schema.decodeUnknownSync(RecruitmentMaintenanceCommand);
+    const encodeMaintenanceCommand = Schema.encodeSync(RecruitmentMaintenanceCommand);
+    const decodeMaintenanceResult = Schema.decodeUnknownSync(RecruitmentMaintenanceResult);
+    const decodeProblem = Schema.decodeUnknownSync(NativeProblem);
+
+    const maintenanceRequests: Array<{
+      operationId: string;
+      method: string;
+      path: string;
+      status: number;
+      body: unknown;
+      command?: RecruitmentMaintenanceCommand;
+      idempotencyKey?: string;
+    }> = [];
+
+    const maintenanceSqlObservations: Array<{ kind: string; body: unknown }> = [];
+
+    // The page owns these native SDK observations; server HTTP probes stay on api.
+    // Both maintenance reads and commands have an empty query, not an SSR .data suffix.
+    const nativeResponseFor = (
+      target: any,
+      operation: typeof maintenanceOperation,
+      tag?: RecruitmentMaintenanceCommand["_tag"],
+    ) =>
+      target.waitForResponse((response: any) => {
+        const url = new URL(response.url());
+        const request = response.request();
+
+        if (
+          request.frame() !== target.mainFrame() ||
+          request.method() !== operation.method ||
+          url.origin !== ui ||
+          url.pathname !== operation.path ||
+          url.search !== ""
+        ) return false;
+
+        if (operation.operationId === maintenanceOperation.operationId) {
+          const command = decodeMaintenanceCommand(request.postDataJSON());
+
+          if (tag !== undefined && command._tag !== tag) return false;
+
+          if (request.headers()["idempotency-key"] !== command.commandId) return false;
+        }
+
+        return true;
+      });
+
+    // Synchronous logging at the acceptance host boundary starts no background work.
+    const recordBrowserResponse = (operation: typeof maintenanceOperation, response: any) =>
+      Effect.runSync(Effect.log("Maintenance browser response", {
+        sameOrigin: new URL(response.url()).origin === ui,
+        operation: operation.operationId,
+        normalizedRoute: operation.path,
+        method: response.request().method(),
+        status: response.status(),
+        schemaDecoded: true,
+      }));
+
+    const observeMaintenanceRead = async <S extends Schema.ConstraintDecoder<unknown>>(
+      target: any,
+      operation: typeof maintenanceOperation,
+      schema: S,
+      trigger: () => Promise<void>,
+    ): Promise<S["Type"]> => {
+      const pending = nativeResponseFor(target, operation);
+      await trigger();
+      const response = await pending;
+      assert.equal(response.status(), 200, await response.text());
+      const body = Schema.decodeUnknownSync(schema)(await response.json());
+      recordBrowserResponse(operation, response);
+      maintenanceRequests.push({ ...operation, status: response.status(), body });
+
+      return body;
+    };
+
+    const observeMaintenanceSave = async (
+      target: any,
+      tag: RecruitmentMaintenanceCommand["_tag"],
+      trigger: () => Promise<void>,
+    ) => {
+      const pending = nativeResponseFor(target, maintenanceOperation, tag);
+      await trigger();
+      const response = await pending;
+      const request = response.request();
+      const command = decodeMaintenanceCommand(request.postDataJSON());
+      const key = request.headers()["idempotency-key"];
+      assert.equal(command._tag, tag);
+      assert.equal(key, command.commandId);
+      assert.equal(response.status(), 200, await response.text());
+      const result = decodeMaintenanceResult(await response.json());
+      recordBrowserResponse(maintenanceOperation, response);
+      const bytes = await response.text();
+      maintenanceRequests.push({
+        ...maintenanceOperation,
+        status: response.status(),
+        body: result,
+        command,
+        idempotencyKey: key,
+      });
+
+      return { command, result, bytes, rawBody: request.postData(), etag: response.headers().etag };
+    };
+
+    const postMaintenance = (command: RecruitmentMaintenanceCommand, authorityCookie: string) =>
+      fetch(api + maintenanceOperation.path, {
+        method: maintenanceOperation.method,
+        headers: {
+          cookie: authorityCookie,
+          origin: ui,
+          "content-type": "application/json",
+          "idempotency-key": command.commandId,
+        },
+        body: JSON.stringify(encodeMaintenanceCommand(command)),
+      });
+
+    // Same initial-focus/keyboard assertions used by the existing conduct journey.
+    const assertWindowFocus = async (target: any, dialog: any) => {
+      await expect(dialog.getByRole("button", { name: "Tilbake", exact: true })).toBeFocused();
+      const first = dialog.getByLabel("Begrunnelse for rettingsvindu", { exact: true });
+
+      const last = dialog.getByRole("button", {
+        name: "Last gjeldende versjon (erstatter utkast)",
+        exact: true,
+      });
+
+      await first.focus();
+      await target.keyboard.press("Shift+Tab");
+      await expect(last).toBeFocused();
+      await target.keyboard.press("Tab");
+      await expect(first).toBeFocused();
+    };
+
     const operationFor = (request: any): string | undefined => {
       if (request.method() !== "POST" || new URL(request.url()).pathname !== "/recruitment")
         return undefined;
@@ -1447,7 +1623,7 @@ try {
 
       const idempotencyKey =
         "idempotency-key" in operationHeaders &&
-        Predicate.isString(operationHeaders["idempotency-key"])
+          Predicate.isString(operationHeaders["idempotency-key"])
           ? operationHeaders["idempotency-key"]
           : undefined;
 
@@ -1700,7 +1876,7 @@ try {
     const afterSecond = await (await get(correctionId)).json();
     assert.ok(
       afterSecond.history.filter((entry: any) => Predicate.isTagged(entry, "Correction")).length >=
-        2,
+      2,
     );
     const afterSecondEtag = (await get(correctionId)).headers.get("etag");
     assert.deepEqual(afterSecond.answers, [
@@ -2063,22 +2239,1407 @@ try {
     recordGate(
       "direct SQL correction integrity rejects immutable mutations, invalid predecessor, aggregate mismatch, and cross-command receipt/audit tuples without writes",
     );
-    await writeFile(
-      join(artifacts, "correction-targeted-evidence.json"),
-      JSON.stringify(
-        {
-          revision,
-          correctionStages,
-          beforeBody,
-          afterFirst,
-          afterSecond,
-          finalDetail,
-          failedSaveRetry: correctionAttempts,
-        },
-        null,
-        2,
-      ),
+    // R2: use a separate existing completed fixture, leaving the history/replay probes above intact.
+    const windowInterviewId = "interview-correction-explicit-0105";
+    const windowApplicationId = "application-correction-explicit-0105";
+    const windowActor = "report-coordinator-0103";
+    const windowGrant = "correction-window-announcement-grant-0029";
+    const windowEnd = admissionJourneyClock().fromNow(1);
+
+    const readWindowDetail = async () => {
+      const response = await get(windowInterviewId);
+      assert.equal(response.status, 200);
+
+      return Schema.decodeUnknownSync(RecruitmentInterviewConductObservationSchema)(
+        await response.json(),
+      );
+    };
+
+    const openWindowInterview = async (target: any) => {
+      const detail = await readWindowDetail();
+      const name = `${detail.applicant.firstName} ${detail.applicant.lastName}`.trim();
+      await target.goto(`${ui}/dashboard/intervjuer`);
+      await target
+        .getByRole("article")
+        .filter({ hasText: name })
+        .getByRole("button", { name: "Åpne intervju", exact: true })
+        .click();
+      await target.getByRole("heading", { name: `Intervju med ${name}` }).waitFor();
+    };
+
+    const windowSnapshot = async () =>
+      (
+        await pool.query(
+          `SELECT
+        (SELECT jsonb_agg(to_jsonb(row) ORDER BY revision) FROM public.admission_application_outcomes row WHERE application_id=$1) AS outcomes,
+        (SELECT to_jsonb(row) FROM public.admission_outcome_announcements row WHERE application_id=$1) AS announcement,
+        (SELECT jsonb_agg(jsonb_build_object('effectId',effect_id,'kind',kind,'template',template_revision_id,'payload',payload_json) ORDER BY effect_id) FROM public.admission_outcome_outbox WHERE application_id=$1) AS mail`,
+          [windowApplicationId],
+        )
+      ).rows[0];
+    // Synthetic fixture designation: the opener is also the assigned co-interviewer.
+
+    await pool.query(
+      "UPDATE public.recruitment_interviews SET co_interviewer_person_id=$1 WHERE interview_id=$2",
+      [windowActor, windowInterviewId],
     );
+    const windowContext = await browser.newContext();
+    const windowPage = await windowContext.newPage();
+    windowPage.on("pageerror", () => errors.push("correction-window-pageerror"));
+
+    try {
+      await windowPage.goto(`${ui}/login`);
+      await windowPage
+        .getByLabel("E-post", { exact: true })
+        .fill("coordinator.report@example.invalid");
+      await windowPage.getByLabel("Passord", { exact: true }).fill(password);
+      await windowPage.getByRole("button", { name: "Logg inn", exact: true }).click();
+      await windowPage.waitForURL(/\/dashboard\/?$/);
+      const windowCookies = await windowContext.cookies();
+
+      const windowCookie = windowCookies
+        .map((entry: any) => `${entry.name}=${entry.value}`)
+        .join("; ");
+
+      secrets.push(...windowCookies.map((entry: any) => entry.value));
+      assert.ok(maintenanceFixture, "correction mode owns an isolated nonterminal staffing target");
+      const maintenanceGrant = "maintenance-journey-global-grant-0029";
+
+      const maintenanceSnapshot = async () =>
+        Schema.decodeUnknownSync(Schema.JsonObject)(
+          (
+            await pool.query(
+              `SELECT
+          (SELECT jsonb_agg(to_jsonb(r) ORDER BY interview_schema_id) FROM public.recruitment_interview_schemas r) AS questionnaires,
+          (SELECT jsonb_agg(to_jsonb(r) ORDER BY interview_schema_id,ordinal) FROM public.recruitment_interview_schema_questions r) AS questions,
+          (SELECT jsonb_agg(to_jsonb(r) ORDER BY interview_schema_id,revision) FROM public.recruitment_questionnaire_history r) AS questionnaire_history,
+          (SELECT jsonb_agg(to_jsonb(r) ORDER BY interview_id,revision) FROM public.recruitment_staffing_history r) AS staffing_history,
+          (SELECT jsonb_agg(to_jsonb(r) ORDER BY interview_id) FROM public.recruitment_interviews r) AS interviews,
+          (SELECT jsonb_agg(to_jsonb(r) ORDER BY interview_id) FROM public.recruitment_interview_conducts r) AS conducts,
+          (SELECT jsonb_agg(to_jsonb(r) ORDER BY interview_id,resulting_revision) FROM public.recruitment_interview_correction_assessments r) AS corrections,
+          (SELECT jsonb_agg(to_jsonb(r) ORDER BY command_id) FROM public.recruitment_interview_correction_command_receipts r) AS correction_receipts,
+          (SELECT jsonb_agg(to_jsonb(r) ORDER BY command_id) FROM public.recruitment_interview_correction_audit r) AS correction_audit,
+          (SELECT jsonb_agg(to_jsonb(r) ORDER BY interview_id,sequence) FROM public.recruitment_assessment_correction_windows r) AS windows,
+          (SELECT jsonb_agg(to_jsonb(r) ORDER BY actor_person_id,command_id) FROM public.recruitment_assessment_correction_window_audit r) AS window_audit,
+          (SELECT jsonb_agg(to_jsonb(r) ORDER BY actor_person_id,command_id) FROM public.recruitment_maintenance_command_receipts r) AS maintenance_receipts,
+          (SELECT jsonb_agg(to_jsonb(r) ORDER BY identity_sha256) FROM public.native_http_idempotency_receipts r) AS http_receipts`,
+            )
+          ).rows[0],
+        );
+
+      const capturedInterviewFacts = async () =>
+        Schema.decodeUnknownSync(Schema.JsonObject)(
+          (
+            await pool.query(
+              `SELECT
+          (SELECT jsonb_agg(to_jsonb(r) ORDER BY interview_id) FROM public.recruitment_interview_schedules r) AS schedules,
+          (SELECT jsonb_agg(to_jsonb(r) ORDER BY invitation_id) FROM public.recruitment_invitations r) AS invitations,
+          (SELECT jsonb_agg(to_jsonb(r) ORDER BY invitation_id,response_revision) FROM public.recruitment_invitation_response_audit r) AS responses,
+          (SELECT jsonb_agg(to_jsonb(r) ORDER BY interview_id,ordinal) FROM public.recruitment_interview_question_snapshots r) AS questions`,
+            )
+          ).rows[0],
+        );
+
+      const capturedBeforeMaintenance = await capturedInterviewFacts();
+      const effectsBeforeMaintenance = await effectSnapshot();
+
+      const assertMaintenanceReceipt = async (
+        attempt: Awaited<ReturnType<typeof observeMaintenanceSave>>,
+      ) => {
+        const domainRows = (
+          await pool.query(
+            "SELECT result_json FROM public.recruitment_maintenance_command_receipts WHERE actor_person_id=$1 AND command_id=$2",
+            [windowActor, attempt.command.commandId],
+          )
+        ).rows;
+
+        assert.equal(domainRows.length, 1);
+        assert.deepEqual(decodeMaintenanceResult(domainRows[0].result_json), attempt.result);
+
+        const identity = deriveHttpIdentity({
+          credentialSubject: `Person:${windowActor}`,
+          qualifiedOperationId: maintenanceOperation.operationId,
+          normalizedTarget: maintenanceOperation.path,
+          idempotencyKey: attempt.command.commandId,
+        });
+
+        const httpRows = (
+          await pool.query(
+            "SELECT operation_id,state,status,convert_from(body_bytes,'UTF8') AS body,headers_json FROM public.native_http_idempotency_receipts WHERE identity_sha256=$1",
+            [identity.identitySha256],
+          )
+        ).rows;
+
+        assert.equal(httpRows.length, 1);
+        assert.deepEqual(httpRows[0], {
+          operation_id: maintenanceOperation.operationId,
+          state: "Complete",
+          status: 200,
+          body: attempt.bytes,
+          headers_json: { "content-type": "application/json", etag: attempt.etag },
+        });
+        maintenanceSqlObservations.push({
+          kind: "MaintenanceReceipts",
+          body: { domain: domainRows, http: httpRows },
+        });
+      };
+
+      const assertMaintenanceRefused = async (
+        command: RecruitmentMaintenanceCommand,
+        status: number,
+        code: string,
+        authorityCookie = windowCookie,
+      ) => {
+        const before = await maintenanceSnapshot();
+        const effects = await effectSnapshot();
+        const refused = await postMaintenance(command, authorityCookie);
+        assert.equal(refused.status, status, await refused.clone().text());
+        const problem = decodeProblem(await refused.json());
+        assert.equal(problem.code, code);
+        assert.deepEqual(
+          await maintenanceSnapshot(),
+          before,
+          "refusal leaves state, history and both receipt kinds unchanged",
+        );
+        assert.deepEqual(await effectSnapshot(), effects, "refusal creates no effects");
+        maintenanceRequests.push({
+          ...maintenanceOperation,
+          status: refused.status,
+          body: problem,
+          command,
+          idempotencyKey: command.commandId,
+        });
+      };
+
+      // This temporary grant owns maintenance only; the announcement below keeps its own grant.
+      await pool.query(
+        "INSERT INTO public.organization_global_administrator_grants(grant_id,person_id,start_at) VALUES($1,$2,date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC'))",
+        [maintenanceGrant, windowActor],
+      );
+
+      try {
+        const initialQuestionnaires = await observeMaintenanceRead(
+          windowPage,
+          questionnairesOperation,
+          QuestionnaireManagement,
+          async () => {
+            await windowPage.goto(ui + "/dashboard/intervjusjema");
+          },
+        );
+
+        await expect(windowPage.getByLabel("Velg intervjuskjema", { exact: true })).toBeEnabled();
+        await windowPage
+          .getByLabel("Navn på intervjuskjema", { exact: true })
+          .fill("Maintenance journey questionnaire");
+        await windowPage.getByLabel("Aktivt for nye intervjuer", { exact: true }).check();
+        await windowPage.getByRole("button", { name: "Legg til spørsmål", exact: true }).click();
+        await windowPage
+          .getByLabel("Spørsmål", { exact: true })
+          .fill("First saved maintenance question");
+        await windowPage.getByRole("button", { name: "Legg til spørsmål", exact: true }).click();
+        await windowPage
+          .getByLabel("Spørsmål", { exact: true })
+          .nth(1)
+          .fill("Second saved maintenance question");
+        await windowPage
+          .getByLabel("Begrunnelse", { exact: true })
+          .fill("Create an audited questionnaire");
+        const createdRead = nativeResponseFor(windowPage, questionnairesOperation);
+
+        const created = await observeMaintenanceSave(windowPage, "CreateQuestionnaire", () =>
+          windowPage
+            .getByRole("button", { name: "Opprett intervjuskjema", exact: true })
+            .press("Enter"),
+        );
+
+        assert.ok(Predicate.isTagged(created.command, "CreateQuestionnaire"));
+        assert.ok(Predicate.isTagged(created.result, "QuestionnaireSaved"));
+        const questionnaireId = created.result.interviewSchemaId;
+        assert.equal(created.result.revision, 0);
+        assert.equal(
+          initialQuestionnaires.questionnaires.some(
+            (entry) => entry.interviewSchemaId === questionnaireId,
+          ),
+          false,
+        );
+        const createdResponse = await createdRead;
+        assert.equal(createdResponse.status(), 200);
+        const createdBoard = decodeQuestionnaires(await createdResponse.json());
+        maintenanceRequests.push({ ...questionnairesOperation, status: 200, body: createdBoard });
+
+        const firstDefinition = createdBoard.questionnaires.find(
+          (entry) => entry.interviewSchemaId === questionnaireId,
+        );
+
+        assert.ok(firstDefinition);
+        assert.deepEqual(firstDefinition.questions, created.command.questions);
+        assert.equal(firstDefinition.active, true);
+        assert.equal(firstDefinition.sourceState, "Available");
+        assert.equal(firstDefinition.questionCount, 2);
+        await expect(windowPage.getByLabel("Velg intervjuskjema", { exact: true })).toHaveValue(
+          questionnaireId,
+        );
+        await expect(
+          windowPage.getByLabel("Navn på intervjuskjema", { exact: true }),
+        ).toBeEnabled();
+        await windowPage
+          .getByLabel("Navn på intervjuskjema", { exact: true })
+          .fill("Revised maintenance journey questionnaire");
+        await windowPage.getByRole("button", { name: "Flytt spørsmål 2 opp", exact: true }).click();
+        await windowPage
+          .getByLabel("Hjelpetekst (valgfritt)", { exact: true })
+          .first()
+          .fill("A revised saved explanation");
+        await windowPage
+          .getByLabel("Begrunnelse", { exact: true })
+          .fill("Revise and reorder without changing captured interview questions");
+        const revisedRead = nativeResponseFor(windowPage, questionnairesOperation);
+
+        const revised = await observeMaintenanceSave(windowPage, "ReviseQuestionnaire", () =>
+          windowPage
+            .getByRole("button", { name: "Lagre intervjuskjema", exact: true })
+            .press("Enter"),
+        );
+
+        assert.ok(Predicate.isTagged(revised.command, "ReviseQuestionnaire"));
+        assert.ok(Predicate.isTagged(revised.result, "QuestionnaireSaved"));
+        assert.equal(revised.command.interviewSchemaId, questionnaireId);
+        assert.equal(revised.command.expectedRevision, firstDefinition.revision);
+        assert.deepEqual(
+          revised.result,
+          RecruitmentMaintenanceResult.cases.QuestionnaireSaved.make({
+            interviewSchemaId: questionnaireId,
+            revision: firstDefinition.revision + 1,
+          }),
+        );
+        const revisedResponse = await revisedRead;
+        assert.equal(revisedResponse.status(), 200);
+        const revisedBoard = decodeQuestionnaires(await revisedResponse.json());
+        maintenanceRequests.push({ ...questionnairesOperation, status: 200, body: revisedBoard });
+
+        const currentDefinition = revisedBoard.questionnaires.find(
+          (entry) => entry.interviewSchemaId === questionnaireId,
+        );
+
+        assert.ok(currentDefinition);
+        assert.deepEqual(currentDefinition.questions, revised.command.questions);
+        assert.deepEqual(
+          currentDefinition.questions.map((question) => question.prompt),
+          ["Second saved maintenance question", "First saved maintenance question"],
+        );
+
+        const persistedQuestionnaire = Schema.decodeUnknownSync(Schema.JsonObject)(
+          (
+            await pool.query(
+              `SELECT name,active,revision,question_count FROM public.recruitment_interview_schemas WHERE interview_schema_id=$1`,
+              [questionnaireId],
+            )
+          ).rows[0],
+        );
+
+        assert.deepEqual(persistedQuestionnaire, {
+          name: currentDefinition.name,
+          active: currentDefinition.active,
+          revision: currentDefinition.revision,
+          question_count: currentDefinition.questionCount,
+        });
+
+        const persistedQuestions = Schema.decodeUnknownSync(
+          QuestionnaireManagement.fields.questionnaires.value.fields.questions,
+        )(
+          (
+            await pool.query(
+              `SELECT question_id AS "questionId",ordinal,prompt,help_text AS "helpText",kind,alternatives
+            FROM public.recruitment_interview_schema_questions WHERE interview_schema_id=$1 ORDER BY ordinal`,
+              [questionnaireId],
+            )
+          ).rows,
+        );
+
+        assert.deepEqual(persistedQuestions, currentDefinition.questions);
+        maintenanceSqlObservations.push({
+          kind: "CurrentQuestionnaire",
+          body: { definition: persistedQuestionnaire, questions: persistedQuestions },
+        });
+
+        const questionnaireHistorySql = Schema.decodeUnknownSync(
+          QuestionnaireManagement.fields.history,
+        )(
+          (
+            await pool.query(
+              `SELECT command_id AS "commandId",actor_person_id AS "actorPersonId",interview_schema_id AS "interviewSchemaId",reason,revision,
+            to_char(recorded_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "recordedAt",before_json AS before,after_json AS after
+            FROM public.recruitment_questionnaire_history WHERE interview_schema_id=$1 ORDER BY revision DESC`,
+              [questionnaireId],
+            )
+          ).rows,
+        );
+
+        assert.equal(questionnaireHistorySql.length, 2);
+        assert.deepEqual(
+          revisedBoard.history.filter((entry) => entry.interviewSchemaId === questionnaireId),
+          questionnaireHistorySql,
+        );
+        assert.deepEqual(
+          questionnaireHistorySql.map((entry) => [
+            entry.revision,
+            entry.commandId,
+            entry.actorPersonId,
+            entry.reason,
+            entry.before,
+            entry.after,
+          ]),
+          [
+            [
+              currentDefinition.revision,
+              revised.command.commandId,
+              windowActor,
+              revised.command.reason,
+              firstDefinition,
+              currentDefinition,
+            ],
+            [
+              firstDefinition.revision,
+              created.command.commandId,
+              windowActor,
+              created.command.reason,
+              null,
+              firstDefinition,
+            ],
+          ],
+        );
+
+        const reloadedQuestionnaires = await observeMaintenanceRead(
+          windowPage,
+          questionnairesOperation,
+          QuestionnaireManagement,
+          async () => {
+            await windowPage.reload();
+          },
+        );
+
+        assert.deepEqual(
+          reloadedQuestionnaires.history.filter(
+            (entry) => entry.interviewSchemaId === questionnaireId,
+          ),
+          questionnaireHistorySql,
+        );
+        assert.deepEqual(
+          reloadedQuestionnaires.questionnaires.find(
+            (entry) => entry.interviewSchemaId === questionnaireId,
+          ),
+          currentDefinition,
+        );
+        await windowPage
+          .getByLabel("Velg intervjuskjema", { exact: true })
+          .selectOption(questionnaireId);
+        await expect(windowPage.getByLabel("Navn på intervjuskjema", { exact: true })).toHaveValue(
+          currentDefinition.name,
+        );
+        await expect(windowPage.getByLabel("Spørsmål", { exact: true })).toHaveCount(2);
+
+        for (const [index, question] of currentDefinition.questions.entries())
+          await expect(windowPage.getByLabel("Spørsmål", { exact: true }).nth(index)).toHaveValue(
+            question.prompt,
+          );
+
+        const questionnaireHistoryView = windowPage.getByRole("region", {
+          name: "Vedlikeholdshistorikk",
+          exact: true,
+        });
+
+        await expect(questionnaireHistoryView.locator(".rm-history-entry")).toHaveCount(2);
+
+        for (const [index, saved] of questionnaireHistorySql.entries()) {
+          const entry = questionnaireHistoryView.locator(".rm-history-entry").nth(index);
+          await expect(entry).toContainText(
+            `Versjon ${saved.revision} · ${saved.recordedAt} · ${windowActor}`,
+          );
+          await expect(entry).toContainText(saved.reason);
+          await entry.locator("summary").press("Enter");
+          await expect(entry).toContainText(saved.after.name);
+          assert.deepEqual(
+            await entry.locator("details > ol > li > p:first-child").allTextContents(),
+            saved.after.questions.map((question) => `${question.prompt} (${question.kind})`),
+          );
+          assert.equal(await entry.locator("input,textarea,select,button").count(), 0);
+        }
+
+        await assertMaintenanceReceipt(created);
+        await assertMaintenanceReceipt(revised);
+        const questionnaireBeforeReplay = await maintenanceSnapshot();
+
+        const replayedQuestionnaire = await fetch(api + maintenanceOperation.path, {
+          method: maintenanceOperation.method,
+          headers: {
+            cookie: windowCookie,
+            origin: ui,
+            "content-type": "application/json",
+            "idempotency-key": created.command.commandId,
+          },
+          body: created.rawBody,
+        });
+
+        assert.equal(replayedQuestionnaire.status, 200);
+        assert.equal(await replayedQuestionnaire.text(), created.bytes);
+        assert.deepEqual(await maintenanceSnapshot(), questionnaireBeforeReplay);
+        await assertMaintenanceRefused(
+          RecruitmentMaintenanceCommand.cases.ReviseQuestionnaire.make({
+            ...revised.command,
+            commandId: "maintenance-stale-questionnaire-0029",
+            expectedRevision: firstDefinition.revision,
+          }),
+          412,
+          "precondition.failed",
+        );
+        stage(
+          "Gate5 native questionnaires create/revise, fresh/reload saved definitions and independent immutable history/receipt evidence",
+        );
+
+        const initialStaffing = await observeMaintenanceRead(
+          windowPage,
+          staffingOperation,
+          InterviewStaffingManagement,
+          async () => {
+            await windowPage.goto(ui + "/dashboard/intervjubemanning");
+          },
+        );
+
+        const initialInterview = initialStaffing.interviews.find(
+          (entry) => entry.interviewId === maintenanceFixture.interviewId,
+        );
+
+        assert.ok(initialInterview);
+        assert.equal(initialInterview.terminal, false);
+        const { assessmentCorrection: _initialWindow, ...firstStaffing } = initialInterview;
+
+        const primary = initialStaffing.candidates.find(
+          (entry) =>
+            entry.departmentId === initialInterview.departmentId &&
+            entry.personId === initialInterview.interviewerPersonId,
+        );
+
+        const co = initialStaffing.candidates.find(
+          (entry) =>
+            entry.departmentId === initialInterview.departmentId &&
+            entry.personId === windowActor &&
+            entry.personId !== initialInterview.interviewerPersonId,
+        );
+
+        assert.ok(primary);
+        assert.ok(co);
+        await windowPage
+          .getByLabel("Velg intervju", { exact: true })
+          .selectOption(maintenanceFixture.interviewId);
+        await windowPage
+          .getByLabel("Hovedintervjuer", { exact: true })
+          .selectOption(primary.personId);
+        await windowPage
+          .getByLabel("Medintervjuer (valgfritt)", { exact: true })
+          .selectOption(co.personId);
+        await windowPage
+          .getByLabel("Begrunnelse", { exact: true })
+          .fill("Designate the eligible maintenance interview pair");
+        const changedRead = nativeResponseFor(windowPage, staffingOperation);
+
+        const changed = await observeMaintenanceSave(windowPage, "ChangeInterviewStaffing", () =>
+          windowPage.getByRole("button", { name: "Lagre bemanning", exact: true }).press("Enter"),
+        );
+
+        assert.ok(Predicate.isTagged(changed.command, "ChangeInterviewStaffing"));
+        assert.ok(Predicate.isTagged(changed.result, "InterviewStaffingChanged"));
+        assert.equal(changed.command.expectedRevision, firstStaffing.revision);
+        const changedResponse = await changedRead;
+        assert.equal(changedResponse.status(), 200);
+        const changedBoard = decodeStaffing(await changedResponse.json());
+        maintenanceRequests.push({ ...staffingOperation, status: 200, body: changedBoard });
+
+        const changedInterview = changedBoard.interviews.find(
+          (entry) => entry.interviewId === firstStaffing.interviewId,
+        );
+
+        assert.ok(changedInterview);
+        const { assessmentCorrection: _changedWindow, ...secondStaffing } = changedInterview;
+        assert.deepEqual(secondStaffing, {
+          ...firstStaffing,
+          interviewerPersonId: primary.personId,
+          coInterviewerPersonId: co.personId,
+          revision: firstStaffing.revision + 1,
+        });
+        assert.deepEqual(
+          changed.result,
+          RecruitmentMaintenanceResult.cases.InterviewStaffingChanged.make({
+            interviewId: firstStaffing.interviewId,
+            revision: secondStaffing.revision,
+          }),
+        );
+        await expect(windowPage.getByLabel("Hovedintervjuer", { exact: true })).toBeEnabled();
+        await windowPage.getByLabel("Hovedintervjuer", { exact: true }).selectOption(co.personId);
+        await windowPage
+          .getByLabel("Medintervjuer (valgfritt)", { exact: true })
+          .selectOption(primary.personId);
+        await windowPage
+          .getByLabel("Begrunnelse", { exact: true })
+          .fill("Swap the audited pair without changing invitation or answers");
+        const swappedRead = nativeResponseFor(windowPage, staffingOperation);
+
+        const swapped = await observeMaintenanceSave(windowPage, "ChangeInterviewStaffing", () =>
+          windowPage.getByRole("button", { name: "Lagre bemanning", exact: true }).press("Enter"),
+        );
+
+        assert.ok(Predicate.isTagged(swapped.command, "ChangeInterviewStaffing"));
+        assert.ok(Predicate.isTagged(swapped.result, "InterviewStaffingChanged"));
+        assert.equal(swapped.command.expectedRevision, secondStaffing.revision);
+        const swappedResponse = await swappedRead;
+        assert.equal(swappedResponse.status(), 200);
+        const swappedBoard = decodeStaffing(await swappedResponse.json());
+        maintenanceRequests.push({ ...staffingOperation, status: 200, body: swappedBoard });
+
+        const swappedInterview = swappedBoard.interviews.find(
+          (entry) => entry.interviewId === firstStaffing.interviewId,
+        );
+
+        assert.ok(swappedInterview);
+        const { assessmentCorrection: _swappedWindow, ...thirdStaffing } = swappedInterview;
+        assert.deepEqual(thirdStaffing, {
+          ...secondStaffing,
+          interviewerPersonId: co.personId,
+          coInterviewerPersonId: primary.personId,
+          revision: secondStaffing.revision + 1,
+        });
+        assert.deepEqual(
+          swapped.result,
+          RecruitmentMaintenanceResult.cases.InterviewStaffingChanged.make({
+            interviewId: firstStaffing.interviewId,
+            revision: thirdStaffing.revision,
+          }),
+        );
+
+        const staffingHistorySql = Schema.decodeUnknownSync(
+          InterviewStaffingManagement.fields.history,
+        )(
+          (
+            await pool.query(
+              `SELECT command_id AS "commandId",actor_person_id AS "actorPersonId",interview_id AS "interviewId",reason,revision,
+            to_char(recorded_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "recordedAt",before_json AS before,after_json AS after
+            FROM public.recruitment_staffing_history WHERE interview_id=$1 ORDER BY revision DESC`,
+              [firstStaffing.interviewId],
+            )
+          ).rows,
+        );
+
+        assert.equal(staffingHistorySql.length, 2);
+        assert.deepEqual(
+          swappedBoard.history.filter((entry) => entry.interviewId === firstStaffing.interviewId),
+          staffingHistorySql,
+        );
+        assert.deepEqual(
+          staffingHistorySql.map((entry) => [
+            entry.revision,
+            entry.commandId,
+            entry.actorPersonId,
+            entry.reason,
+            entry.before,
+            entry.after,
+          ]),
+          [
+            [
+              thirdStaffing.revision,
+              swapped.command.commandId,
+              windowActor,
+              swapped.command.reason,
+              secondStaffing,
+              thirdStaffing,
+            ],
+            [
+              secondStaffing.revision,
+              changed.command.commandId,
+              windowActor,
+              changed.command.reason,
+              firstStaffing,
+              secondStaffing,
+            ],
+          ],
+        );
+
+        const reloadedStaffing = await observeMaintenanceRead(
+          windowPage,
+          staffingOperation,
+          InterviewStaffingManagement,
+          async () => {
+            await windowPage.reload();
+          },
+        );
+
+        assert.deepEqual(
+          reloadedStaffing.history.filter(
+            (entry) => entry.interviewId === firstStaffing.interviewId,
+          ),
+          staffingHistorySql,
+        );
+        await windowPage
+          .getByLabel("Velg intervju", { exact: true })
+          .selectOption(firstStaffing.interviewId);
+        await expect(windowPage.getByLabel("Hovedintervjuer", { exact: true })).toHaveValue(
+          thirdStaffing.interviewerPersonId,
+        );
+        await expect(
+          windowPage.getByLabel("Medintervjuer (valgfritt)", { exact: true }),
+        ).toHaveValue(thirdStaffing.coInterviewerPersonId);
+
+        const persistedStaffing = Schema.decodeUnknownSync(Schema.JsonObject)(
+          (
+            await pool.query(
+              `SELECT interviewer_person_id,co_interviewer_person_id,revision FROM public.recruitment_interviews WHERE interview_id=$1`,
+              [firstStaffing.interviewId],
+            )
+          ).rows[0],
+        );
+
+        assert.deepEqual(persistedStaffing, {
+          interviewer_person_id: thirdStaffing.interviewerPersonId,
+          co_interviewer_person_id: thirdStaffing.coInterviewerPersonId,
+          revision: thirdStaffing.revision,
+        });
+        maintenanceSqlObservations.push({ kind: "CurrentStaffing", body: persistedStaffing });
+
+        const staffingHistoryView = windowPage.getByRole("region", {
+          name: "Vedlikeholdshistorikk",
+          exact: true,
+        });
+
+        await expect(staffingHistoryView.locator(".rm-history-entry")).toHaveCount(2);
+
+        for (const [index, saved] of staffingHistorySql.entries()) {
+          const entry = staffingHistoryView.locator(".rm-history-entry").nth(index);
+          await expect(entry).toContainText(
+            `Versjon ${saved.revision} · ${saved.recordedAt} · ${windowActor}`,
+          );
+          await expect(entry).toContainText(saved.reason);
+          await expect(entry).toContainText(
+            `Fra: ${saved.before.interviewerPersonId} / ${saved.before.coInterviewerPersonId ?? "ingen medintervjuer"}`,
+          );
+          await expect(entry).toContainText(
+            `Til: ${saved.after.interviewerPersonId} / ${saved.after.coInterviewerPersonId ?? "ingen medintervjuer"}`,
+          );
+          assert.equal(await entry.locator("input,textarea,select,button").count(), 0);
+        }
+
+        await assertMaintenanceReceipt(changed);
+        await assertMaintenanceReceipt(swapped);
+        const staffingBeforeReplay = await maintenanceSnapshot();
+
+        const replayedStaffing = await fetch(api + maintenanceOperation.path, {
+          method: maintenanceOperation.method,
+          headers: {
+            cookie: windowCookie,
+            origin: ui,
+            "content-type": "application/json",
+            "idempotency-key": changed.command.commandId,
+          },
+          body: changed.rawBody,
+        });
+
+        assert.equal(replayedStaffing.status, 200);
+        assert.equal(await replayedStaffing.text(), changed.bytes);
+        assert.deepEqual(await maintenanceSnapshot(), staffingBeforeReplay);
+        await assertMaintenanceRefused(
+          RecruitmentMaintenanceCommand.cases.ChangeInterviewStaffing.make({
+            ...swapped.command,
+            commandId: "maintenance-stale-staffing-0029",
+            expectedRevision: secondStaffing.revision,
+          }),
+          412,
+          "precondition.failed",
+        );
+        await assertMaintenanceRefused(
+          RecruitmentMaintenanceCommand.cases.ChangeInterviewStaffing.make({
+            ...swapped.command,
+            commandId: "maintenance-ineligible-staffing-0029",
+            expectedRevision: thirdStaffing.revision,
+            coInterviewerPersonId: co.personId,
+          }),
+          422,
+          "recruitment.ineligible",
+        );
+
+        const terminal = reloadedStaffing.interviews.find(
+          (entry) => entry.interviewId === windowInterviewId,
+        );
+
+        assert.ok(terminal?.terminal);
+        await assertMaintenanceRefused(
+          RecruitmentMaintenanceCommand.cases.ChangeInterviewStaffing.make({
+            ...swapped.command,
+            commandId: "maintenance-terminal-staffing-0029",
+            interviewId: terminal.interviewId,
+            expectedRevision: terminal.revision,
+          }),
+          409,
+          "recruitment.terminal",
+        );
+        const beforeImmutable = await maintenanceSnapshot();
+
+        for (const [statement, identity] of [
+          [
+            "UPDATE public.recruitment_questionnaire_history SET reason='rewritten evidence' WHERE interview_schema_id=$1",
+            questionnaireId,
+          ],
+          [
+            "DELETE FROM public.recruitment_questionnaire_history WHERE interview_schema_id=$1",
+            questionnaireId,
+          ],
+          [
+            "UPDATE public.recruitment_staffing_history SET reason='rewritten evidence' WHERE interview_id=$1",
+            firstStaffing.interviewId,
+          ],
+          [
+            "DELETE FROM public.recruitment_staffing_history WHERE interview_id=$1",
+            firstStaffing.interviewId,
+          ],
+          [
+            "UPDATE public.recruitment_maintenance_command_receipts SET result_json='{}'::jsonb WHERE command_id=$1",
+            created.command.commandId,
+          ],
+          [
+            "DELETE FROM public.recruitment_maintenance_command_receipts WHERE command_id=$1",
+            changed.command.commandId,
+          ],
+        ]) {
+          await assert.rejects(pool.query(statement, [identity]), {
+            code: "P0001",
+            message: "Recruitment maintenance evidence is immutable",
+          });
+        }
+
+        assert.deepEqual(await maintenanceSnapshot(), beforeImmutable);
+        maintenanceSqlObservations.push({
+          kind: "QuestionnaireHistory",
+          body: questionnaireHistorySql,
+        });
+        maintenanceSqlObservations.push({ kind: "StaffingHistory", body: staffingHistorySql });
+        assert.deepEqual(
+          await capturedInterviewFacts(),
+          capturedBeforeMaintenance,
+          "maintenance retains schedules, invitations/responses and all captured interview questions",
+        );
+        assert.deepEqual(
+          await effectSnapshot(),
+          effectsBeforeMaintenance,
+          "questionnaire/staffing edits create no notifications or application effects",
+        );
+        stage(
+          "Gate5 native staffing pair changes, fresh/reload Fra/Til histories, SQL immutability, exact replay and no-write stale/ineligible/terminal refusal",
+        );
+      } finally {
+        await pool.query(
+          "DELETE FROM public.organization_global_administrator_grants WHERE grant_id=$1",
+          [maintenanceGrant],
+        );
+      }
+
+      const beforeQuestionnaireDenial = await maintenanceSnapshot();
+
+      const deniedQuestionnaires = await fetch(api + questionnairesOperation.path, {
+        headers: { cookie: windowCookie, origin: ui },
+      });
+
+      assert.equal(deniedQuestionnaires.status, 403);
+      const deniedQuestionnaireProblem = decodeProblem(await deniedQuestionnaires.json());
+      assert.equal(deniedQuestionnaireProblem.code, "authority.denied");
+      maintenanceRequests.push({
+        ...questionnairesOperation,
+        status: 403,
+        body: deniedQuestionnaireProblem,
+      });
+      await assertMaintenanceRefused(
+        RecruitmentMaintenanceCommand.cases.CreateQuestionnaire.make({
+          commandId: "maintenance-questionnaire-denied-0029",
+          reason: "Scoped coordinators cannot create global questionnaires",
+          name: "Denied questionnaire",
+          active: false,
+          questions: [],
+        }),
+        403,
+        "authority.denied",
+      );
+      assert.deepEqual(await maintenanceSnapshot(), beforeQuestionnaireDenial);
+      assert.deepEqual(await effectSnapshot(), effectsBeforeMaintenance);
+      stage(
+        "Gate5 questionnaire GET and native create deny after global grant removal without state, receipts, history or effects",
+      );
+      await pool.query(
+        "INSERT INTO public.organization_global_administrator_grants(grant_id,person_id,start_at) VALUES($1,$2,date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC'))",
+        [windowGrant, windowActor],
+      );
+
+      const outcomeRead = await fetch(`${api}/api/admission-outcomes/${windowApplicationId}`, {
+        headers: { cookie: windowCookie, origin: ui },
+      });
+
+      assert.equal(outcomeRead.status, 200);
+      const outcome = Schema.decodeUnknownSync(AdmissionOutcomeResource)(await outcomeRead.json());
+      assert.equal(outcome.basis, "Ja");
+
+      const announced = await fetch(
+        `${api}/api/admission-outcomes/${windowApplicationId}:announce`,
+        {
+          method: "POST",
+          headers: {
+            cookie: windowCookie,
+            origin: ui,
+            "content-type": "application/json",
+            "if-match": outcome.etag,
+            "idempotency-key": "correction-window-announce-0029",
+          },
+          body: "{}",
+        },
+      );
+
+      assert.equal(announced.status, 200, await announced.clone().text());
+      assert.equal(
+        Schema.decodeUnknownSync(AdmissionOutcomeAnnounceResource)(await announced.json()).outcome,
+        "Admitted",
+      );
+      await pool.query(
+        "DELETE FROM public.organization_global_administrator_grants WHERE grant_id=$1",
+        [windowGrant],
+      );
+      const frozen = await windowSnapshot();
+      const closed = await readWindowDetail();
+      assert.equal(closed.assessmentCorrection._tag, "Closed");
+      assert.equal(closed.assessmentCorrection.canCorrect, false);
+      await openWindowInterview(page);
+      assert.equal(
+        await page.getByRole("button", { name: "Rett intervju", exact: true }).isDisabled(),
+        true,
+      );
+      assert.equal(await page.locator("#interviewer-recommendation").isDisabled(), true);
+
+      const windowStaffing = await observeMaintenanceRead(
+        windowPage,
+        staffingOperation,
+        InterviewStaffingManagement,
+        async () => {
+          await windowPage.goto(`${ui}/dashboard/intervjubemanning`);
+        },
+      );
+
+      const windowStaffingEntry = windowStaffing.interviews.find(
+        (entry) => entry.interviewId === windowInterviewId,
+      );
+
+      assert.ok(windowStaffingEntry);
+      assert.equal(windowStaffingEntry.assessmentCorrection._tag, "Closed");
+      assert.equal(
+        windowStaffingEntry.assessmentCorrection.sequence,
+        closed.assessmentCorrection.sequence,
+      );
+      assert.equal(windowStaffingEntry.assessmentCorrection.canReopen, true);
+      await windowPage.getByLabel("Velg intervju", { exact: true }).selectOption(windowInterviewId);
+      const staleWindowPage = await windowContext.newPage();
+
+      try {
+        const staleStaffing = await observeMaintenanceRead(
+          staleWindowPage,
+          staffingOperation,
+          InterviewStaffingManagement,
+          async () => {
+            await staleWindowPage.goto(`${ui}/dashboard/intervjubemanning`);
+          },
+        );
+
+        const staleInterview = staleStaffing.interviews.find(
+          (entry) => entry.interviewId === windowInterviewId,
+        );
+
+        assert.ok(staleInterview);
+        assert.equal(
+          staleInterview.assessmentCorrection.sequence,
+          closed.assessmentCorrection.sequence,
+        );
+        await staleWindowPage
+          .getByLabel("Velg intervju", { exact: true })
+          .selectOption(windowInterviewId);
+        await windowPage
+          .getByRole("button", { name: "Gjenåpne retting", exact: true })
+          .press("Enter");
+
+        const windowDialog = windowPage.getByRole("dialog", {
+          name: "Gjenåpne retting",
+          exact: true,
+        });
+
+        await windowDialog.waitFor();
+        await assertWindowFocus(windowPage, windowDialog);
+
+        const reopenButton = windowPage.getByRole("button", {
+          name: "Gjenåpne retting",
+          exact: true,
+        });
+
+        const beforeReopenDismissal = await maintenanceSnapshot();
+        await windowPage.keyboard.press("Escape");
+        await windowDialog.waitFor({ state: "hidden" });
+        await expect(reopenButton).toBeFocused();
+        await reopenButton.press("Enter");
+        await assertWindowFocus(windowPage, windowDialog);
+        await windowDialog.getByRole("button", { name: "Tilbake", exact: true }).press("Enter");
+        await windowDialog.waitFor({ state: "hidden" });
+        await expect(reopenButton).toBeFocused();
+        assert.deepEqual(
+          await maintenanceSnapshot(),
+          beforeReopenDismissal,
+          "dismissal sends no reopen command",
+        );
+        await reopenButton.press("Enter");
+        await assertWindowFocus(windowPage, windowDialog);
+        await windowDialog
+          .getByLabel("Begrunnelse for rettingsvindu", { exact: true })
+          .fill("Synthetic audited correction window");
+        await windowDialog
+          .getByLabel("Sluttidspunkt (med tidssone)", { exact: true })
+          .fill(windowEnd);
+        assert.deepEqual(await auditPage(windowPage, "correction-window-dialog"), []);
+        await windowPage.setViewportSize({ width: 390, height: 844 });
+        assert.ok(
+          (await windowPage
+            .locator("html")
+            .evaluate((element: HTMLElement) => element.scrollWidth)) <=
+          windowPage.viewportSize().width,
+        );
+        assert.deepEqual(await auditPage(windowPage, "correction-window-dialog-mobile"), []);
+        await windowPage.setViewportSize({ width: 1280, height: 900 });
+        const windowAttempts: Array<{ body: string; key: string | undefined }> = [];
+        await windowPage.route("**" + maintenanceOperation.path, async (route: any) => {
+          const request = route.request();
+
+          if (request.method() !== "POST") return route.continue();
+
+          const command = Schema.decodeUnknownSync(RecruitmentMaintenanceCommand)(
+            request.postDataJSON(),
+          );
+
+          assert.ok(Predicate.isTagged(command, "ReopenAssessmentCorrection"));
+          assert.equal(command.expectedSequence, closed.assessmentCorrection.sequence);
+          windowAttempts.push({
+            body: request.postData(),
+            key: request.headers()["idempotency-key"],
+          });
+          assert.equal(request.headers()["idempotency-key"], command.commandId);
+          assert.equal(command.interviewId, windowInterviewId);
+          const response = await route.fetch();
+          assert.equal(response.status(), 200);
+          const result = decodeMaintenanceResult(await response.json());
+          assert.deepEqual(
+            result,
+            RecruitmentMaintenanceResult.cases.AssessmentCorrectionReopened.make({
+              interviewId: windowInterviewId,
+              sequence: closed.assessmentCorrection.sequence + 1,
+            }),
+          );
+
+          const attempt = {
+            command,
+            result,
+            bytes: await response.text(),
+            rawBody: request.postData(),
+            etag: response.headers().etag,
+          };
+
+          await assertMaintenanceReceipt(attempt);
+          maintenanceRequests.push({
+            ...maintenanceOperation,
+            status: 200,
+            body: result,
+            command,
+            idempotencyKey: request.headers()["idempotency-key"],
+          });
+
+          if (windowAttempts.length === 1) await route.abort("failed");
+          else await route.fulfill({ response });
+        });
+        await windowDialog
+          .getByRole("button", { name: "Bekreft gjenåpning", exact: true })
+          .press("Enter");
+        await windowDialog
+          .getByRole("button", { name: "Prøv samme forespørsel igjen", exact: true })
+          .waitFor();
+        assert.equal(
+          await windowDialog.getByLabel("Begrunnelse for rettingsvindu").inputValue(),
+          "Synthetic audited correction window",
+        );
+        assert.equal(
+          await windowDialog.getByLabel("Sluttidspunkt (med tidssone)").inputValue(),
+          windowEnd,
+        );
+        const afterLostWindowResponse = await maintenanceSnapshot();
+        const reopenedRead = nativeResponseFor(windowPage, staffingOperation);
+        await windowDialog
+          .getByRole("button", { name: "Prøv samme forespørsel igjen", exact: true })
+          .press("Enter");
+        await windowDialog.waitFor({ state: "hidden" });
+        await windowPage.unroute("**" + maintenanceOperation.path);
+        assert.equal(windowAttempts.length, 2);
+        assert.deepEqual(
+          windowAttempts[1],
+          windowAttempts[0],
+          "lost window response retries identical command/idempotency key",
+        );
+        assert.deepEqual(
+          await maintenanceSnapshot(),
+          afterLostWindowResponse,
+          "exact window replay adds no SQL history, receipt or audit",
+        );
+        const reopenedResponse = await reopenedRead;
+        assert.equal(reopenedResponse.status(), 200);
+        const reopenedBoard = decodeStaffing(await reopenedResponse.json());
+        maintenanceRequests.push({ ...staffingOperation, status: 200, body: reopenedBoard });
+
+        const reopenedStaffing = reopenedBoard.interviews.find(
+          (entry) => entry.interviewId === windowInterviewId,
+        );
+
+        assert.ok(reopenedStaffing);
+        assert.ok(Predicate.isTagged(reopenedStaffing.assessmentCorrection, "Open"));
+        assert.equal(reopenedStaffing.assessmentCorrection.openedBy, windowActor);
+        assert.equal(
+          reopenedStaffing.assessmentCorrection.sequence,
+          closed.assessmentCorrection.sequence + 1,
+        );
+        await staleWindowPage
+          .getByRole("button", { name: "Gjenåpne retting", exact: true })
+          .press("Enter");
+
+        const staleDialog = staleWindowPage.getByRole("dialog", {
+          name: "Gjenåpne retting",
+          exact: true,
+        });
+
+        await staleDialog.getByLabel("Begrunnelse for rettingsvindu").fill("Retained stale reason");
+        await staleDialog.getByLabel("Sluttidspunkt (med tidssone)").fill(windowEnd);
+
+        const beforeStaleWindow = await maintenanceSnapshot();
+        const effectsBeforeStaleWindow = await effectSnapshot();
+        const staleResponse = nativeResponseFor(staleWindowPage, maintenanceOperation, "ReopenAssessmentCorrection");
+
+        await staleDialog
+          .getByRole("button", { name: "Bekreft gjenåpning", exact: true })
+          .press("Enter");
+        const refused = await staleResponse;
+        assert.equal(refused.status(), 412);
+        assert.equal(
+          Schema.decodeUnknownSync(NativeProblem)(await refused.json()).code,
+          "precondition.failed",
+        );
+        const staleCommand = decodeMaintenanceCommand(refused.request().postDataJSON());
+        assert.ok(Predicate.isTagged(staleCommand, "ReopenAssessmentCorrection"));
+        assert.equal(staleCommand.expectedSequence, closed.assessmentCorrection.sequence);
+        assert.equal(refused.request().headers()["idempotency-key"], staleCommand.commandId);
+        assert.deepEqual(await maintenanceSnapshot(), beforeStaleWindow);
+        assert.deepEqual(await effectSnapshot(), effectsBeforeStaleWindow);
+        await staleDialog.getByRole("alert").waitFor();
+        assert.equal(
+          await staleDialog.getByLabel("Begrunnelse for rettingsvindu").inputValue(),
+          "Retained stale reason",
+        );
+        assert.equal(
+          await staleDialog
+            .getByRole("button", { name: "Bekreft gjenåpning", exact: true })
+            .isDisabled(),
+          true,
+        );
+        stage(
+          "R2 window keyboard/mobile/Axe, exact lost-response replay and stale-sequence refusal preserve draft",
+        );
+      } finally {
+        await staleWindowPage.close();
+      }
+
+      await openWindowInterview(windowPage);
+      assert.equal(
+        await windowPage.getByRole("button", { name: "Rett intervju", exact: true }).isDisabled(),
+        true,
+        "assigned co-interviewer opener cannot correct",
+      );
+
+      const openerDetailResponse = await fetch(
+        api +
+        normalizeTarget(nativeOperation("recruitment.readInterviewConduct").path, {
+          interviewId: windowInterviewId,
+        }),
+        {
+          headers: { cookie: windowCookie, origin: ui },
+        },
+      );
+
+      assert.equal(openerDetailResponse.status, 200);
+
+      const openerDetail = Schema.decodeUnknownSync(RecruitmentInterviewConductObservationSchema)(
+        await openerDetailResponse.json(),
+      );
+
+      assert.ok(Predicate.isTagged(openerDetail.assessmentCorrection, "Open"));
+      assert.equal(openerDetail.assessmentCorrection.openedBy, windowActor);
+      assert.equal(openerDetail.assessmentCorrection.canCorrect, false);
+      assert.ok(openerDetail.score);
+
+      const openerPayload = Schema.decodeSync(CorrectInterviewAssessmentRequest)({
+        expectedRevision: openerDetail.revision,
+        answers: openerDetail.answers,
+        score: openerDetail.score,
+        recommendation: "Nei",
+      });
+
+      const openerEtag = openerDetailResponse.headers.get("etag");
+      assert.ok(openerEtag);
+      const beforeOpenerDenial = await maintenanceSnapshot();
+      const effectsBeforeOpenerDenial = await effectSnapshot();
+
+      const openerTarget = normalizeTarget(correctionOperation.path, {
+        interviewId: windowInterviewId,
+      });
+
+      const openerDenied = await fetch(api + openerTarget, {
+        method: correctionOperation.method,
+        headers: {
+          cookie: windowCookie,
+          origin: ui,
+          "content-type": "application/json",
+          "idempotency-key": "correction-window-opener-denied-0029",
+          "if-match": openerEtag,
+        },
+        body: JSON.stringify(Schema.encodeSync(CorrectInterviewAssessmentRequest)(openerPayload)),
+      });
+
+      assert.equal(openerDenied.status, 403, await openerDenied.clone().text());
+      const openerProblem = decodeProblem(await openerDenied.json());
+      assert.equal(openerProblem.code, "authority.denied");
+      assert.deepEqual(
+        await maintenanceSnapshot(),
+        beforeOpenerDenial,
+        "assigned opener denial leaves aggregate, assessment, audit, window and all receipts unchanged",
+      );
+      assert.deepEqual(await effectSnapshot(), effectsBeforeOpenerDenial);
+      assert.deepEqual(await windowSnapshot(), frozen);
+      maintenanceRequests.push({
+        ...correctionOperation,
+        path: openerTarget,
+        status: 403,
+        body: openerProblem,
+      });
+      maintenanceSqlObservations.push({ kind: "OpenerDenialUnchanged", body: beforeOpenerDenial });
+      stage(
+        "R2 assigned window opener native correction denies 403 authority.denied without SQL, receipt, frozen outcome or effects changes",
+      );
+      await openWindowInterview(page);
+      assert.equal(
+        await page.getByRole("button", { name: "Rett intervju", exact: true }).isEnabled(),
+        true,
+      );
+      await fill(page);
+      await page.locator("#interviewer-recommendation").selectOption("Nei");
+      await page.getByRole("button", { name: "Rett intervju", exact: true }).press("Enter");
+      const correctedResponse = waitForRecruitmentOperation(page, "correctInterviewAssessment");
+      await page
+        .getByRole("dialog")
+        .getByRole("button", { name: "Rett intervju", exact: true })
+        .press("Enter");
+      assert.equal((await correctedResponse).status(), 200);
+      await page.getByRole("dialog").waitFor({ state: "hidden" });
+      assert.equal((await readWindowDetail()).recommendation, "Nei");
+      assert.deepEqual(
+        await windowSnapshot(),
+        frozen,
+        "later assessment never changes cited final outcome or announcement mail",
+      );
+
+      const beforeCloseBoard = await observeMaintenanceRead(
+        windowPage,
+        staffingOperation,
+        InterviewStaffingManagement,
+        async () => {
+          await windowPage.goto(`${ui}/dashboard/intervjubemanning`);
+        },
+      );
+
+      const beforeCloseStaffing = beforeCloseBoard.interviews.find(
+        (entry) => entry.interviewId === windowInterviewId,
+      );
+
+      assert.ok(beforeCloseStaffing);
+      assert.equal(beforeCloseStaffing.assessmentCorrection._tag, "Open");
+      await windowPage.getByLabel("Velg intervju", { exact: true }).selectOption(windowInterviewId);
+
+      const closeButton = windowPage.getByRole("button", {
+        name: "Lukk rettingsvindu",
+        exact: true,
+      });
+
+      await closeButton.press("Enter");
+
+      const closeDialog = windowPage.getByRole("dialog", {
+        name: "Lukk rettingsvindu",
+        exact: true,
+      });
+
+      await closeDialog.waitFor();
+      await assertWindowFocus(windowPage, closeDialog);
+      const beforeCloseDismissal = await maintenanceSnapshot();
+      await windowPage.keyboard.press("Escape");
+      await closeDialog.waitFor({ state: "hidden" });
+      await expect(closeButton).toBeFocused();
+      await closeButton.press("Enter");
+      await assertWindowFocus(windowPage, closeDialog);
+      await closeDialog.getByRole("button", { name: "Tilbake", exact: true }).press("Enter");
+      await closeDialog.waitFor({ state: "hidden" });
+      await expect(closeButton).toBeFocused();
+      assert.deepEqual(
+        await maintenanceSnapshot(),
+        beforeCloseDismissal,
+        "dismissal sends no close command",
+      );
+      await closeButton.press("Enter");
+      await assertWindowFocus(windowPage, closeDialog);
+      await closeDialog.getByLabel("Begrunnelse for rettingsvindu").fill("Synthetic audited close");
+      assert.deepEqual(await auditPage(windowPage, "correction-window-close-dialog"), []);
+      await windowPage.setViewportSize({ width: 390, height: 844 });
+      assert.ok(
+        (await windowPage
+          .locator("html")
+          .evaluate((element: HTMLElement) => element.scrollWidth)) <= 390,
+      );
+      assert.deepEqual(await auditPage(windowPage, "correction-window-close-dialog-mobile"), []);
+      await windowPage.setViewportSize({ width: 1280, height: 900 });
+      const closeRead = nativeResponseFor(windowPage, staffingOperation);
+
+      const closedAttempt = await observeMaintenanceSave(
+        windowPage,
+        "CloseAssessmentCorrection",
+        () =>
+          closeDialog.getByRole("button", { name: "Bekreft lukking", exact: true }).press("Enter"),
+      );
+
+      assert.ok(Predicate.isTagged(closedAttempt.command, "CloseAssessmentCorrection"));
+      assert.ok(Predicate.isTagged(closedAttempt.result, "AssessmentCorrectionClosed"));
+      assert.equal(closedAttempt.command.interviewId, windowInterviewId);
+      assert.equal(
+        closedAttempt.command.expectedSequence,
+        beforeCloseStaffing.assessmentCorrection.sequence,
+      );
+      assert.equal(closedAttempt.command.reason, "Synthetic audited close");
+      assert.deepEqual(
+        closedAttempt.result,
+        RecruitmentMaintenanceResult.cases.AssessmentCorrectionClosed.make({
+          interviewId: windowInterviewId,
+          sequence: beforeCloseStaffing.assessmentCorrection.sequence,
+        }),
+      );
+      await closeDialog.waitFor({ state: "hidden" });
+      const closeReadResponse = await closeRead;
+      assert.equal(closeReadResponse.status(), 200);
+      const closeBoard = decodeStaffing(await closeReadResponse.json());
+      maintenanceRequests.push({ ...staffingOperation, status: 200, body: closeBoard });
+
+      const closedStaffing = closeBoard.interviews.find(
+        (entry) => entry.interviewId === windowInterviewId,
+      );
+
+      assert.ok(closedStaffing);
+      assert.equal(closedStaffing.assessmentCorrection._tag, "Closed");
+      assert.equal(closedStaffing.assessmentCorrection.canCorrect, false);
+      assert.equal(closedStaffing.assessmentCorrection.canClose, false);
+      assert.equal(closedStaffing.assessmentCorrection.canReopen, true);
+      assert.equal(closedStaffing.assessmentCorrection.sequence, closedAttempt.result.sequence);
+      const afterClose = await readWindowDetail();
+      assert.equal(afterClose.assessmentCorrection._tag, "Closed");
+      assert.equal(afterClose.assessmentCorrection.canCorrect, false);
+      assert.ok(afterClose.assessmentCorrection.sequence > closed.assessmentCorrection.sequence);
+      assert.deepEqual(await windowSnapshot(), frozen);
+      await assertMaintenanceReceipt(closedAttempt);
+
+      const windowAudit = Schema.decodeUnknownSync(Schema.Array(Schema.JsonObject))(
+        (
+          await pool.query(
+            `SELECT command_id AS "commandId",actor_person_id AS "actorPersonId",sequence,action,reason,
+          to_char(occurred_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "occurredAt"
+          FROM public.recruitment_assessment_correction_window_audit WHERE interview_id=$1 ORDER BY sequence,action DESC`,
+            [windowInterviewId],
+          )
+        ).rows,
+      );
+
+      assert.deepEqual(
+        windowAudit.map((entry) => [
+          entry.action,
+          entry.reason,
+          entry.sequence,
+          entry.actorPersonId,
+        ]),
+        [
+          [
+            "Reopen",
+            "Synthetic audited correction window",
+            closedAttempt.result.sequence,
+            windowActor,
+          ],
+          ["Close", "Synthetic audited close", closedAttempt.result.sequence, windowActor],
+        ],
+      );
+      assert.equal(windowAudit[1]?.commandId, closedAttempt.command.commandId);
+      maintenanceSqlObservations.push({ kind: "CorrectionWindowAudit", body: windowAudit });
+      await expect(
+        windowPage.getByRole("button", { name: "Lukk rettingsvindu", exact: true }),
+      ).toBeDisabled();
+      assert.deepEqual(await auditPage(windowPage, "correction-window-refreshed-closed"), []);
+      // R8 falsifier: after success the next valid action, not the disabled close trigger, owns focus.
+
+      const reopenedControl = windowPage.getByRole("button", {
+        name: "Gjenåpne retting",
+        exact: true,
+      });
+
+      await expect(reopenedControl).toBeEnabled();
+      await expect(reopenedControl).toBeFocused();
+      stage(
+        "R2 scoped staffing opens and closes existing maintenance variants; opener exclusion and frozen outcome hold through real UI",
+      );
+      stage(
+        "R8 window initial focus, tab loop, Escape/Tilbake restoration, close result/SQL audit and refreshed Closed focus/Axe",
+      );
+    } finally {
+      try {
+        await pool.query(
+          "DELETE FROM public.organization_global_administrator_grants WHERE grant_id=$1",
+          [windowGrant],
+        );
+      } finally {
+        try {
+          await windowContext.close();
+        } finally {
+          // Retain the native/SQL observations also when a new focus falsifier is red.
+          await writeFile(
+            join(artifacts, "correction-targeted-evidence.json"),
+            JSON.stringify(
+              {
+                revision,
+                correctionStages,
+                beforeBody,
+                afterFirst,
+                afterSecond,
+                finalDetail,
+                failedSaveRetry: correctionAttempts,
+                maintenanceRequests,
+                maintenanceSqlObservations,
+              },
+              null,
+              2,
+            ),
+          );
+        }
+      }
+    }
+
     await page.goto(`${ui}/dashboard/intervjuer`);
   }
 
@@ -2090,7 +3651,7 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   assert.ok(
     (await page.locator("html").evaluate((element: HTMLElement) => element.scrollWidth)) <=
-      page.viewportSize().width,
+    page.viewportSize().width,
   );
   await page.locator(".fs-conduct").screenshot({ path: join(artifacts, "editable-mobile.png") });
   await auditPage(page, "editable-mobile");
@@ -2141,7 +3702,7 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   assert.ok(
     (await page.locator("html").evaluate((element: HTMLElement) => element.scrollWidth)) <=
-      page.viewportSize().width,
+    page.viewportSize().width,
   );
   await page
     .locator(".fs-conduct")
@@ -2186,7 +3747,7 @@ try {
           id,
           body,
           [fixtureKeys.invalid0, fixtureKeys.invalid1, fixtureKeys.invalid2, fixtureKeys.invalid3][
-            i
+          i
           ]!,
           etag,
         )
@@ -2625,27 +4186,33 @@ try {
   ).rows;
 
   const beforeLifecycle = Schema.decodeUnknownSync(
-    Schema.StructWithRest(Schema.Struct({
-      conducts: Schema.Json,
-      receipts: Schema.Array(
-        Schema.StructWithRest(Schema.Struct({ command_id: Schema.String, kind: Schema.String }), [
-          Schema.Record(Schema.String, Schema.Json),
-        ]),
-      ),
-      audit: Schema.Json,
-    }), [Schema.Record(Schema.String, Schema.Json)]),
+    Schema.StructWithRest(
+      Schema.Struct({
+        conducts: Schema.Json,
+        receipts: Schema.Array(
+          Schema.StructWithRest(Schema.Struct({ command_id: Schema.String, kind: Schema.String }), [
+            Schema.Record(Schema.String, Schema.Json),
+          ]),
+        ),
+        audit: Schema.Json,
+      }),
+      [Schema.Record(Schema.String, Schema.Json)],
+    ),
   )(JSON.parse(lifecycleBeforeCorrections));
 
   const afterLifecycle = Schema.decodeUnknownSync(
-    Schema.StructWithRest(Schema.Struct({
-      conducts: Schema.Json,
-      receipts: Schema.Array(
-        Schema.StructWithRest(Schema.Struct({ command_id: Schema.String, kind: Schema.String }), [
-          Schema.Record(Schema.String, Schema.Json),
-        ]),
-      ),
-      audit: Schema.Json,
-    }), [Schema.Record(Schema.String, Schema.Json)]),
+    Schema.StructWithRest(
+      Schema.Struct({
+        conducts: Schema.Json,
+        receipts: Schema.Array(
+          Schema.StructWithRest(Schema.Struct({ command_id: Schema.String, kind: Schema.String }), [
+            Schema.Record(Schema.String, Schema.Json),
+          ]),
+        ),
+        audit: Schema.Json,
+      }),
+      [Schema.Record(Schema.String, Schema.Json)],
+    ),
   )(JSON.parse(await lifecycleSnapshot()));
 
   assert.deepEqual(afterLifecycle.conducts, beforeLifecycle.conducts);
@@ -2677,21 +4244,21 @@ try {
 
   const reportEvidence = process.argv.includes("--report")
     ? await observeInterviewReport({
-        root,
-        pool,
-        browser,
-        api,
-        ui,
-        artifacts,
-        ordinaryCookie: cookie,
-        password,
-        secrets,
-        correctionMode: process.argv.includes("--correction-mode"),
-        expectedHistoricalReportRecommendation,
-        revision,
-        auditPage,
-        recordGate,
-      })
+      root,
+      pool,
+      browser,
+      api,
+      ui,
+      artifacts,
+      ordinaryCookie: cookie,
+      password,
+      secrets,
+      correctionMode: process.argv.includes("--correction-mode"),
+      expectedHistoricalReportRecommendation,
+      revision,
+      auditPage,
+      recordGate,
+    })
     : undefined;
 
   assert.ok(
@@ -2725,76 +4292,60 @@ try {
     }
   }
 
-  // oxlint-effect-plugin allow(no-ambient-console): dev only: EX-0009: sanitized local acceptance artifact location.
-  console.log(JSON.stringify({ result: "Passed", revision, artifacts, gates }));
+  Effect.runSync(Console.log(JSON.stringify({ result: "Passed", revision, artifacts, gates })));
 } catch (error) {
   if (error instanceof ReturningLoginProbeComplete) {
-    // oxlint-effect-plugin allow(no-ambient-console): dev only: EX-0009: emit the bounded local login-probe result.
-    console.log(
-      JSON.stringify({
-        result: "ReturningLoginProbe",
-        revision,
-        artifacts,
-        gates,
-        probe: error.result,
-      }),
-    );
+    Effect.runSync(Console.log(JSON.stringify({
+      result: "ReturningLoginProbe",
+      revision,
+      artifacts,
+      gates,
+      probe: error.result,
+    }),));
   } else if (error instanceof ReturningTargetedComplete) {
-    // oxlint-effect-plugin allow(no-ambient-console): dev only: EX-0009: emit the bounded returning journey result.
-    console.log(
-      JSON.stringify({
-        result: "ReturningTargeted",
-        revision,
-        artifacts,
-        gates,
-        journey: error.result,
-      }),
-    );
+    Effect.runSync(Console.log(JSON.stringify({
+      result: "ReturningTargeted",
+      revision,
+      artifacts,
+      gates,
+      journey: error.result,
+    }),));
   } else if (error instanceof ApplicantProgressTargetedComplete) {
-    // oxlint-effect-plugin allow(no-ambient-console): dev only: EX-0009: emit the bounded applicant-progress result.
-    console.log(
-      JSON.stringify({
-        result: "ApplicantProgressTargeted",
-        revision,
-        artifacts,
-        gates,
-        journey: error.result,
-      }),
-    );
+    Effect.runSync(Console.log(JSON.stringify({
+      result: "ApplicantProgressTargeted",
+      revision,
+      artifacts,
+      gates,
+      journey: error.result,
+    }),));
   } else if (error instanceof CoInterviewerTargetedComplete) {
-    // oxlint-effect-plugin allow(no-ambient-console): dev only: EX-0009: emit the bounded co-interviewer result.
-    console.log(
-      JSON.stringify({
-        result: "CoInterviewerTargeted",
-        revision,
-        artifacts,
-        gates,
-        journey: error.result,
-      }),
-    );
+    Effect.runSync(Console.log(JSON.stringify({
+      result: "CoInterviewerTargeted",
+      revision,
+      artifacts,
+      gates,
+      journey: error.result,
+    }),));
   } else if (error instanceof CorrectionTargetedComplete) {
-    // oxlint-effect-plugin allow(no-ambient-console): dev only: EX-0009: emit the bounded correction result.
-    console.log(
-      JSON.stringify({
-        result: "CorrectionTargeted",
-        revision,
-        artifacts,
-        gates,
-        journey: error.result,
-      }),
-    );
+    Effect.runSync(Console.log(JSON.stringify({
+      result: "CorrectionTargeted",
+      revision,
+      artifacts,
+      gates,
+      journey: error.result,
+    }),));
   } else {
     let detail = error instanceof Error ? (error.stack ?? error.message) : String(error);
 
     const activeQueries = pool
       ? await pool
-          .query(
-            `SELECT pid,state,wait_event_type,wait_event,left(query,240) AS query
+        .query(
+          `SELECT pid,state,wait_event_type,wait_event,left(query,240) AS query
              FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid()
              ORDER BY pid`,
-          )
-          .then((result: { rows: unknown[] }) => result.rows)
-          .catch(() => [])
+        )
+        .then((result: { rows: unknown[] }) => result.rows)
+        .catch(() => [])
       : [];
 
     detail += ` Active PostgreSQL queries: ${JSON.stringify(activeQueries)}`;
@@ -2812,14 +4363,14 @@ try {
 
     const returningOutbox = pool
       ? await pool
-          .query(
-            `SELECT effect_id,command_id,effect_type,ordinal,status,attempts,claimed_at,last_failure_tag,origin
+        .query(
+          `SELECT effect_id,command_id,effect_type,ordinal,status,attempts,claimed_at,last_failure_tag,origin
              FROM public.admission_application_outbox
              WHERE origin='ReturningAssistant'
              ORDER BY effect_id`,
-          )
-          .then((result: { rows: unknown[] }) => result.rows)
-          .catch(() => [])
+        )
+        .then((result: { rows: unknown[] }) => result.rows)
+        .catch(() => [])
       : [];
 
     const returningEffectCalls = effectCalls
@@ -2840,8 +4391,7 @@ try {
 
     await writeFile(join(artifacts, "failure.json"), JSON.stringify(failureEvidence, null, 2));
     await writeFile(join(artifacts, "runtime.log"), `${logs.map(safe).join("")}${detail}\n`);
-    // oxlint-effect-plugin allow(no-ambient-console): dev only: EX-0009: redacted local rehearsal failure evidence.
-    console.error(JSON.stringify({ ...failureEvidence, artifacts }));
+    Effect.runSync(Console.error(JSON.stringify({ ...failureEvidence, artifacts })));
     process.exitCode = 1;
   }
 } finally {

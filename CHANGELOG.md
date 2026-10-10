@@ -1,5 +1,27 @@
 ## Unreleased
 
+### Canonical Recruitment and mixed onboarding contracts
+
+- Replace sixteen Recruitment and two Recruitment-owned onboarding HTTP declarations and raw bindings with canonical generated contracts.
+- Keep one mixed onboarding root with typed completion of Identity's handwritten claim. Preserve claim ownership and credential rules.
+- Keep all four Foldkit programs' handwritten Command bodies over the generated SDK and existing bridges.
+- Preserve transactional authority, domain locks, exact replay, frozen decision citations, final announcements, and immutable delivery envelopes.
+- Require complete synthetic primary-interviewer contacts in local Returning fixture construction. Keep production missing-contact refusal unchanged.
+- Record LOCAL implementation separately from acceptance. Final-source journeys, parity, aggregate checks, and all 195 model outcomes remain gates.
+
+### Correction-window workflow focus
+
+- Preserve native modal isolation and ordinary Cancel/Escape/Tilbake opener restoration. Keep eligible Reopen and Close controls enabled while the Dialog is open.
+- After a confirmed Close and correlated Closed refresh with server-owned `canReopen`, focus the current Reopen action after native Dialog close completion.
+- Own focus through a native interruptible Foldkit Command. Reject stale workflow identities and sequence replacement after cancellation completion.
+- Preserve server eligibility, mutation locks, reentrant-open guards, pending dismissal guards, and runtime disposal. Do not reuse the Close node as Reopen.
+- Keep the source-`66d2baee` late-focus failure and historical passing gates separate from pending final-candidate acceptance.
+
+### Admission announcement validators
+
+- Accept the current full or minimal outcome tag for callers with fresh Decide and Announce authority in the same department.
+- Keep minimal-only tag acceptance for Announce-only callers, distinct representation namespaces, stale-tag rejection, and fresh authorization before receipt replay.
+
 ### Bounded reimbursement journey
 
 - Qualify claim submission, scoped approval, separate settlement evidence, and fresh-session owner visibility through the native dashboard.
@@ -15,6 +37,7 @@
 - Show volunteers their own active school placements without coordinator controls. Filter Person, department, semester, and active status on the server.
 - Keep raw placements separate from confirmed rosters and dated service. Check the fresh volunteer session and another applicant's isolation.
 - Expose `test:golden-recruitment` and retain source-bound local evidence. Production data and real providers remain separate gates.
+- Complete each golden applicant's own JA interview before onboarding. Capture native readiness before and after the secondary assessment and join SQL facts by application, preserving Ada's first-placement and privacy assertions.
 
 ### Unattended delivery recovery
 

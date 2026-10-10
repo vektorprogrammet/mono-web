@@ -1,6 +1,11 @@
-import { DatabasePgPool, pgQuery, pgTransaction } from "./pg-pool.js";
+/**
+ * EX-0021: native stable SQL carries upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+import { Database } from "./service.js";
+import { AdvisoryLockKey, lockAdvisory } from "./advisory-lock.js";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { createHash, randomUUID } from "node:crypto";
+import { sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import {
   Cause,
   Clock,
@@ -13,7 +18,7 @@ import {
   Predicate,
   Schema,
 } from "effect";
-import type { Pool, PoolClient } from "pg";
+import type * as SqlClient from "effect/sql/SqlClient";
 import {
   IdentityEngineError,
   type IdentityRequestContext,
@@ -25,9 +30,46 @@ import type { AuthEngineConfig } from "./auth-engine.js";
 
 interface Coordination {
   readonly context: IdentityRequestContext;
+  readonly signal: AbortSignal;
+  closed: boolean;
   enqueue: "Absent" | "Accepted" | "Failed";
   subject: string | null;
 }
+
+/**
+ * Keeps an identity request's cancellation signal attached to its native Effect fiber.
+ *
+ * @remarks An already-aborted request interrupts before work starts. Aborting during work
+ * interrupts the work and awaits its finalizers. Completion removes the abort listener.
+ * The success, failure, and requirement channels are unchanged; cancellation never becomes success.
+ * @param request The inbound host request, which owns its AbortSignal.
+ * @returns A lazy combinator preserving the operation's A/E/R channels.
+ * @sideEffects Registers one abort listener only while the operation runs, removing it on exit.
+ * @example
+ * ```ts
+ * handle(request).pipe(withIdentityRequestCancellation(request));
+ * ```
+ * @avoid Running a runtime inside the operation or recovering interruption as an HTTP response.
+ * @construct http-transport
+ */
+export const withIdentityRequestCancellation =
+  (request: Request): (<A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>) =>
+  <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
+    Effect.suspend(() =>
+      request.signal.aborted
+        ? Effect.interrupt
+        : Effect.raceFirst(
+            effect,
+            Effect.callback<never>((resume) => {
+              const abort = () => resume(Effect.interrupt);
+              request.signal.addEventListener("abort", abort, { once: true });
+
+              if (request.signal.aborted) abort();
+
+              return Effect.sync(() => request.signal.removeEventListener("abort", abort));
+            }),
+          ),
+    );
 
 const unavailable = () =>
   Response.json(
@@ -42,7 +84,7 @@ const encodeAuditDetails = Schema.encodeEffect(
 );
 
 const audit = (
-  db: Pool | PoolClient,
+  db: SqlClient.SqlClient,
   kind: IdentitySecurityEventKind,
   code: IdentitySecurityOutcomeCode,
   subject: string | null,
@@ -51,11 +93,10 @@ const audit = (
   Effect.gen(function* () {
     const details = yield* encodeAuditDetails({ outcomeCode: code, affectedSessionCount: null });
 
-    yield* pgQuery(
-      db,
+    yield* db.unsafe(
       `INSERT INTO auth.identity_security_audit(event_id,event_kind,subject_person_id,request_correlation,details)
-    VALUES($1,$2,$3,$4,$5::jsonb)`,
-      [randomUUID(), kind, subject, context?.requestCorrelation ?? null, details],
+        VALUES(gen_random_uuid()::text,$1,$2,$3,$4::jsonb)`,
+      [kind, subject, context?.requestCorrelation ?? null, details],
     );
   });
 
@@ -70,6 +111,38 @@ const encodeMailRequestJson = Schema.encodeEffect(
       text: Schema.String,
     }),
   ),
+);
+
+const decodeVerificationIds = Schema.decodeUnknownEffect(
+  Schema.Array(Schema.Struct({ id: Schema.String })),
+);
+
+const decodeClaims = Schema.decodeUnknownEffect(
+  Schema.Array(
+    Schema.Struct({
+      claim_id: Schema.String,
+      effect_id: Schema.String,
+      verification_id: Schema.String,
+      subject_person_id: Schema.String,
+      attempts: Schema.Int,
+      payload_sha256: Schema.NullOr(Schema.String),
+    }),
+  ),
+);
+
+const decodeDeliveryVerification = Schema.decodeUnknownEffect(
+  Schema.Array(
+    Schema.Struct({
+      identifier: Schema.String,
+      value: Schema.String,
+      expiresAt: Schema.Date,
+      email: Schema.NullOr(Schema.String),
+    }),
+  ),
+);
+
+const decodeFrozenPayload = Schema.decodeUnknownEffect(
+  Schema.Array(Schema.Struct({ payload_sha256: Schema.String })),
 );
 
 /** Better Auth's password-reset callbacks and the request scope they run in. */
@@ -94,7 +167,7 @@ export interface PasswordRecoveryService {
 
 /** One AsyncLocalStorage scope per HTTP request; never keyed by caller-controlled correlation. */
 export const makePasswordRecovery = (
-  pool: Pool,
+  pool: SqlClient.SqlClient,
   config: AuthEngineConfig,
 ): PasswordRecoveryService => {
   const local = new AsyncLocalStorage<Coordination>();
@@ -103,7 +176,12 @@ export const makePasswordRecovery = (
   if (!config.trustedOrigins.includes(config.oauth.dashboardOrigin))
     throw new Error("Recovery dashboard origin is not trusted");
 
-  const enqueueResetMail = (user: { id: string }, token: string, url: string) =>
+  const enqueueResetMail = (
+    user: { id: string },
+    token: string,
+    url: string,
+    context: IdentityRequestContext,
+  ) =>
     Effect.gen(function* () {
       if (
         url !==
@@ -115,45 +193,42 @@ export const makePasswordRecovery = (
         });
       }
 
-      return yield* pgTransaction(pool, (client) =>
+      return yield* pool.withTransaction(
         Effect.gen(function* () {
-          yield* pgQuery(client, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, [
-            `vektorprogrammet:person-authorization:v1:${user.id}`,
-          ]);
+          const client = pool;
+          yield* lockAdvisory(client, AdvisoryLockKey.personAuthorization(user.id));
 
-          const usable = yield* pgQuery(
-            client,
+          const usable = yield* client.unsafe(
             `SELECT 1 FROM auth."user" WHERE id=$1 AND NOT access_disabled`,
             [user.id],
           );
 
-          if (usable.rowCount !== 1) {
-            yield* pgQuery(
-              client,
-              `DELETE FROM auth.verification WHERE identifier=$1 AND value=$2`,
-              [`reset-password:${token}`, user.id],
-            );
+          if (usable.length !== 1) {
+            yield* client.unsafe(`DELETE FROM auth.verification WHERE identifier=$1 AND value=$2`, [
+              `reset-password:${token}`,
+              user.id,
+            ]);
 
             return false;
           }
 
-          const verification = yield* pgQuery<{ id: string }>(
-            client,
-            `SELECT id FROM auth.verification WHERE identifier=$1 AND value=$2 AND "expiresAt">CURRENT_TIMESTAMP`,
-            [`reset-password:${token}`, user.id],
-          );
+          const verification = yield* client
+            .unsafe<{ id: string }>(
+              `SELECT id FROM auth.verification WHERE identifier=$1 AND value=$2 AND "expiresAt">CURRENT_TIMESTAMP`,
+              [`reset-password:${token}`, user.id],
+            )
+            .pipe(Effect.flatMap(decodeVerificationIds));
 
-          const [row] = verification.rows;
+          const [row] = verification;
 
-          if (verification.rows.length !== 1 || row === undefined) {
+          if (verification.length !== 1 || row === undefined) {
             return yield* new IdentityEngineError({
               operation: "sendResetPassword",
               message: "Recovery verification missing",
             });
           }
 
-          yield* pgQuery(
-            client,
+          yield* client.unsafe(
             `INSERT INTO auth.password_reset_email_outbox(effect_id,verification_id,subject_person_id,status) VALUES($1,$2,$3,'Pending')`,
             [`password-reset:${row.id}`, row.id, user.id],
           );
@@ -162,7 +237,7 @@ export const makePasswordRecovery = (
             "password-reset-request-accepted",
             "mail-enqueued",
             user.id,
-            local.getStore()?.context ?? null,
+            context,
           );
 
           return true;
@@ -195,17 +270,22 @@ export const makePasswordRecovery = (
         );
       }
 
-      return enqueueResetMail(user, token, url).pipe(
+      if (state.closed || state.signal.aborted) return Effect.interrupt;
+
+      return enqueueResetMail(user, token, url, state.context).pipe(
         Effect.tap((accepted) =>
           Effect.sync(() => {
             state.enqueue = accepted ? "Accepted" : "Absent";
           }),
         ),
         Effect.asVoid,
-        Effect.catch(() =>
-          Effect.sync(() => {
-            state.enqueue = "Failed";
-          }).pipe(
+        Effect.catch((cause) =>
+          Effect.logError("Password recovery enqueue failed", cause).pipe(
+            Effect.andThen(
+              Effect.sync(() => {
+                state.enqueue = "Failed";
+              }),
+            ),
             Effect.andThen(
               Effect.fail(
                 new IdentityEngineError({
@@ -249,10 +329,16 @@ export const makePasswordRecovery = (
               operation: "handler",
               message: cause instanceof Error ? cause.message : "identity engine failure",
             }),
-        });
+        }).pipe(withIdentityRequestCancellation(request));
       }
 
-      const state: Coordination = { context, enqueue: "Absent", subject: null };
+      const state: Coordination = {
+        context,
+        signal: request.signal,
+        closed: false,
+        enqueue: "Absent",
+        subject: null,
+      };
 
       const reject = (code: "origin-not-trusted" | "redirect-not-allowed") =>
         audit(pool, "password-reset-request-rejected", code, null, context).pipe(
@@ -364,63 +450,89 @@ export const makePasswordRecovery = (
 
         return response;
       }).pipe(
-        Effect.catch(() =>
-          (resetting
-            ? Effect.ignore(
-                audit(pool, "password-reset-failure", "engine-failure", state.subject, context),
-              )
-            : Effect.void
-          ).pipe(Effect.as(unavailable())),
+        Effect.catch((cause) =>
+          Effect.logError("Password recovery request failed", cause).pipe(
+            Effect.andThen(
+              resetting
+                ? audit(
+                    pool,
+                    "password-reset-failure",
+                    "engine-failure",
+                    state.subject,
+                    context,
+                  ).pipe(
+                    Effect.catch((auditCause) =>
+                      Effect.logError("Password recovery failure audit failed", auditCause),
+                    ),
+                  )
+                : Effect.void,
+            ),
+            Effect.as(unavailable()),
+          ),
+        ),
+        withIdentityRequestCancellation(request),
+        Effect.ensuring(
+          Effect.sync(() => {
+            state.closed = true;
+          }),
         ),
       );
     },
   };
 };
 
-/** One bounded attempt. SKIP LOCKED and claim fencing allow independent operators safely. */
+/**
+ * One bounded at-least-once attempt. The claim and completion receipts are committed facts;
+ * provider acknowledgement is not exactly-once delivery. No claim transaction stays open
+ * across provider I/O. Interruption quarantines the ambiguous attempt before it propagates.
+ * SKIP LOCKED and claim fencing allow independent operators safely.
+ */
 export const drainPasswordResetMail = (
-  pool: Pool,
+  pool: SqlClient.SqlClient,
   config: Pick<AuthEngineConfig, "oauth">,
   mail: MailOperations,
   sender: string,
 ): Effect.Effect<"Empty" | "Delivered" | "Failed" | "Quarantined" | "LostClaim"> =>
   Effect.uninterruptibleMask((restore) =>
     Effect.gen(function* () {
-      const claim = randomUUID();
+      const row = yield* pool
+        .withTransaction(
+          Effect.gen(function* () {
+            const client = pool;
+            yield* client.unsafe(
+              `UPDATE auth.password_reset_email_outbox SET status='Quarantined',claim_id=NULL,claimed_at=NULL,last_failure_code='stale-claim' WHERE status='Processing' AND claimed_at<CURRENT_TIMESTAMP-INTERVAL '60 seconds'`,
+            );
 
-      const row = yield* pgTransaction(pool, (client) =>
-        Effect.gen(function* () {
-          yield* pgQuery(
-            client,
-            `UPDATE auth.password_reset_email_outbox SET status='Quarantined',claim_id=NULL,claimed_at=NULL,last_failure_code='stale-claim' WHERE status='Processing' AND claimed_at<CURRENT_TIMESTAMP-INTERVAL '60 seconds'`,
-          );
-
-          return (yield* pgQuery<{
-            effect_id: string;
-            verification_id: string;
-            subject_person_id: string;
-            attempts: number;
-            payload_sha256: string | null;
-          }>(
-            client,
-            `WITH next AS (SELECT effect_id FROM auth.password_reset_email_outbox WHERE status='Pending' OR (status='Failed' AND attempts<3) ORDER BY created_at,effect_id FOR UPDATE SKIP LOCKED LIMIT 1) UPDATE auth.password_reset_email_outbox o SET status='Processing',claim_id=$1,claimed_at=date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC'),attempts=attempts+1 FROM next WHERE o.effect_id=next.effect_id RETURNING o.*`,
-            [claim],
-          )).rows[0];
-        }),
-      ).pipe(Effect.orDie);
+            return (yield* client
+              .unsafe<{
+                effect_id: string;
+                verification_id: string;
+                subject_person_id: string;
+                attempts: number;
+                payload_sha256: string | null;
+              }>(
+                `WITH next AS (SELECT effect_id FROM auth.password_reset_email_outbox WHERE status='Pending' OR (status='Failed' AND attempts<3) ORDER BY created_at,effect_id FOR UPDATE SKIP LOCKED LIMIT 1) UPDATE auth.password_reset_email_outbox o SET status='Processing',claim_id=gen_random_uuid(),claimed_at=date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC'),attempts=attempts+1 FROM next WHERE o.effect_id=next.effect_id RETURNING o.*`,
+              )
+              .pipe(Effect.flatMap(decodeClaims)))[0];
+          }),
+        )
+        .pipe(Effect.orDie);
 
       if (!row) return "Empty";
 
-      const verification = (yield* pgQuery<{
-        identifier: string;
-        value: string;
-        expiresAt: Date;
-        email: string | null;
-      }>(
-        pool,
-        `SELECT v.identifier,v.value,v."expiresAt",u.email FROM auth.verification v LEFT JOIN auth."user" u ON u.id=$2 AND NOT u.access_disabled WHERE v.id=$1`,
-        [row.verification_id, row.subject_person_id],
-      ).pipe(Effect.orDie)).rows[0];
+      const claim = row.claim_id;
+
+      const verification = (yield* pool
+        .unsafe<{
+          identifier: string;
+          value: string;
+          expiresAt: Date;
+          email: string | null;
+        }>(
+          `SELECT v.identifier,v.value,v."expiresAt",u.email FROM auth.verification v LEFT JOIN auth."user" u ON u.id=$2 AND NOT u.access_disabled WHERE v.id=$1`,
+          [row.verification_id, row.subject_person_id],
+        )
+        .pipe(Effect.flatMap(decodeDeliveryVerification), Effect.orDie))[0];
 
       let failure:
         | "verification-invalid"
@@ -464,19 +576,20 @@ export const drainPasswordResetMail = (
           ].join("\n"),
         };
 
-        const fingerprint = createHash("sha256")
-          .update(yield* encodeMailRequestJson(request).pipe(Effect.orDie))
-          .digest("hex");
+        const fingerprint = sha256Hex(
+          new TextEncoder().encode(yield* encodeMailRequestJson(request).pipe(Effect.orDie)),
+        );
 
-        const frozen = yield* pgQuery(
-          pool,
-          "UPDATE auth.password_reset_email_outbox SET payload_sha256=COALESCE(payload_sha256,$3) WHERE effect_id=$1 AND claim_id=$2 AND status='Processing' RETURNING payload_sha256",
-          [row.effect_id, claim, fingerprint],
-        ).pipe(Effect.orDie);
+        const frozen = yield* pool
+          .unsafe<{ readonly payload_sha256: string }>(
+            "UPDATE auth.password_reset_email_outbox SET payload_sha256=COALESCE(payload_sha256,$3) WHERE effect_id=$1 AND claim_id=$2 AND status='Processing' RETURNING payload_sha256",
+            [row.effect_id, claim, fingerprint],
+          )
+          .pipe(Effect.flatMap(decodeFrozenPayload), Effect.orDie);
 
-        if (frozen.rowCount !== 1) return "LostClaim";
+        if (frozen.length !== 1) return "LostClaim";
 
-        if (frozen.rows[0]?.payload_sha256 !== fingerprint) {
+        if (frozen[0]?.payload_sha256 !== fingerprint) {
           failure = "verification-invalid";
           quarantined = true;
         } else {
@@ -506,32 +619,35 @@ export const drainPasswordResetMail = (
         }
       }
 
-      const outcome = yield* pgTransaction(pool, (client) =>
-        Effect.gen(function* () {
-          const updated = yield* pgQuery(
-            client,
-            `UPDATE auth.password_reset_email_outbox SET status=$3,claim_id=NULL,claimed_at=NULL,delivered_at=CASE WHEN $3='Delivered' THEN date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC') ELSE NULL END,last_failure_code=$4,provider_reference=$5 WHERE effect_id=$1 AND claim_id=$2 AND status='Processing'`,
-            [
-              row.effect_id,
-              claim,
-              failure === null ? "Delivered" : quarantined ? "Quarantined" : "Failed",
-              failure,
-              providerReference,
-            ],
-          );
+      const outcome = yield* pool
+        .withTransaction(
+          Effect.gen(function* () {
+            const client = pool;
 
-          if (updated.rowCount !== 1) return "LostClaim" as const;
-          yield* audit(
-            client,
-            failure === null ? "password-reset-mail-delivered" : "password-reset-mail-failed",
-            failure ?? "provider-acknowledged",
-            row.subject_person_id,
-            null,
-          );
+            const updated = yield* client.unsafe(
+              `UPDATE auth.password_reset_email_outbox SET status=$3,claim_id=NULL,claimed_at=NULL,delivered_at=CASE WHEN $3='Delivered' THEN date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC') ELSE NULL END,last_failure_code=$4,provider_reference=$5 WHERE effect_id=$1 AND claim_id=$2 AND status='Processing' RETURNING effect_id`,
+              [
+                row.effect_id,
+                claim,
+                failure === null ? "Delivered" : quarantined ? "Quarantined" : "Failed",
+                failure,
+                providerReference,
+              ],
+            );
 
-          return failure === null ? "Delivered" : quarantined ? "Quarantined" : "Failed";
-        }),
-      ).pipe(Effect.orDie);
+            if (updated.length !== 1) return "LostClaim" as const;
+            yield* audit(
+              client,
+              failure === null ? "password-reset-mail-delivered" : "password-reset-mail-failed",
+              failure ?? "provider-acknowledged",
+              row.subject_person_id,
+              null,
+            );
+
+            return failure === null ? "Delivered" : quarantined ? "Quarantined" : "Failed";
+          }),
+        )
+        .pipe(Effect.orDie);
 
       if (interruptedCause) return yield* Effect.failCause(interruptedCause);
 
@@ -546,5 +662,5 @@ export class PasswordRecovery extends Context.Service<PasswordRecovery, Password
 export const PasswordRecoveryLive = (config: AuthEngineConfig) =>
   Layer.effect(
     PasswordRecovery,
-    Effect.map(DatabasePgPool, (pool) => makePasswordRecovery(pool, config)),
+    Effect.map(Database, (pool) => makePasswordRecovery(pool, config)),
   );

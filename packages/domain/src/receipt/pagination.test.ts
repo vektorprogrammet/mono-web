@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import { ReceiptId } from "./schema.js";
-import { Effect, Encoding } from "effect";
+import { Effect } from "effect";
+import { Base64 } from "effect/encoding";
 import { decodeReceiptCursor, encodeReceiptCursor, receiptPage } from "./pagination.js";
 
 describe("receipt continuation", () => {
@@ -29,9 +30,9 @@ describe("receipt continuation", () => {
     Effect.gen(function* () {
       const invalid = [
         "not base64!",
-        Encoding.encodeBase64('["receipt-v2","2038-06-13T12:00:00.123456Z","receipt-1"]'),
-        Encoding.encodeBase64('["receipt-v1","2038-02-31T12:00:00.123456Z","receipt-1"]'),
-        Encoding.encodeBase64('["receipt-v1","2038-06-13T12:00:00.123456Z",""]'),
+        Base64.encode('["receipt-v2","2038-06-13T12:00:00.123456Z","receipt-1"]'),
+        Base64.encode('["receipt-v1","2038-02-31T12:00:00.123456Z","receipt-1"]'),
+        Base64.encode('["receipt-v1","2038-06-13T12:00:00.123456Z",""]'),
       ];
 
       for (const cursor of invalid)

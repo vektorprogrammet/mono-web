@@ -23,6 +23,7 @@
     "./outbox-lifecycle": "./src/outbox-lifecycle.ts",
     "./live": "./src/layers.ts",
     "./migrations": "./src/migrations.ts",
+    "./postgres-migration-statements": "./src/postgres-migration-statements.ts",
     "./password-recovery": "./src/password-recovery.ts",
     "./person-cohort": "./src/person-cohort.ts",
     "./placements": "./src/placements/index.ts",
@@ -39,6 +40,7 @@
     "./onboarding-account": "./src/onboarding-account.ts",
     "./password-codec": "./src/password-codec.ts",
     "./pg-pool": "./src/pg-pool.ts",
+    "./search-path": "./src/search-path.ts",
     "./test-support/observe-postgres": "./src/test-support/observe-postgres.ts",
     "./test-support/platform": "./src/test-support/platform.ts"
   },
@@ -67,16 +69,18 @@
     "rehearsal:historical-service": "bun run runtime/historical-service-cohort-rehearsal.ts"
   },
   "dependencies": {
+    "@better-auth/core": "catalog:effect-v4",
     "@better-auth/oauth-provider": "1.7.1",
     "@effect/platform-bun": "catalog:effect-v4",
     "@effect/sql-pg": "catalog:effect-v4",
-    "@noble/hashes": "2.3.0",
+    "@noble/hashes": "catalog:effect-v4",
     "@types/pg": "^8.23.1",
     "@vektorprogrammet/domain": "workspace:*",
     "bcryptjs": "3.0.3",
-    "better-auth": "1.7.1",
+    "better-auth": "catalog:effect-v4",
     "effect": "catalog:effect-v4",
-    "pg": "8"
+    "libpg-query": "catalog:sql-parser",
+    "pg": "catalog:effect-v4"
   },
   "devDependencies": {
     "@effect/sql-pglite": "catalog:effect-v4",

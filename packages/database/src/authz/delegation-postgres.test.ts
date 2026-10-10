@@ -21,7 +21,7 @@ import {
 } from "@vektorprogrammet/domain/receipt";
 import { EconomyLive } from "../receipt/postgres-layer.js";
 import { Database } from "../service.js";
-import { DatabaseTestLive } from "../test-support/platform.js";
+import { DatabaseTestLive, TestPlatform } from "../test-support/platform.js";
 import { OrganizationLive } from "../organization/postgres-layer.js";
 import { ProfileLive } from "../profile/postgres-layer.js";
 
@@ -92,6 +92,7 @@ const delegationLayer = seedDelegationFixtures.pipe(
       EconomyLive.pipe(Layer.provide(databaseLayer)),
     ),
   ),
+  Layer.provideMerge(TestPlatform),
 );
 
 let commandNumber = 0;

@@ -1,0 +1,193 @@
+diff --git a/dist/PgClient.d.ts b/dist/PgClient.d.ts
+index 7fb7deff01dd84f56e94b472e6333d1b17986122..99624152d9868c298e2c49654f900a8a5249ae40 100644
+--- a/dist/PgClient.d.ts
++++ b/dist/PgClient.d.ts
+@@ -77,6 +77,7 @@ export interface PgClientConfig {
+      */
+     readonly password?: Redacted.Redacted | Effect.Effect<Redacted.Redacted> | undefined;
+     readonly connectTimeout?: Duration.Input | undefined;
++    readonly shutdownTimeout?: Duration.Input | undefined;
+     readonly stream?: (() => Duplex) | undefined;
+     /**
+      * Overrides `startupParameters.application_name`, the URL's `application_name`,
+@@ -122,6 +123,8 @@ export interface PgClientConfig {
+     readonly preparedStatementCacheSize?: number | undefined;
+     /** Maximum backend message size in bytes. Defaults to 16 MiB. */
+     readonly maxMessageSize?: number | undefined;
++  /** Transaction admission opt-in; omitted or false preserves the caller mask. */
++  readonly acquisitionInterruptible?: boolean | undefined
+ }
+ /**
+  * PostgreSQL client settings with connection pool limits and timeouts.
+diff --git a/dist/PgClient.js b/dist/PgClient.js
+index 69086dea397ba44c2ba726c913a2b5dbf1cac136..84f5c94a992642424f407c8f54be807b8532bdc8 100644
+--- a/dist/PgClient.js
++++ b/dist/PgClient.js
+@@ -59,6 +59,7 @@ const makeImpl = /*#__PURE__*/Effect.fnUntraced(function* (options) {
+   const transformRows = config.transformResultNames ? Statement.defaultTransforms(config.transformResultNames, config.transformJson).array : undefined;
+   const listen = channel => Effect.flatMap(options.listenAcquirer, connection => connection.listen(channel));
+   return Object.assign(yield* Client.make({
++        acquisitionInterruptible: config.acquisitionInterruptible,
+     acquirer: options.acquirer,
+     borrower: options.borrower,
+     // Postgres prepares transaction control like anything else, and a client
+diff --git a/dist/PgConnection.d.ts b/dist/PgConnection.d.ts
+index 20ffe147c475deec24664641d4e76fb99764c838..64c7c73e827b1c42453a6aa954ee30707f9a0cda 100644
+--- a/dist/PgConnection.d.ts
++++ b/dist/PgConnection.d.ts
+@@ -66,6 +66,7 @@ export interface Config {
+      */
+     readonly password?: Redacted.Redacted | Effect.Effect<Redacted.Redacted> | undefined;
+     readonly connectTimeout?: Duration.Input | undefined;
++    readonly shutdownTimeout?: Duration.Input | undefined;
+     /**
+      * Overrides `startupParameters.application_name`, the URL's `application_name`,
+      * and the default `"@effect/sql-pg"`, in that order.
+diff --git a/dist/PgConnection.js b/dist/PgConnection.js
+index 2cb7481bd2ef827ea48f69fa8d8b28aeeb255114..2abc2affcf7d2b6fa87e251850f31385c9c5e79b 100644
+--- a/dist/PgConnection.js
++++ b/dist/PgConnection.js
+@@ -65,7 +65,7 @@ export const make = options => Effect.flatMap(resolveConfig(options), config =>
+   const password = yield* PasswordInternal.resolve(config.password);
+   const session = yield* connect(config, password);
+   return new PgConnectionImpl(options, config, session, options.types);
+-}), connection => Effect.sync(() => connection.closeUnsafe()), {
++}), connection => options.shutdownTimeout === undefined ? Effect.sync(() => connection.closeUnsafe()) : connection.closeWithTimeout(options.shutdownTimeout), {
+   interruptible: true
+ }).pipe(Effect.timeoutOrElse({
+   duration: config.connectTimeout,
+@@ -227,6 +227,37 @@ class PgConnectionImpl {
+       })
+     }), destroySocket);
+   }
++  /** Graceful shutdown, then 100ms for an actual close receipt after destruction. */
++  closeWithTimeout(timeout) {
++    return Effect.callback(resume => {
++      const socket = this.session.socket;
++      if (socket.closed === true) {
++        resume(Effect.void);
++        return;
++      }
++      let graceTimer;
++      let closeTimer;
++      const cleanup = () => {
++        if (graceTimer !== undefined) clearTimeout(graceTimer);
++        if (closeTimer !== undefined) clearTimeout(closeTimer);
++        socket.off("close", onClose);
++      };
++      const onClose = () => {
++        cleanup();
++        resume(Effect.void);
++      };
++      socket.once("close", onClose);
++      graceTimer = setTimeout(() => {
++        closeTimer = setTimeout(() => {
++          cleanup();
++          resume(Effect.die(new Error("PgConnection: transport did not emit close within 100ms after destroy")));
++        }, 100);
++        socket.destroy();
++      }, Duration.toMillis(Duration.fromInputUnsafe(timeout)));
++      this.closeUnsafe();
++      return Effect.sync(cleanup);
++    });
++  }
+   /** Plans one execution. `cache` is `undefined` to force the unnamed path. */
+   encodeQuery = (sql, params, cache) => encodeQuery(sql, params, this.registry, this.bindEncoder, cache);
+   /**
+diff --git a/src/PgClient.ts b/src/PgClient.ts
+index 458df7fb428d6851d307da883dca050df145f92b..331e73836f94df0d66e3ee5851717aab76ea9402 100644
+--- a/src/PgClient.ts
++++ b/src/PgClient.ts
+@@ -96,6 +96,13 @@ export interface PgClientConfig {
+   readonly password?: Redacted.Redacted | Effect.Effect<Redacted.Redacted> | undefined
+ 
+   readonly connectTimeout?: Duration.Input | undefined
++  /** Explicit owner grace period before destroying the local transport.
++   * Opted scope completion waits for a real close event, with a hard 100ms
++   * close-ack bound after destruction; missing close defects, never succeeds.
++   * Total shutdown bound is this grace period plus 100ms (scheduler aside).
++   * Omitted preserves existing synchronous end behavior and allocates no timer.
++   */
++  readonly shutdownTimeout?: Duration.Input | undefined
+ 
+   readonly stream?: (() => Duplex) | undefined
+ 
+@@ -144,6 +151,8 @@ export interface PgClientConfig {
+   readonly preparedStatementCacheSize?: number | undefined
+   /** Maximum backend message size in bytes. Defaults to 16 MiB. */
+   readonly maxMessageSize?: number | undefined
++  /** Transaction admission opt-in; omitted or false preserves the caller mask. */
++  readonly acquisitionInterruptible?: boolean | undefined
+ }
+ 
+ /**
+@@ -232,6 +241,7 @@ const makeImpl = Effect.fnUntraced(function*(
+ 
+   return Object.assign(
+     yield* Client.make({
++          acquisitionInterruptible: config.acquisitionInterruptible,
+       acquirer: options.acquirer,
+       borrower: options.borrower,
+       // Postgres prepares transaction control like anything else, and a client
+diff --git a/src/PgConnection.ts b/src/PgConnection.ts
+index 1b01a1d07dba9c258f69fb7b9ee56c9c2dd66894..bfff48fb9addbb17a5ceb87c1972ee1ad790810e 100644
+--- a/src/PgConnection.ts
++++ b/src/PgConnection.ts
+@@ -95,6 +95,7 @@ export interface Config {
+    */
+   readonly password?: Redacted.Redacted | Effect.Effect<Redacted.Redacted> | undefined
+   readonly connectTimeout?: Duration.Input | undefined
++  readonly shutdownTimeout?: Duration.Input | undefined
+   /**
+    * Overrides `startupParameters.application_name`, the URL's `application_name`,
+    * and the default `"@effect/sql-pg"`, in that order.
+@@ -282,7 +283,9 @@ export const make = (options: Config): Effect.Effect<PgConnection, SqlError, Sco
+         const session = yield* connect(config, password)
+         return new PgConnectionImpl(options, config, session, options.types)
+       }),
+-      (connection) => Effect.sync(() => connection.closeUnsafe()),
++      (connection) => options.shutdownTimeout === undefined
++        ? Effect.sync(() => connection.closeUnsafe())
++        : connection.closeWithTimeout(options.shutdownTimeout),
+       { interruptible: true }
+     ).pipe(
+       Effect.timeoutOrElse({
+@@ -501,6 +504,38 @@ class PgConnectionImpl implements PgConnection {
+     )
+   }
+ 
++  /** Graceful shutdown, then 100ms for an actual close receipt after destruction. */
++  closeWithTimeout(timeout: Duration.Input): Effect.Effect<void> {
++    return Effect.callback<void>((resume) => {
++      const socket = this.session.socket
++      if (socket.closed === true) {
++        resume(Effect.void)
++        return
++      }
++      let graceTimer: ReturnType<typeof setTimeout> | undefined
++      let closeTimer: ReturnType<typeof setTimeout> | undefined
++      const cleanup = () => {
++        if (graceTimer !== undefined) clearTimeout(graceTimer)
++        if (closeTimer !== undefined) clearTimeout(closeTimer)
++        socket.off("close", onClose)
++      }
++      const onClose = () => {
++        cleanup()
++        resume(Effect.void)
++      }
++      socket.once("close", onClose)
++      graceTimer = setTimeout(() => {
++        closeTimer = setTimeout(() => {
++          cleanup()
++          resume(Effect.die(new Error("PgConnection: transport did not emit close within 100ms after destroy")))
++        }, 100)
++        socket.destroy()
++      }, Duration.toMillis(Duration.fromInputUnsafe(timeout)))
++      this.closeUnsafe()
++      return Effect.sync(cleanup)
++    })
++  }
++
+   /** Plans one execution. `cache` is `undefined` to force the unnamed path. */
+   readonly encodeQuery = (
+     sql: string,

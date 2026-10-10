@@ -1,4 +1,4 @@
-import { Effect, Layer } from "effect";
+import { Crypto, Effect, Layer } from "effect";
 import { TeamApplications } from "@vektorprogrammet/domain/team-application";
 import { Database } from "../service.js";
 import {
@@ -30,6 +30,7 @@ export const TeamApplicationsLive = (delivery: Partial<TeamApplicationDeliveryOp
     Effect.gen(function* () {
       const database = yield* Database;
       const queue = yield* TeamApplicationDeliveryQueue;
+      const crypto = yield* Crypto.Crypto;
 
       return TeamApplications.of({
         readPublicIntake: (teamId) =>
@@ -41,6 +42,7 @@ export const TeamApplicationsLive = (delivery: Partial<TeamApplicationDeliveryOp
           submitTeamApplication(command).pipe(
             Effect.provideService(Database, database),
             Effect.provideService(TeamApplicationDeliveryQueue, queue),
+            Effect.provideService(Crypto.Crypto, crypto),
           ),
         authorize: (principal, action) =>
           authorizeTeamApplicationAction(principal, action).pipe(

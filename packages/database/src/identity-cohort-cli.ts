@@ -1,14 +1,13 @@
-import { createHash } from "node:crypto";
-import { Pool } from "pg";
 import { Config, flow, Effect, Redacted } from "effect";
-import { canonicalJson } from "@vektorprogrammet/domain/shared-kernel";
+import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import {
   parseDisposableCohortDatabaseUrl,
   readPrivateCohortJson,
   writeCohortReport,
 } from "./cohort-cli.js";
-import { databaseHealth } from "./service.js";
+import { Database } from "./service.js";
 import { DatabaseLive } from "./layers.js";
+import { NativeDatabaseStartupOptions } from "./search-path.js";
 import {
   decodeIdentityCohort,
   IdentityCohortFailure,
@@ -36,9 +35,7 @@ export const summarizeIdentityCohort = (report: CohortReport) => {
     accepted: report.accepted,
     quarantined: report.quarantined,
     reasons,
-    dispositionFingerprint: createHash("sha256")
-      .update(canonicalJson(report.occurrences))
-      .digest("hex"),
+    dispositionFingerprint: sha256Hex(canonicalJsonBytes(report.occurrences)),
   };
 };
 
@@ -46,6 +43,7 @@ export const disposableCohortDatabaseUrl = (value: string | undefined): string =
   parseDisposableCohortDatabaseUrl(value, /^\/identity_cohort_[a-z0-9_]+$/, invalidSnapshot);
 
 // An unset variable reads as empty, which no check below accepts.
+
 const environment = Config.all({
   mode: Config.String("IDENTITY_COHORT_MODE").pipe(Config.withDefault("")),
   deployment: Config.String("NATIVE_IDENTITY_DEPLOYMENT").pipe(Config.withDefault("")),
@@ -71,14 +69,19 @@ export const runIdentityCohortCli = Effect.gen(function* () {
     catch: invalidSnapshot,
   });
 
-  yield* databaseHealth.pipe(
-    Effect.provide(DatabaseLive({ url: Redacted.make(url), maxConnections: 1 })),
-  );
+  yield* Effect.gen(function* () {
+    const sql = yield* Database;
 
-  const pool = yield* Effect.acquireRelease(
-    Effect.sync(() => new Pool({ connectionString: url, max: 2 })),
-    (pool) => Effect.promise(() => pool.end()),
-  );
+    yield* sql.health;
 
-  yield* writeCohortReport(summarizeIdentityCohort(yield* importIdentityCohort(pool, input)));
+    yield* writeCohortReport(summarizeIdentityCohort(yield* importIdentityCohort(sql, input)));
+  }).pipe(
+    Effect.provide(
+      DatabaseLive({
+        url: Redacted.make(url),
+        maxConnections: 2,
+        startupOptions: NativeDatabaseStartupOptions,
+      }),
+    ),
+  );
 }).pipe(Effect.scoped);

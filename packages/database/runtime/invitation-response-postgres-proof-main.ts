@@ -25,6 +25,7 @@ import { deliverNextRecruitmentInvitationResponse } from "@vektorprogrammet/data
 import { RecruitmentLive } from "@vektorprogrammet/database/recruitment";
 import { Schema, Predicate, Config, Deferred, Effect, Fiber, Layer, Redacted } from "effect";
 import { DatabaseLive } from "../src/layers.js";
+import { NativeDatabaseStartupOptions } from "../src/search-path.js";
 import { TestPlatform } from "../src/test-support/platform.js";
 import { databaseMigrationDefinitions, databaseSchemaRevision } from "../src/migrations.js";
 
@@ -70,6 +71,7 @@ const makeProofLayer = (url: Redacted.Redacted<string>, applicationName: string)
     url: Redacted.make(Redacted.value(url)),
     applicationName,
     maxConnections: 1,
+    startupOptions: NativeDatabaseStartupOptions,
   });
 
   const admissionsLayer = AdmissionsLive.pipe(Layer.provide(databaseLayer));

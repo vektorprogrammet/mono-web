@@ -38,7 +38,7 @@ export const PlacementValues = Schema.Struct({
 });
 
 export const PlacementId = Schema.String.pipe(
-  Schema.check(Schema.isPattern(/^placement-[a-f0-9]{64}$/)),
+  Schema.check(Schema.isPattern(/^placement-[a-f0-9]{64}$/u)),
 );
 
 export const Placement = Schema.Struct({
@@ -66,15 +66,15 @@ export const SchoolServiceDemand = Schema.Struct({
 });
 
 export const SchoolServiceProposalId = Schema.String.pipe(
-  Schema.check(Schema.isPattern(/^school-service-proposal-[a-f0-9]{64}$/)),
+  Schema.check(Schema.isPattern(/^school-service-proposal-[a-f0-9]{64}$/u)),
 );
 
 export const SchoolServiceCommitmentId = Schema.String.pipe(
-  Schema.check(Schema.isPattern(/^school-service-commitment-[a-f0-9]{64}$/)),
+  Schema.check(Schema.isPattern(/^school-service-commitment-[a-f0-9]{64}$/u)),
 );
 
 export const SchoolServiceTime = Schema.String.pipe(
-  Schema.check(Schema.isPattern(/^([01][0-9]|2[0-3]):[0-5][0-9]$/)),
+  Schema.check(Schema.isPattern(/^([01][0-9]|2[0-3]):[0-5][0-9]$/u)),
 );
 
 export const SchoolServiceEvidenceText = Schema.String.pipe(
@@ -86,19 +86,19 @@ export const SchoolServiceEvidenceText = Schema.String.pipe(
 );
 
 export const SchoolServiceOccurrenceId = Schema.String.pipe(
-  Schema.check(Schema.isPattern(/^school-service-occurrence-[a-f0-9]{64}$/)),
+  Schema.check(Schema.isPattern(/^school-service-occurrence-[a-f0-9]{64}$/u)),
 );
 
 export const SchoolServiceAbsenceId = Schema.String.pipe(
-  Schema.check(Schema.isPattern(/^school-service-absence-[a-f0-9]{64}$/)),
+  Schema.check(Schema.isPattern(/^school-service-absence-[a-f0-9]{64}$/u)),
 );
 
 export const SchoolServiceCoverageId = Schema.String.pipe(
-  Schema.check(Schema.isPattern(/^school-service-coverage-[a-f0-9]{64}$/)),
+  Schema.check(Schema.isPattern(/^school-service-coverage-[a-f0-9]{64}$/u)),
 );
 
 export const SchoolServiceClosureId = Schema.String.pipe(
-  Schema.check(Schema.isPattern(/^school-service-closure-[a-f0-9]{64}$/)),
+  Schema.check(Schema.isPattern(/^school-service-closure-[a-f0-9]{64}$/u)),
 );
 
 export const SchoolServiceProposalAssignment = Schema.Struct({

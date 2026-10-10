@@ -9,7 +9,7 @@ import {
   type TeamApplicationInput,
   type TeamApplicationIntake,
 } from "@vektorprogrammet/domain/team-application";
-import { DatabaseTestLive } from "../test-support/platform.js";
+import { DatabaseTestLive, TestPlatform } from "../test-support/platform.js";
 import { Database } from "../service.js";
 import { TeamApplicationsLive } from "./index.js";
 
@@ -73,6 +73,7 @@ const seedTeams = Layer.effectDiscard(
 // The seeded teams, people, and memberships are part of the suite database.
 const teamApplicationsLayer = seedTeams.pipe(
   Layer.provideMerge(Layer.merge(database, TeamApplicationsLive().pipe(Layer.provide(database)))),
+  Layer.provide(TestPlatform),
 );
 
 const input: TeamApplicationInput = {

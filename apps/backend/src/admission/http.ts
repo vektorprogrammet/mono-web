@@ -1,3 +1,7 @@
+/**
+ * EX-0024: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 /** Generated native HttpApi binding for admission and public application endpoints. */
 import {
   createAdmissionPeriod as createAdmissionPeriodEndpoint,
@@ -12,7 +16,7 @@ import {
   reviseAdmissionPeriod as reviseAdmissionPeriodEndpoint,
   submitApplication as submitApplicationEndpoint,
 } from "@vektorprogrammet/http-api";
-import type { HttpApiGroup } from "effect/unstable/httpapi";
+import type { HttpApiGroup } from "effect/http-api";
 import {
   AdmissionsApiHandlers as GeneratedAdmissionsApiHandlers,
   type AdmissionsGuards,

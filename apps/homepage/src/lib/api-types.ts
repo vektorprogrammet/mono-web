@@ -1,3 +1,7 @@
+/**
+ * EX-0026: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import {
   listDepartments,
   listTeams,
@@ -9,7 +13,7 @@ import {
   readTeamApplicationIntake,
   submitTeamApplication,
 } from "@vektorprogrammet/http-api";
-import type { HttpApiEndpoint, HttpApiSchema } from "effect/unstable/httpapi";
+import type { HttpApiEndpoint, HttpApiSchema } from "effect/http-api";
 
 type EndpointResponseBody<Response> =
   Response extends HttpApiSchema.WithHeaders<infer Body, infer _Headers> ? Body["Type"] : never;

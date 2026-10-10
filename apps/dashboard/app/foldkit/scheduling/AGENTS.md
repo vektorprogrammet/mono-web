@@ -69,3 +69,16 @@ No `exports` entry of [apps/dashboard/package.json](../../../package.json) point
 Local invariants, pitfalls, and recipes go below this generated part; `just guides write` keeps them.
 
 [//]: # "guide: end"
+
+## Correction observation
+
+Completed conduct stays readable when correction is closed. Its draft controls and
+confirmation use the server-owned `assessmentCorrection.canCorrect` flag, not completion
+alone, a client clock, or a role. Show the observed status, sequence, opener, and end time.
+An expired window already ends correction authority and cannot be closed manually.
+Window maintenance remains in the existing Staffing workflow; it grants no raw conduct
+access and does not change department-member scheduling-board visibility.
+
+Update and view stay pure. The existing one-shot Commands and request/generation/interview
+correlation remain unchanged. The server may refuse a previously allowed observation at
+commit; keep that refusal and the draft visible instead of claiming local authority.

@@ -1,4 +1,8 @@
 /**
+ * EX-0028: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+/**
  * Disposable local infrastructure for golden journeys.
  *
  * A journey receives a committed clean source snapshot, private loopback ports, a
@@ -47,7 +51,7 @@ import {
   type Scope,
   Stream,
 } from "effect";
-import { ChildProcess, type ChildProcessSpawner } from "effect/unstable/process";
+import { ChildProcess, type ChildProcessSpawner } from "effect/process";
 import { Pool, type PoolClient } from "pg";
 
 export const receiptSchemaVersion = "native-functional-journey/v1";
@@ -1138,10 +1142,13 @@ const main = (journey: GoldenJourney, root: string) =>
         yield* interceptSignals(signals, received);
         yield* sample("baseline");
 
-        const interruption = Effect.raceFirst(
-          Deferred.await(signals),
-          Effect.sleep(journey.deadline).pipe(Effect.as<InterruptionReason>("deadline")),
-        ).pipe(Effect.flatMap((reason) => Effect.fail(new JourneyInterrupted({ reason }))));
+        const interruption = Deferred.await(signals).pipe(
+          Effect.timeoutOrElse({
+            duration: journey.deadline,
+            orElse: () => Effect.succeed<InterruptionReason>("deadline"),
+          }),
+          Effect.flatMap((reason) => Effect.fail(new JourneyInterrupted({ reason }))),
+        );
 
         const supervision = Deferred.await(ledger.supervision).pipe(
           Effect.flatMap((error) => Effect.fail(error)),

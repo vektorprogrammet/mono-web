@@ -2,6 +2,7 @@ import process from "node:process";
 import * as BunServices from "@effect/platform-bun/BunServices";
 import { Database } from "@vektorprogrammet/database";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
+import { NativeDatabaseStartupOptions } from "@vektorprogrammet/database/search-path";
 import { deliverNextPublicApplicationOutbox } from "@vektorprogrammet/database/application";
 import { makeRecordingPublicApplicationEffectInterpreter } from "@vektorprogrammet/domain/application";
 import { Predicate, Effect, Layer, Redacted } from "effect";
@@ -20,6 +21,7 @@ const databaseLayer = DatabaseLive({
   url: Redacted.make(postgresUrl),
   applicationName: "public-application-recording-outbox-0039",
   maxConnections: 2,
+  startupOptions: NativeDatabaseStartupOptions,
 }).pipe(Layer.provide(BunServices.layer));
 
 const failProof = (message: string): Effect.Effect<never> =>

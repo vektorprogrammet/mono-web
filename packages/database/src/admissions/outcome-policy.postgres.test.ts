@@ -1,3 +1,7 @@
+/** EX-0021: Stable SQL modules carry an upstream unstable annotation.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+import * as SqlClient from "effect/sql/SqlClient";
 import { expect, layer } from "@effect/vitest";
 import {
   type DisposablePostgres,
@@ -16,7 +20,6 @@ import {
   Redacted,
   Schema,
 } from "effect";
-import { Pool, type QueryResultRow } from "pg";
 import {
   Admissions,
   AdmissionOutcome,
@@ -34,15 +37,12 @@ import { DepartmentId, PersonId, SemesterId } from "@vektorprogrammet/domain/org
 import { PlacementFailure, Placements } from "@vektorprogrammet/domain/placements";
 import { SchoolId } from "@vektorprogrammet/domain/schools";
 import { DatabaseLive } from "../layers.js";
-import {
-  type DatabaseMigrationDefinition,
-  databaseMigrationDefinitions,
-  selectDatabaseMigration,
-} from "../migrations.js";
-import { pgQuery } from "../pg-pool.js";
+import { NativeDatabaseStartupOptions } from "../search-path.js";
+import { type DatabaseMigrationDefinition, selectDatabaseMigration } from "../migrations.js";
+import { executePostgresMigration } from "../postgres-migration-statements.js";
 import { Database, type DatabaseOperations } from "../service.js";
 import { TestPlatform } from "../test-support/platform.js";
-import { withPostgresTestDatabase } from "../test-support/postgres.js";
+import { postgresTestClient, withPostgresTestDatabase } from "../test-support/postgres.js";
 import { PlacementsLive } from "../placements/index.js";
 import { AdmissionsLive } from "./index.js";
 
@@ -59,7 +59,7 @@ import { AdmissionsLive } from "./index.js";
  * - Decide takes only the applications that an interview does not derive: `Kanskje` and a
  *   returning assistant without an interview. `Ja` and `Nei` cannot be decided, not even to the
  *   value that they derive, and an unreviewed application has nothing to decide. An unplaced
- *   Admitted person is never denied, and a decision can change until the announcement.
+ *   Admitted person is never denied, and an unannounced decision may be revised against its frozen citation.
  * - Announce derives `Ja` as Admitted and `Nei` as Rejected, announces the decision of `Kanskje`
  *   and returning, and refuses an undecided one before it renders or writes anything. It is
  *   terminal: one announcement, one revision history that takes no further row, one mail
@@ -99,6 +99,7 @@ const database = Layer.unwrap(
       url: Redacted.make(postgres.url),
       applicationName: "outcome-policy-postgres-test",
       maxConnections: 6,
+      startupOptions: NativeDatabaseStartupOptions,
     }).pipe(Layer.provide(TestPlatform)),
   ),
 );
@@ -218,7 +219,10 @@ const suiteSeed = Layer.effectDiscard(
         (${coordinator}, 'Cora', 'Coordinator')`;
       yield* sql`INSERT INTO recruitment_interview_schemas (
         interview_schema_id, name, question_count, active, revision
-      ) VALUES ('policy-schema', 'Policy', 0, true, 0)`;
+      ) VALUES ('policy-schema', 'Policy', 1, true, 0)`;
+      yield* sql`INSERT INTO recruitment_interview_schema_questions (
+        interview_schema_id, question_id, ordinal, prompt, kind, alternatives
+      ) VALUES ('policy-schema', 'explanation', 0, 'Explain how you would help a pupil.', 'text', '[]'::jsonb)`;
 
       const schools = yield* sql<{
         readonly schoolId: number;
@@ -288,8 +292,12 @@ const suiteSeed = Layer.effectDiscard(
             assigned_by_person_id, assigned_at, revision
           ) VALUES (
             ${interview}, ${application}, ${scope.departmentId}, ${interviewer}, 'policy-schema',
-            ${interviewer}, '2026-02-03T00:00:00.000Z', 1
+            ${interviewer}, '2026-02-03T00:00:00.000Z', 2
           )`;
+          yield* sql`INSERT INTO recruitment_interview_question_snapshots (
+            interview_id, question_id, ordinal, prompt, kind, alternatives
+          ) SELECT ${interview}, question_id, ordinal, prompt, kind, alternatives
+            FROM recruitment_interview_schema_questions WHERE interview_schema_id = 'policy-schema'`;
           yield* sql`INSERT INTO recruitment_interview_schedules (
             interview_id, scheduled_at, room, campus, map_link, message, scheduled_by_person_id,
             committed_at, schedule_revision
@@ -322,7 +330,8 @@ const suiteSeed = Layer.effectDiscard(
                 interview_id, answers, explanatory_power, role_model, suitability,
                 finalized_by_person_id, finalized_at, interview_revision, recommendation
               ) VALUES (
-                ${interview}, '[]'::jsonb, 7, 8, 9, ${interviewer}, '2026-02-10T11:00:00.000Z', 2,
+                ${interview}, '[{"questionId":"explanation","answer":"Work through a concrete example with the pupil."}]'::jsonb,
+                7, 8, 9, ${interviewer}, '2026-02-10T11:00:00.000Z', 2,
                 ${recommendation}
               )`;
             }),
@@ -399,9 +408,12 @@ const suiteSeed = Layer.effectDiscard(
         }
 
         if (seed.outcome !== undefined) {
+          // Ja/Nei record the interview-derived outcome, never a human override.
+          const derived = recommendation === "Ja" || recommendation === "Nei";
           yield* sql`INSERT INTO admission_application_outcomes (
-            application_id, revision, outcome, decided_by_person_id, decided_at
-          ) VALUES (${application}, 1, ${seed.outcome}, ${recruiter}, '2026-05-01T10:00:00.000Z')`;
+            application_id, revision, outcome, decided_by_person_id, decided_at, provenance
+          ) VALUES (${application}, 1, ${seed.outcome}, ${derived ? null : recruiter},
+            '2026-05-01T10:00:00.000Z', ${derived ? "Recommendation" : "Decision"})`;
         }
       }
 
@@ -804,8 +816,10 @@ const baselineMigrations: ReadonlyArray<DatabaseMigrationDefinition> = [
   baseline.migration,
 ];
 
-const laterMigrations: ReadonlyArray<DatabaseMigrationDefinition> =
-  databaseMigrationDefinitions.slice(baseline.preceding.length + 1);
+const laterMigrations: ReadonlyArray<DatabaseMigrationDefinition> = [
+  ...selectDatabaseMigration("82_admission-outcome-mail").preceding,
+  selectDatabaseMigration("82_admission-outcome-mail").migration,
+].slice(baseline.preceding.length + 1);
 
 const readSql = (migration: DatabaseMigrationDefinition) =>
   Effect.gen(function* () {
@@ -815,11 +829,11 @@ const readSql = (migration: DatabaseMigrationDefinition) =>
     return yield* fs.readFileString(yield* path.fromFileUrl(migration.url));
   });
 
-const select = <R extends QueryResultRow>(
-  pool: Pool,
+const select = <R extends object>(
+  pool: SqlClient.SqlClient,
   text: string,
   values: ReadonlyArray<unknown> = [],
-) => pgQuery<R>(pool, text, values).pipe(Effect.map(({ rows }) => rows));
+) => pool.unsafe<R>(text, values);
 
 /**
  * Application outcome histories of the previous schema. `Substitute` is current for
@@ -982,7 +996,7 @@ const readReceipts = `SELECT identity_sha256, operation_id, state, status, media
   to_char(committed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS committed_at
   FROM public.native_http_idempotency_receipts ORDER BY identity_sha256 COLLATE "C"`;
 
-interface CoverageRow extends QueryResultRow {
+interface CoverageRow {
   readonly coverage_id: string;
   readonly absence_id: string;
   readonly covering_person_id: string;
@@ -992,7 +1006,7 @@ interface CoverageRow extends QueryResultRow {
   readonly withdrawn_at: string | null;
 }
 
-interface ReceiptRow extends QueryResultRow {
+interface ReceiptRow {
   readonly identity_sha256: string;
   readonly operation_id: string;
   readonly state: string;
@@ -1003,8 +1017,10 @@ interface ReceiptRow extends QueryResultRow {
   readonly committed_at: string;
 }
 
+type SnapshotRow = CoverageRow | ReceiptRow | Readonly<Record<string, never>>;
+
 /** The column values of one row in select order, so that two reads of a row compare by value. */
-const rowText = (row: QueryResultRow) => Object.values(row).join("\u001f");
+const rowText = (row: SnapshotRow) => Object.values(row).join("\u001f");
 
 /**
  * Observers that stay in the database: PGlite's socket server closes a connection that reports
@@ -1037,7 +1053,7 @@ BEGIN
 END $$;
 `;
 
-interface HistoryRow extends QueryResultRow {
+interface HistoryRow {
   readonly application_id: string;
   readonly revision: number;
   readonly outcome: string;
@@ -1092,7 +1108,7 @@ const readSemanticUpgrades = `SELECT application_id AS application, revision
   FROM public.admission_application_outcomes WHERE provenance = 'SemanticUpgrade'
   ORDER BY application_id COLLATE "C", revision`;
 
-const attemptStatement = (pool: Pool, statement: string) =>
+const attemptStatement = (pool: SqlClient.SqlClient, statement: string) =>
   select<{ readonly outcome: string }>(
     pool,
     "SELECT public.outcome_policy_attempt($1) AS outcome",
@@ -1100,11 +1116,19 @@ const attemptStatement = (pool: Pool, statement: string) =>
   ).pipe(Effect.map((rows) => rows[0]?.outcome));
 
 /** Seeds the previous schema, applies the later migrations, and observes the upgraded history. */
-const upgrade = (pool: Pool) =>
+const upgrade = (pool: SqlClient.SqlClient) =>
   Effect.gen(function* () {
-    yield* pgQuery(pool, upgradeSeed);
-    yield* pgQuery(pool, previousServiceSeed);
-    yield* pgQuery(pool, observers);
+    yield* pool.withTransaction(
+      executePostgresMigration(upgradeSeed).pipe(Effect.provideService(SqlClient.SqlClient, pool)),
+    );
+    yield* pool.withTransaction(
+      executePostgresMigration(previousServiceSeed).pipe(
+        Effect.provideService(SqlClient.SqlClient, pool),
+      ),
+    );
+    yield* executePostgresMigration(observers).pipe(
+      Effect.provideService(SqlClient.SqlClient, pool),
+    );
 
     const before = yield* select<HistoryRow>(pool, readHistory);
 
@@ -1127,7 +1151,12 @@ const upgrade = (pool: Pool) =>
     const coverageBefore = yield* select<CoverageRow>(pool, readCoverage);
     const receiptsBefore = yield* select<ReceiptRow>(pool, readReceipts);
 
-    for (const migration of laterMigrations) yield* pgQuery(pool, yield* readSql(migration));
+    for (const migration of laterMigrations)
+      yield* pool.withTransaction(
+        executePostgresMigration(yield* readSql(migration)).pipe(
+          Effect.provideService(SqlClient.SqlClient, pool),
+        ),
+      );
 
     const after = yield* select<HistoryRow>(pool, readHistory);
 
@@ -1207,10 +1236,9 @@ const upgrade = (pool: Pool) =>
       insertProvenanceRevision("plain-rejected", 2, "Recommendation", null),
     );
 
-    yield* pgQuery(
-      pool,
+    yield* executePostgresMigration(
       "DROP FUNCTION public.outcome_policy_attempt(text); DROP FUNCTION public.outcome_policy_outbox_rows()",
-    );
+    ).pipe(Effect.provideService(SqlClient.SqlClient, pool));
 
     return {
       appended: after.flatMap((row) =>
@@ -1527,8 +1555,7 @@ layer(Layer.merge(policy, TestPlatform), { excludeTestServices: true, timeout: "
             }),
           );
 
-          // An unplaced Admitted person is never denied; deciding the current outcome again
-          // changes nothing, so the history keeps its one Decision of Rekruttering.
+          // Repeating the same explicit decision changes no revision or cited assessment.
           expect(observed).toEqual({
             before: { outcome: null, state: "ApplicationSubmitted", placed: false },
             decided: { outcome: "Admitted", state: "ApplicationSubmitted", placed: false },
@@ -1550,7 +1577,7 @@ layer(Layer.merge(policy, TestPlatform), { excludeTestServices: true, timeout: "
     }
 
     it.effect(
-      "lets Rekruttering change a decision as append-only revisions until the announcement",
+      "lets Rekruttering revise an unannounced decision against the same frozen citation",
       () =>
         Effect.gen(function* () {
           const observed = yield* observeRolledBack(
@@ -2399,20 +2426,30 @@ layer(Layer.merge(policy, TestPlatform), { excludeTestServices: true, timeout: "
             postgres.createDatabase("outcome_policy_upgrade"),
           );
 
-          const pool = yield* Effect.acquireRelease(
-            Effect.sync(() => new Pool({ connectionString: url, max: 1 })),
-            (opened) => Effect.promise(() => opened.end()),
-          );
+          const pool = yield* postgresTestClient({
+            url: Redacted.make(url),
+            maxConnections: 1,
+            startupOptions: NativeDatabaseStartupOptions,
+          });
 
           for (const migration of baselineMigrations)
-            yield* pgQuery(pool, yield* readSql(migration));
+            yield* pool.withTransaction(
+              executePostgresMigration(yield* readSql(migration)).pipe(
+                Effect.provideService(SqlClient.SqlClient, pool),
+              ),
+            );
 
           expect(yield* upgrade(pool)).toEqual(upgradeEvidence);
         }).pipe(Effect.scoped, Effect.orDie),
       120_000,
     );
+  },
+);
 
-    // PGlite creates and migrates the previous schema inside this case, not in the suite Layer.
+// PGlite creates and migrates the previous schema inside this case, so no disposable cluster starts.
+layer(TestPlatform, { excludeTestServices: true, timeout: "60 seconds" })(
+  "admission outcome policy upgrade on PGlite",
+  (it) => {
     it.effect(
       "upgrades each current Substitute with one provenance-marked Admitted revision and rewrites no history, on PGlite",
       () =>

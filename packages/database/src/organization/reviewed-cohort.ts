@@ -1,5 +1,11 @@
+/**
+ * EX-0021: required public native SQL APIs in exact stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { Effect, FileSystem, flow, Option, Path, Predicate, Schema } from "effect";
-import type { Pool, PoolClient } from "pg";
+import type * as SqlClient from "effect/sql/SqlClient";
+import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
+import { withTypedTransactionFailures } from "../service.js";
 import {
   classifyReviewedOrganization,
   decodeReviewedOrganizationSnapshot,
@@ -8,11 +14,11 @@ import {
   OrganizationCohortFailure,
   OrganizationReview,
   ReviewedOrganizationSnapshot,
+  LegacyDepartmentRowSchema,
   type LegacyDepartmentRow,
   type ReviewedOrganizationOccurrence,
 } from "@vektorprogrammet/domain/organization";
 import { canonicalJson } from "@vektorprogrammet/domain/shared-kernel";
-import { pgQuery, pgTransaction } from "../pg-pool.js";
 
 export {
   organizationSnapshotDigest,
@@ -69,28 +75,41 @@ const encodeSnapshot = flow(
   Effect.orDie,
 );
 
-const report = (tx: PoolClient, snapshotKey: string, replay: boolean) =>
-  pgQuery<ReviewedOrganizationOccurrence>(
-    tx,
-    `SELECT occurrence_id AS "occurrenceId", result, reason, target_id AS "targetId" FROM public.organization_cohort_occurrences WHERE snapshot_key=$1 ORDER BY occurrence_id`,
-    [snapshotKey],
-  ).pipe(
-    Effect.map(({ rows: occurrences }): ReviewedOrganizationReport => {
-      const counts = { Accepted: 0, Quarantined: 0, Excluded: 0 };
-
-      for (const row of occurrences) counts[row.result] += 1;
-
-      return {
-        snapshotKey,
-        replay,
-        input: occurrences.length,
-        accepted: counts.Accepted,
-        quarantined: counts.Quarantined,
-        excluded: counts.Excluded,
-        occurrences,
-      };
+const decodeOccurrenceRows = Schema.decodeUnknownEffect(
+  Schema.Array(
+    Schema.Struct({
+      occurrenceId: Schema.String,
+      result: Schema.Literals(["Accepted", "Quarantined", "Excluded"]),
+      reason: Schema.String,
+      targetId: Schema.NullOr(Schema.String),
     }),
-  );
+  ),
+);
+
+const report = (tx: SqlClient.SqlClient, snapshotKey: string, replay: boolean) =>
+  tx
+    .unsafe<ReviewedOrganizationOccurrence>(
+      `SELECT occurrence_id AS "occurrenceId", result, reason, target_id AS "targetId" FROM public.organization_cohort_occurrences WHERE snapshot_key=$1 ORDER BY occurrence_id`,
+      [snapshotKey],
+    )
+    .pipe(
+      Effect.flatMap(decodeOccurrenceRows),
+      Effect.map((occurrences): ReviewedOrganizationReport => {
+        const counts = { Accepted: 0, Quarantined: 0, Excluded: 0 };
+
+        for (const row of occurrences) counts[row.result] += 1;
+
+        return {
+          snapshotKey,
+          replay,
+          input: occurrences.length,
+          accepted: counts.Accepted,
+          quarantined: counts.Quarantined,
+          excluded: counts.Excluded,
+          occurrences,
+        };
+      }),
+    );
 
 const References = Schema.Struct({
   departments: Schema.Array(
@@ -98,19 +117,63 @@ const References = Schema.Struct({
   ),
 });
 
+const decodeProvenanceRows = Schema.decodeUnknownEffect(
+  Schema.Array(
+    Schema.Struct({
+      source_revision: Schema.String,
+      reference_digest: Schema.String,
+      source_id_mappings: Schema.Unknown,
+    }),
+  ),
+);
+
+const decodePersonRows = Schema.decodeUnknownEffect(
+  Schema.Array(Schema.Struct({ source_user_id: Schema.String, person_id: Schema.String })),
+);
+
+const decodeSnapshotRows = Schema.decodeUnknownEffect(
+  Schema.Array(Schema.Struct({ snapshot_digest: Schema.String })),
+);
+
+const decodeBindingRows = Schema.decodeUnknownEffect(
+  Schema.Array(
+    Schema.Struct({
+      source_kind: Schema.String,
+      source_id: Schema.String,
+      source_digest: Schema.String,
+    }),
+  ),
+);
+
+const decodeSourceRows = Schema.decodeUnknownEffect(
+  Schema.Array(Schema.Struct({ source_digest: Schema.String, target_id: Schema.String })),
+);
+
+const { id: _legacyDepartmentId, ...departmentFields } = LegacyDepartmentRowSchema.fields;
+
+const decodeDepartmentRows = Schema.decodeUnknownEffect(
+  Schema.Array(Schema.Struct({ ...departmentFields, departmentId: Schema.String })),
+);
+
+class OrganizationAppointmentConflict extends Schema.TaggedError<OrganizationAppointmentConflict>()(
+  "OrganizationAppointmentConflict",
+  {},
+) {}
+
 const resolvedEvidence = Effect.fnUntraced(function* (
-  tx: PoolClient,
+  tx: SqlClient.SqlClient,
   snapshot: ReviewedOrganizationSnapshot,
 ) {
-  const reference = (yield* pgQuery<{
-    source_revision: string;
-    reference_digest: string;
-    source_id_mappings: unknown;
-  }>(
-    tx,
-    `SELECT source_revision,reference_digest,source_id_mappings FROM public.historical_service_reference_provenance WHERE source_repository=$1 AND snapshot_id=$2 FOR SHARE`,
-    [snapshot.sourceRepository, snapshot.snapshotId],
-  )).rows[0];
+  const reference = (yield* tx
+    .unsafe<{
+      source_revision: string;
+      reference_digest: string;
+      source_id_mappings: unknown;
+    }>(
+      `SELECT source_revision,reference_digest,source_id_mappings FROM public.historical_service_reference_provenance WHERE source_repository=$1 AND snapshot_id=$2 FOR SHARE`,
+      [snapshot.sourceRepository, snapshot.snapshotId],
+    )
+    .pipe(Effect.flatMap(decodeProvenanceRows)))[0];
 
   if (
     !reference ||
@@ -135,8 +198,7 @@ const resolvedEvidence = Effect.fnUntraced(function* (
   )
     return yield* new OrganizationCohortFailure({ code: "ReferenceProvenanceConflict" });
 
-  const personSnapshot = yield* pgQuery(
-    tx,
+  const personSnapshot = yield* tx.unsafe(
     `SELECT 1 FROM public.person_cohort_snapshots WHERE snapshot_key=$1 AND source_repository=$2 AND source_revision=$3 AND snapshot_id=$4 FOR SHARE`,
     [
       snapshot.personSnapshotKey,
@@ -146,16 +208,17 @@ const resolvedEvidence = Effect.fnUntraced(function* (
     ],
   );
 
-  if (!personSnapshot.rowCount)
+  if (!personSnapshot.length)
     return yield* new OrganizationCohortFailure({ code: "PersonSnapshotConflict" });
 
-  const people = yield* pgQuery<{ source_user_id: string; person_id: string }>(
-    tx,
-    `SELECT a.source_user_id,i.person_id FROM public.person_cohort_accepted_mappings a JOIN public.person_cohort_imports i USING(source_repository,source_user_id) WHERE a.snapshot_key=$1 AND a.source_repository=$2 FOR SHARE`,
-    [snapshot.personSnapshotKey, snapshot.sourceRepository],
-  );
+  const people = yield* tx
+    .unsafe<{ source_user_id: string; person_id: string }>(
+      `SELECT a.source_user_id,i.person_id FROM public.person_cohort_accepted_mappings a JOIN public.person_cohort_imports i USING(source_repository,source_user_id) WHERE a.snapshot_key=$1 AND a.source_repository=$2 FOR SHARE`,
+      [snapshot.personSnapshotKey, snapshot.sourceRepository],
+    )
+    .pipe(Effect.flatMap(decodePersonRows));
 
-  const acceptedPeople = new Map(people.rows.map((row) => [row.source_user_id, row.person_id]));
+  const acceptedPeople = new Map(people.map((row) => [row.source_user_id, row.person_id]));
 
   const persons = Object.fromEntries(
     snapshot.mappings.persons
@@ -163,16 +226,15 @@ const resolvedEvidence = Effect.fnUntraced(function* (
       .map((row) => [row.sourceUserId.replace(/^legacy-user:/, ""), row.personId]),
   );
 
-  const nativeDepartments = yield* pgQuery<
+  const nativeDepartments = yield* tx<
     Omit<LegacyDepartmentRow, "id"> & { departmentId: string }
-  >(
-    tx,
-    `SELECT department_id AS "departmentId",name,short_name AS "shortName",email,address,city,latitude,longitude,slack_channel AS "slackChannel",logo_path AS "logoPath",active FROM public.organization_departments WHERE department_id=ANY($1::text[]) FOR SHARE`,
-    [snapshot.mappings.departments.map((row) => row.departmentId)],
-  );
+  >`SELECT department_id AS "departmentId",name,short_name AS "shortName",email,address,city,latitude,longitude,slack_channel AS "slackChannel",logo_path AS "logoPath",active FROM public.organization_departments WHERE ${tx.in(
+    "department_id",
+    snapshot.mappings.departments.map((row) => row.departmentId),
+  )} FOR SHARE`.pipe(Effect.flatMap(decodeDepartmentRows));
 
   const departments = snapshot.mappings.departments.flatMap((mapping) => {
-    const native = nativeDepartments.rows.find((row) => row.departmentId === mapping.departmentId);
+    const native = nativeDepartments.find((row) => row.departmentId === mapping.departmentId);
     const sourceId = mapping.sourceDepartmentId.replace(/^legacy-department:/, "");
 
     if (!native || !/^-?\d+$/.test(sourceId) || !Number.isSafeInteger(Number(sourceId))) return [];
@@ -184,9 +246,9 @@ const resolvedEvidence = Effect.fnUntraced(function* (
   return { persons, departments };
 });
 
-/** Joins caller-owned cutover transactions; otherwise owns the entire cohort transaction. */
+/** Canonical appointments and provenance commit together; nested reports are provisional until the caller commits. */
 export const importReviewedOrganizationCohort = Effect.fn("importReviewedOrganizationCohort")(
-  function* (pool: Pool, input: Schema.Json, client?: PoolClient) {
+  function* (sql: SqlClient.SqlClient, input: Schema.Json) {
     const snapshot = yield* Effect.fromResult(decodeReviewedOrganizationSnapshot(input));
 
     const snapshotKey = organizationEvidenceDigest([
@@ -194,17 +256,15 @@ export const importReviewedOrganizationCohort = Effect.fn("importReviewedOrganiz
       snapshot.snapshotId,
     ]);
 
-    const importInTransaction = Effect.fnUntraced(function* (tx: PoolClient) {
-      yield* pgQuery(
-        tx,
-        "SELECT pg_advisory_xact_lock(hashtextextended('native-reviewed-organization-import',0))",
-      );
+    const importInTransaction = Effect.fnUntraced(function* (tx: SqlClient.SqlClient) {
+      yield* lockAdvisory(tx, AdvisoryLockKey.reviewedOrganizationImport);
 
-      const prior = (yield* pgQuery<{ snapshot_digest: string }>(
-        tx,
-        "SELECT snapshot_digest FROM public.organization_cohort_snapshots WHERE snapshot_key=$1",
-        [snapshotKey],
-      )).rows[0];
+      const prior = (yield* tx
+        .unsafe<{ snapshot_digest: string }>(
+          "SELECT snapshot_digest FROM public.organization_cohort_snapshots WHERE snapshot_key=$1",
+          [snapshotKey],
+        )
+        .pipe(Effect.flatMap(decodeSnapshotRows)))[0];
 
       if (prior) {
         if (prior.snapshot_digest !== snapshot.snapshotDigest)
@@ -216,24 +276,21 @@ export const importReviewedOrganizationCohort = Effect.fn("importReviewedOrganiz
       for (const personId of [
         ...new Set(snapshot.mappings.persons.map((row) => row.personId)),
       ].sort())
-        yield* pgQuery(
-          tx,
-          "SELECT pg_advisory_xact_lock(hashtextextended('vektorprogrammet:person-authorization:v1:' || $1,0))",
-          [personId],
-        );
+        yield* lockAdvisory(tx, AdvisoryLockKey.personAuthorization(personId));
 
-      const sourceBindings = yield* pgQuery<{
-        source_kind: string;
-        source_id: string;
-        source_digest: string;
-      }>(
-        tx,
-        "SELECT source_kind,source_id,source_digest FROM public.organization_cohort_imports WHERE source_repository=$1 AND source_kind IN ('TeamMembership','BoardMembership')",
-        [snapshot.sourceRepository],
-      );
+      const sourceBindings = yield* tx
+        .unsafe<{
+          source_kind: string;
+          source_id: string;
+          source_digest: string;
+        }>(
+          "SELECT source_kind,source_id,source_digest FROM public.organization_cohort_imports WHERE source_repository=$1 AND source_kind IN ('TeamMembership','BoardMembership')",
+          [snapshot.sourceRepository],
+        )
+        .pipe(Effect.flatMap(decodeBindingRows));
 
       const bindings = new Map(
-        sourceBindings.rows.map((row) => [
+        sourceBindings.map((row) => [
           canonicalJson([row.source_kind, row.source_id]),
           row.source_digest,
         ]),
@@ -256,8 +313,7 @@ export const importReviewedOrganizationCohort = Effect.fn("importReviewedOrganiz
         evidence.departments,
       );
 
-      yield* pgQuery(
-        tx,
+      yield* tx.unsafe(
         `INSERT INTO public.organization_cohort_snapshots(snapshot_key,source_repository,source_revision,snapshot_id,source_watermark,snapshot_digest,transformation_revision,person_snapshot_key,reference_digest,review,input_json) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb)`,
         [
           snapshotKey,
@@ -281,11 +337,12 @@ export const importReviewedOrganizationCohort = Effect.fn("importReviewedOrganiz
         sourceDigest: string,
         targetId: string,
       ) {
-        const prior = (yield* pgQuery<{ source_digest: string; target_id: string }>(
-          tx,
-          `SELECT source_digest,target_id FROM public.organization_cohort_imports WHERE source_repository=$1 AND source_kind=$2 AND source_id=$3`,
-          [snapshot.sourceRepository, kind, sourceId],
-        )).rows[0];
+        const prior = (yield* tx
+          .unsafe<{ source_digest: string; target_id: string }>(
+            `SELECT source_digest,target_id FROM public.organization_cohort_imports WHERE source_repository=$1 AND source_kind=$2 AND source_id=$3`,
+            [snapshot.sourceRepository, kind, sourceId],
+          )
+          .pipe(Effect.flatMap(decodeSourceRows)))[0];
 
         if (prior && (prior.source_digest !== sourceDigest || prior.target_id !== targetId))
           return yield* new OrganizationCohortFailure({ code: "SourceConflict" });
@@ -299,8 +356,7 @@ export const importReviewedOrganizationCohort = Effect.fn("importReviewedOrganiz
         sourceDigest: string,
         targetId: string,
       ) =>
-        pgQuery(
-          tx,
+        tx.unsafe(
           `INSERT INTO public.organization_cohort_imports(source_repository,source_kind,source_id,source_digest,target_id,snapshot_key) VALUES($1,$2,$3,$4,$5,$6)`,
           [snapshot.sourceRepository, kind, sourceId, sourceDigest, targetId, snapshotKey],
         );
@@ -325,128 +381,134 @@ export const importReviewedOrganizationCohort = Effect.fn("importReviewedOrganiz
           continue;
         }
 
-        yield* pgQuery(tx, "SAVEPOINT organization_appointment");
-        let unitAvailable = true;
+        yield* tx
+          .withTransaction(
+            Effect.gen(function* () {
+              let unitAvailable = true;
 
-        if (membership.teamId !== null) {
-          const team = classified.teams.find((team) => team.teamId === membership.teamId)!;
+              if (membership.teamId !== null) {
+                const team = classified.teams.find((team) => team.teamId === membership.teamId)!;
 
-          const rawTeam = snapshot.teams.find(
-            (raw) =>
-              Predicate.isObjectOrArray(raw) &&
-              "id" in raw &&
-              organizationEvidenceDigest(["Team", snapshot.sourceRepository, String(raw.id)]) ===
-                team.teamId.slice(4),
+                const rawTeam = snapshot.teams.find(
+                  (raw) =>
+                    Predicate.isObjectOrArray(raw) &&
+                    "id" in raw &&
+                    organizationEvidenceDigest([
+                      "Team",
+                      snapshot.sourceRepository,
+                      String(raw.id),
+                    ]) === team.teamId.slice(4),
+                );
+
+                if (!Predicate.isObjectOrArray(rawTeam) || !("id" in rawTeam))
+                  return yield* new OrganizationCohortFailure({ code: "InvalidSnapshot" });
+                const teamSourceId = String(rawTeam.id);
+
+                const teamDigest = organizationEvidenceDigest({
+                  raw: rawTeam,
+                  teamId: team.teamId,
+                  departmentId: team.departmentId,
+                  transformationRevision: snapshot.transformationRevision,
+                });
+
+                if (!(yield* existingSource("Team", teamSourceId, teamDigest, team.teamId))) {
+                  const inserted = yield* tx.unsafe(
+                    `INSERT INTO public.organization_teams(team_id,department_id,name,email,description,short_description,accept_application,deadline,active,revision) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,0) ON CONFLICT DO NOTHING RETURNING team_id`,
+                    [
+                      team.teamId,
+                      team.departmentId,
+                      team.name,
+                      team.email,
+                      team.description,
+                      team.shortDescription,
+                      team.acceptApplication,
+                      team.deadline,
+                      team.active,
+                    ],
+                  );
+
+                  unitAvailable = !!inserted.length;
+
+                  if (unitAvailable)
+                    yield* recordSource("Team", teamSourceId, teamDigest, team.teamId);
+                }
+              } else if (boardId !== null) {
+                const board = classified.boards.find((board) => board.boardId === boardId)!;
+
+                const boardDigest = organizationEvidenceDigest({
+                  board,
+                  transformationRevision: snapshot.transformationRevision,
+                });
+
+                if (!(yield* existingSource("Board", String(board.id), boardDigest, boardId))) {
+                  const inserted = yield* tx.unsafe(
+                    `INSERT INTO public.organization_national_boards(board_id,name) VALUES($1,$2) ON CONFLICT DO NOTHING RETURNING board_id`,
+                    [boardId, board.name],
+                  );
+
+                  unitAvailable = !!inserted.length;
+
+                  if (unitAvailable)
+                    yield* recordSource("Board", String(board.id), boardDigest, boardId);
+                }
+              }
+
+              if (unitAvailable && membership.teamId !== null)
+                unitAvailable = !!(yield* tx.unsafe(
+                  "SELECT 1 FROM public.organization_teams WHERE team_id=$1 FOR SHARE",
+                  [membership.teamId],
+                )).length;
+
+              if (unitAvailable && boardId !== null)
+                unitAvailable = !!(yield* tx.unsafe(
+                  "SELECT 1 FROM public.organization_national_boards WHERE board_id=$1 FOR SHARE",
+                  [boardId],
+                )).length;
+              let inserted = false;
+
+              if (unitAvailable) {
+                const result = yield* tx.unsafe(
+                  `INSERT INTO public.organization_memberships(membership_id,person_id,team_id,deleted_team_name,start_at,end_at,position_id,is_team_leader,is_suspended,revision,board_id,position_name) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,0,$10,$11) ON CONFLICT DO NOTHING RETURNING membership_id`,
+                  [
+                    membership.membershipId,
+                    membership.personId,
+                    membership.teamId,
+                    membership.deletedTeamName,
+                    membership.startAt,
+                    membership.endAt,
+                    membership.positionId,
+                    membership.isTeamLeader,
+                    membership.isSuspended,
+                    boardId,
+                    positionName,
+                  ],
+                );
+
+                inserted = !!result.length;
+              }
+
+              if (inserted)
+                yield* recordSource(
+                  occurrence.sourceKind,
+                  occurrence.sourceId,
+                  sourceDigest,
+                  membership.membershipId,
+                );
+              else return yield* new OrganizationAppointmentConflict();
+            }),
+          )
+          .pipe(
+            Effect.catchTag("OrganizationAppointmentConflict", () =>
+              Effect.sync(() => {
+                outcomes.set(occurrence.occurrenceId, {
+                  occurrenceId: occurrence.occurrenceId,
+                  result: "Quarantined",
+                  reason: "TargetConflict",
+                  targetId: null,
+                });
+              }),
+            ),
           );
-
-          if (!Predicate.isObjectOrArray(rawTeam) || !("id" in rawTeam))
-            return yield* new OrganizationCohortFailure({ code: "InvalidSnapshot" });
-          const teamSourceId = String(rawTeam.id);
-
-          const teamDigest = organizationEvidenceDigest({
-            raw: rawTeam,
-            teamId: team.teamId,
-            departmentId: team.departmentId,
-            transformationRevision: snapshot.transformationRevision,
-          });
-
-          if (!(yield* existingSource("Team", teamSourceId, teamDigest, team.teamId))) {
-            const inserted = yield* pgQuery(
-              tx,
-              `INSERT INTO public.organization_teams(team_id,department_id,name,email,description,short_description,accept_application,deadline,active,revision) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,0) ON CONFLICT DO NOTHING RETURNING team_id`,
-              [
-                team.teamId,
-                team.departmentId,
-                team.name,
-                team.email,
-                team.description,
-                team.shortDescription,
-                team.acceptApplication,
-                team.deadline,
-                team.active,
-              ],
-            );
-
-            unitAvailable = !!inserted.rowCount;
-
-            if (unitAvailable) yield* recordSource("Team", teamSourceId, teamDigest, team.teamId);
-          }
-        } else if (boardId !== null) {
-          const board = classified.boards.find((board) => board.boardId === boardId)!;
-
-          const boardDigest = organizationEvidenceDigest({
-            board,
-            transformationRevision: snapshot.transformationRevision,
-          });
-
-          if (!(yield* existingSource("Board", String(board.id), boardDigest, boardId))) {
-            const inserted = yield* pgQuery(
-              tx,
-              `INSERT INTO public.organization_national_boards(board_id,name) VALUES($1,$2) ON CONFLICT DO NOTHING RETURNING board_id`,
-              [boardId, board.name],
-            );
-
-            unitAvailable = !!inserted.rowCount;
-
-            if (unitAvailable) yield* recordSource("Board", String(board.id), boardDigest, boardId);
-          }
-        }
-
-        if (unitAvailable && membership.teamId !== null)
-          unitAvailable = !!(yield* pgQuery(
-            tx,
-            "SELECT 1 FROM public.organization_teams WHERE team_id=$1 FOR SHARE",
-            [membership.teamId],
-          )).rowCount;
-
-        if (unitAvailable && boardId !== null)
-          unitAvailable = !!(yield* pgQuery(
-            tx,
-            "SELECT 1 FROM public.organization_national_boards WHERE board_id=$1 FOR SHARE",
-            [boardId],
-          )).rowCount;
-        let inserted = false;
-
-        if (unitAvailable) {
-          const result = yield* pgQuery(
-            tx,
-            `INSERT INTO public.organization_memberships(membership_id,person_id,team_id,deleted_team_name,start_at,end_at,position_id,is_team_leader,is_suspended,revision,board_id,position_name) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,0,$10,$11) ON CONFLICT DO NOTHING RETURNING membership_id`,
-            [
-              membership.membershipId,
-              membership.personId,
-              membership.teamId,
-              membership.deletedTeamName,
-              membership.startAt,
-              membership.endAt,
-              membership.positionId,
-              membership.isTeamLeader,
-              membership.isSuspended,
-              boardId,
-              positionName,
-            ],
-          );
-
-          inserted = !!result.rowCount;
-        }
-
-        if (inserted)
-          yield* recordSource(
-            occurrence.sourceKind,
-            occurrence.sourceId,
-            sourceDigest,
-            membership.membershipId,
-          );
-        else {
-          yield* pgQuery(tx, "ROLLBACK TO SAVEPOINT organization_appointment");
-          outcomes.set(occurrence.occurrenceId, {
-            occurrenceId: occurrence.occurrenceId,
-            result: "Quarantined",
-            reason: "TargetConflict",
-            targetId: null,
-          });
-        }
-
-        yield* pgQuery(tx, "RELEASE SAVEPOINT organization_appointment");
       }
 
       if (![...outcomes.values()].some((row) => row.result === "Accepted"))
@@ -454,8 +516,7 @@ export const importReviewedOrganizationCohort = Effect.fn("importReviewedOrganiz
 
       for (const occurrence of snapshot.occurrences) {
         const row = outcomes.get(occurrence.occurrenceId)!;
-        yield* pgQuery(
-          tx,
+        yield* tx.unsafe(
           `INSERT INTO public.organization_cohort_occurrences(snapshot_key,occurrence_id,source_kind,source_id,source_row_digest,result,reason,target_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
           [
             snapshotKey,
@@ -473,8 +534,6 @@ export const importReviewedOrganizationCohort = Effect.fn("importReviewedOrganiz
       return yield* report(tx, snapshotKey, false);
     });
 
-    return yield* client === undefined
-      ? pgTransaction(pool, importInTransaction)
-      : importInTransaction(client);
+    return yield* withTypedTransactionFailures(sql.withTransaction)(importInTransaction(sql));
   },
 );

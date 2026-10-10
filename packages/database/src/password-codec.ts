@@ -1,9 +1,10 @@
 import { argon2idAsync } from "@noble/hashes/argon2.js";
 import { scryptAsync } from "@noble/hashes/scrypt.js";
 import { hexToBytes } from "@noble/hashes/utils.js";
-import { timingSafeEqual } from "node:crypto";
 import { compare } from "bcryptjs";
-import { Data, Effect, Option, Predicate, Semaphore } from "effect";
+import { Crypto, Data, Effect, Option, Predicate, Semaphore } from "effect";
+import { Hex } from "effect/encoding";
+import { SecretEquality } from "./web-crypto.js";
 
 const argonPrefix = "$argon2id$v=19$m=19456,t=2,p=1$";
 
@@ -73,27 +74,39 @@ export const isNativePasswordHash = (value: unknown): value is string =>
     value,
   );
 
-/** Derives a key with `derive`, reads it with `use`, and zeroes it afterwards. */
-const withDerivedKey = <A>(derive: () => Promise<Uint8Array>, use: (key: Uint8Array) => A) =>
-  Effect.acquireUseRelease(
-    Effect.promise(derive),
-    (key) => Effect.sync(() => use(key)),
-    (key) => Effect.sync(() => key.fill(0)),
-  );
+/**
+ * Derives a key with `derive`, reads it with `use`, and zeroes it afterwards, also when `use`
+ * fails or is interrupted.
+ */
+const withDerivedKey = <A, R>(
+  derive: () => Promise<Uint8Array>,
+  use: (key: Uint8Array) => Effect.Effect<A, never, R>,
+) => Effect.acquireUseRelease(Effect.promise(derive), use, (key) => Effect.sync(() => key.fill(0)));
 
+/**
+ * The native hash of `password`: Argon2id with the profile of `argonPrefix`, a fresh 16-byte salt
+ * from the platform `Crypto` service, and NFKC-normalized input.
+ *
+ * A failed draw of the salt is a defect, never an answer.
+ */
 export const nativePasswordHash = (password: string) =>
   Effect.gen(function* () {
     if (password.length > maxPasswordCodeUnits) return yield* new PasswordInputTooLongError();
-    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const salt = yield* Crypto.Crypto.use((crypto) => crypto.randomBytes(16)).pipe(Effect.orDie);
 
     return yield* withPasswordHashCapacity(
       withDerivedKey(
         () => argon2idAsync(password.normalize("NFKC"), salt, argonOptions),
-        (key) => `${argonPrefix}${base64(salt)}$${base64(key)}`,
+        (key) => Effect.sync(() => `${argonPrefix}${base64(salt)}$${base64(key)}`),
       ),
     );
   });
 
+/**
+ * Whether `password` matches `hash`, a native Argon2id, historical scrypt, or legacy bcrypt hash.
+ * The derived key and the stored one meet in the `SecretEquality` of the context, so the
+ * comparison has no timing channel and a length mismatch answers `false`.
+ */
 export const verifyNativeOrLegacyPassword = ({
   hash,
   password,
@@ -108,6 +121,7 @@ export const verifyNativeOrLegacyPassword = ({
     const legacy = Boolean(isSupportedLegacyPasswordHash(hash));
 
     if ((!native && !scrypt && !legacy) || (legacy && password.includes("\0"))) return false;
+    const secrets = yield* SecretEquality;
 
     return yield* withPasswordHashCapacity(
       legacy
@@ -131,9 +145,9 @@ export const verifyNativeOrLegacyPassword = ({
                     asyncTick: 10,
                   }),
             (key) =>
-              timingSafeEqual(
-                key,
-                native ? decodeBase64(hash.split("$")[5]!) : hexToBytes(hash.slice(33)),
+              secrets.equal(
+                Hex.encode(native ? decodeBase64(hash.split("$")[5]!) : hexToBytes(hash.slice(33))),
+                Hex.encode(key),
               ),
           ),
     );

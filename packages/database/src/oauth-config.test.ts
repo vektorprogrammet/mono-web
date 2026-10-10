@@ -1,12 +1,21 @@
-import { afterAll, describe, expect, it } from "vitest";
+/**
+ * EX-0021: native stable SQL carries upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+import { afterAll, expect, layer } from "@effect/vitest";
+import { DatabaseTestLive, TestPlatform } from "./test-support/platform.js";
+import { Database } from "./service.js";
+import { makeBetterAuthCallbackRunner } from "./auth-engine.js";
 import { Pool } from "pg";
-import { Effect } from "effect";
+import { Effect, Layer } from "effect";
 import { makeAuthEngineOptions } from "./auth-engine.js";
+import { SecretEqualityLive } from "./web-crypto.js";
 import {
   OAUTH_NATIVE_API_RESOURCE,
   OAUTH_SCOPES,
   makeOAuthOptions,
   oauthIssuer,
+  type OAuthCallbackRunner,
 } from "./oauth-config.js";
 
 const oauth = {
@@ -15,13 +24,22 @@ const oauth = {
   nativeApiResource: OAUTH_NATIVE_API_RESOURCE,
 } as const;
 
-describe("native OAuth provider composition", () => {
+/** The composition test reads the options and never calls a hash callback. */
+const unusedRunner: OAuthCallbackRunner = () =>
+  Promise.reject(new Error("the composition test never hashes"));
+
+layer(
+  Layer.merge(DatabaseTestLive(), SecretEqualityLive(globalThis.crypto.subtle)).pipe(
+    Layer.provideMerge(TestPlatform),
+  ),
+  { excludeTestServices: true, timeout: "30 seconds" },
+)("native OAuth provider composition", (it) => {
   const pool = new Pool();
 
   afterAll(() => pool.end());
 
   it("matches the frozen issuer, resource, scopes, lifetimes, and closed grants", () => {
-    const options = makeOAuthOptions(oauth);
+    const options = makeOAuthOptions(oauth, unusedRunner);
 
     expect(oauthIssuer(oauth)).toBe("http://127.0.0.1:4173/api/auth");
     expect(options).toMatchObject({
@@ -53,30 +71,41 @@ describe("native OAuth provider composition", () => {
     ]);
   });
 
-  it("composes JWT and OAuth into the one existing Better Auth engine", () => {
-    const engineOptions = makeAuthEngineOptions(
-      {
-        postgresUrl: "postgres://test.invalid/oauth",
-        secret: "oauth-config-focused-test-secret-32-bytes",
-        oauth,
-        trustedOrigins: [oauth.dashboardOrigin],
-        secureCookies: false,
-      },
-      pool,
-      Effect.runPromise,
-    );
+  it.effect("composes JWT and OAuth into the one existing Better Auth engine", () =>
+    Effect.gen(function* () {
+      const sql = yield* Database;
+      const run = yield* makeBetterAuthCallbackRunner;
+      const diagnostics: string[] = [];
 
-    expect(engineOptions.baseURL).toBe(oauth.canonicalOrigin);
-    expect(engineOptions.basePath).toBe("/api/auth");
-    expect(engineOptions.plugins.map(({ id }) => id)).toEqual(["jwt", "oauth-provider"]);
-    expect(engineOptions.plugins[0]!.options).toMatchObject({
-      jwks: {
-        keyPairConfig: { alg: "ES256" },
-        disablePrivateKeyEncryption: false,
-        rotationInterval: 604800,
-        gracePeriod: 900,
-      },
-      jwt: { issuer: "http://127.0.0.1:4173/api/auth" },
-    });
-  });
+      const engineOptions = makeAuthEngineOptions(
+        {
+          postgresUrl: "postgres://test.invalid/oauth",
+          secret: "oauth-config-focused-test-secret-32-bytes",
+          oauth,
+          trustedOrigins: [oauth.dashboardOrigin],
+          secureCookies: false,
+        },
+        pool,
+        sql,
+        run,
+        () => {
+          diagnostics.push("auth diagnostic");
+        },
+      );
+
+      expect(engineOptions.baseURL).toBe(oauth.canonicalOrigin);
+      expect(engineOptions.basePath).toBe("/api/auth");
+      expect(engineOptions.plugins.map(({ id }) => id)).toEqual(["jwt", "oauth-provider"]);
+      expect(engineOptions.plugins[0]!.options).toMatchObject({
+        jwks: {
+          keyPairConfig: { alg: "ES256" },
+          disablePrivateKeyEncryption: false,
+          rotationInterval: 604800,
+          gracePeriod: 900,
+        },
+        jwt: { issuer: "http://127.0.0.1:4173/api/auth" },
+      });
+      expect(diagnostics).toEqual([]);
+    }),
+  );
 });

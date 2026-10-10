@@ -1,5 +1,6 @@
 import type { StrongETag } from "@vektorprogrammet/http-api";
 import { Effect, flow, Option, Schema as S } from "effect";
+import type { AbortableRequestInit } from "../../lib/browser-request";
 import { decodeInvitationInteractionId, InvitationBridgeFailureSchema, InvitationResponseResourceSchema, INVITATION_INTERACTION_HEADER, type InvitationBridgeFailure, type InvitationInteractionId, type InvitationBridgeOperation, type InvitationResponseResource } from "./bridge";
 
 export interface InvitationResponseClient {
@@ -43,7 +44,9 @@ const bridgeRequest = <A>(
   schema: S.Decoder<A>,
 ): Effect.Effect<A, InvitationBridgeFailure> =>
   Effect.tryPromise({
-    try: async () => {
+    // EmbedHandle disposal interrupts this Command fiber, including its body read.
+    // An aborted browser request cannot undo a server command already committed.
+    try: async (signal) => {
       const response = await fetch(invitationBridgeUrl(), {
         method: "POST",
         credentials: "same-origin",
@@ -52,7 +55,8 @@ const bridgeRequest = <A>(
           [INVITATION_INTERACTION_HEADER]: interactionId,
         },
         body: JSON.stringify(body),
-      });
+        signal,
+      } satisfies AbortableRequestInit);
 
       if (!response.ok) throw decodeFailure(await response.json());
 

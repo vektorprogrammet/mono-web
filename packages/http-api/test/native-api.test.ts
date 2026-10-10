@@ -1,8 +1,16 @@
-import { PUBLIC_SYSTEM_ACCESS, CapabilityTypeId, RequirementId } from "@vektorprogrammet/domain/authz";
+/**
+ * EX-0022: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+import {
+  PUBLIC_SYSTEM_ACCESS,
+  CapabilityTypeId,
+  RequirementId,
+} from "@vektorprogrammet/domain/authz";
 import { ReceiptId } from "@vektorprogrammet/domain/receipt";
-import { Predicate, Context, Schema } from "effect";
-import { HttpApiClient, OpenApi } from "effect/unstable/httpapi";
-import { describe, expect, it } from "vitest";
+import { Predicate, Context, Result, Schema } from "effect";
+import { HttpApiClient, OpenApi } from "effect/http-api";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import { ExternalNativeApi, InternalNativeApi } from "../src/api.js";
 import {
   annotateAccessSpec,
@@ -11,6 +19,10 @@ import {
   type VektorAccessProjection,
 } from "../src/access.js";
 import { HealthEndpoint } from "../src/system.js";
+import {
+  ConductObservation,
+  RecruitmentInterviewConductObservationSchema,
+} from "../src/recruitment.js";
 import {
   AdmissionOutcomeBoardResource,
   AdmissionOutcomeCommand,
@@ -76,7 +88,10 @@ const expectedAccess = (input: {
   exposure: input.exposure ?? "External",
   acceptedCredentials: input.credentials,
   principalKinds: input.principals,
-  capabilities: input.capability === undefined ? { none: true } : { one: CapabilityTypeId.make(input.capability) },
+  capabilities:
+    input.capability === undefined
+      ? { none: true }
+      : { one: CapabilityTypeId.make(input.capability) },
   requirements: (input.requirements ?? []).map((id) => ({ id: RequirementId.make(id) })),
   canonicalScopeResolver: input.resolver,
   concealment:
@@ -170,44 +185,59 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
     "GET",
     "/api/organization/appointments",
     "organization.readAppointmentManagement",
-    person("organization.manage-appointments", "organization.appointment-management", [], "SnapshotRead"),
+    person(
+      "organization.manage-appointments",
+      "organization.appointment-management",
+      [],
+      "SnapshotRead",
+    ),
   ],
   [
     "GET",
     "/api/organization/board-rosters",
     "organization.readBoardRosters",
-    person("organization.manage-appointments", "organization.appointment-management", [], "SnapshotRead"),
+    person(
+      "organization.manage-appointments",
+      "organization.appointment-management",
+      [],
+      "SnapshotRead",
+    ),
   ],
   [
     "POST",
     "/api/organization/appointments/commands",
     "organization.executeLifecycle",
-    person("organization.manage-appointments", "organization.appointment-management", [], "Transaction"),
+    person(
+      "organization.manage-appointments",
+      "organization.appointment-management",
+      [],
+      "Transaction",
+    ),
   ],
   [
     "GET",
     "/api/organization/delegations",
     "organization.readDelegationManagement",
-    person("organization.manage-delegations", "organization.delegation-management", [], "SnapshotRead"),
+    person(
+      "organization.manage-delegations",
+      "organization.delegation-management",
+      [],
+      "SnapshotRead",
+    ),
   ],
   [
     "POST",
     "/api/organization/delegations/commands",
     "organization.executeDelegation",
-    person("organization.manage-delegations", "organization.delegation-management", [], "Transaction"),
+    person(
+      "organization.manage-delegations",
+      "organization.delegation-management",
+      [],
+      "Transaction",
+    ),
   ],
-  [
-    "GET",
-    "/api/admission-outcomes/scopes",
-    "admissionOutcomes.listScopes",
-    outcomeReadAccess,
-  ],
-  [
-    "GET",
-    "/api/admission-outcomes",
-    "admissionOutcomes.readOutcomes",
-    outcomeReadAccess,
-  ],
+  ["GET", "/api/admission-outcomes/scopes", "admissionOutcomes.listScopes", outcomeReadAccess],
+  ["GET", "/api/admission-outcomes", "admissionOutcomes.readOutcomes", outcomeReadAccess],
   [
     "GET",
     "/api/admission-outcomes/:applicationId",
@@ -1212,7 +1242,7 @@ describe("native API reflection", () => {
     const health = spec.paths["/health"]?.get;
     const reflected = reflectAccessSpec(HealthEndpoint);
 
-    expect(health).toHaveProperty("x-vektor-access",{
+    expect(health).toHaveProperty("x-vektor-access", {
       exposure: "External",
       acceptedCredentials: ["None"],
       principalKinds: ["Anonymous"],
@@ -1239,24 +1269,38 @@ describe("native API reflection", () => {
     const claim = spec.paths["/api/onboarding/claim"]!.post!;
     // New-account mode needs no HTTP scheme; existing-account mode needs the browser session.
     expect(claim.security).toEqual([{}, { cookieHeader: [] }]);
-    expect(claim).toHaveProperty("x-vektor-body-capability",{
+    expect(claim).toHaveProperty("x-vektor-body-capability", {
       type: "onboarding.claim",
       pointer: "/token",
       required: true,
     });
-    expect(claim).toHaveProperty("x-vektor-conditional-credential",{
+    expect(claim).toHaveProperty("x-vektor-conditional-credential", {
       when: { pointer: "/mode", equals: "ExistingAccount" },
       principalKind: "Person",
       mechanisms: ["BetterAuthCookie"],
     });
-    expect(claim).toMatchObject({ "x-vektor-access": {
-      acceptedCredentials: ["BetterAuthCookie", "ObjectCapability"],
-      principalKinds: ["Person", "CapabilityHolder"],
-      capabilities: { one: "onboarding.claim" },
-      requirements: [{ id: "onboarding.claim-token" }],
-    } });
+    expect(claim).toMatchObject({
+      "x-vektor-access": {
+        acceptedCredentials: ["BetterAuthCookie", "ObjectCapability"],
+        principalKinds: ["Person", "CapabilityHolder"],
+        capabilities: { one: "onboarding.claim" },
+        requirements: [{ id: "onboarding.claim-token" }],
+      },
+    });
 
-    const body = Schema.decodeUnknownSync(Schema.Struct({ content: Schema.Struct({ "application/json": Schema.Struct({ schema: Schema.Struct({ anyOf: Schema.Array(Schema.Struct({ required: Schema.Array(Schema.String) })) }) }) }) }))(claim.requestBody);
+    const body = Result.getOrThrow(
+      Schema.decodeUnknownResult(
+        Schema.Struct({
+          content: Schema.Struct({
+            "application/json": Schema.Struct({
+              schema: Schema.Struct({
+                anyOf: Schema.Array(Schema.Struct({ required: Schema.Array(Schema.String) })),
+              }),
+            }),
+          }),
+        }),
+      )(claim.requestBody),
+    );
 
     expect(
       body.content["application/json"]!.schema.anyOf.every((option) =>
@@ -1304,14 +1348,14 @@ describe("native API reflection", () => {
     const operations = documentedOperations();
     const operationIds = operations.map(({ operation }) => operation.operationId);
 
-
     expect(new Set(operationIds).size).toBe(operations.length);
     expect(spec.openapi).toBe("3.1.0");
     expect(spec.info.title).toBe("Vektorprogrammet native preview API");
     expect(spec.servers ?? []).toEqual([]);
     expect(spec).toHaveProperty("x-vektorprogrammet-provenance");
 
-    for (const { operation } of operations) expect(operation).toHaveProperty("x-vektorprogrammet-provenance");
+    for (const { operation } of operations)
+      expect(operation).toHaveProperty("x-vektorprogrammet-provenance");
     expect(operations.every(({ operation }) => operation.tags.length > 0)).toBe(true);
     expect(spec.paths["/api/session"]?.get?.security[0]?.cookieHeader).toEqual([]);
     expect(spec.paths["/api/departments"]?.get?.responses["200"]).toBeDefined();
@@ -1547,28 +1591,125 @@ describe("native API reflection", () => {
 describe("frozen v0.2 boundary schemas", () => {
   const strict = { onExcessProperty: "error" } as const;
 
+  it("publishes the conduct example as wire JSON rather than dropping decoded Model instances", () => {
+    const annotated = Schema.resolveAnnotations(Schema.toEncoded(ConductObservation))?.examples;
+
+    const published =
+      OpenApi.fromApi(ExternalNativeApi).components.schemas.ConductObservation?.examples;
+
+    expect(annotated).toHaveLength(1);
+    expect(published).toEqual(annotated);
+    expect(Result.isSuccess(Schema.decodeUnknownResult(Schema.Json)(published))).toBe(true);
+
+    const decodedObservations = Schema.decodeUnknownResult(Schema.Array(ConductObservation))(
+      published,
+      strict,
+    );
+
+    expect(Result.isSuccess(decodedObservations)).toBe(true);
+    const observations = Result.getOrThrow(decodedObservations);
+    expect(observations).toHaveLength(1);
+    expect(Schema.encodeResult(Schema.Array(ConductObservation))(observations)).toEqual(
+      Result.succeed(published),
+    );
+    expect(observations[0]).toMatchObject({
+      interviewId: "interview-1",
+      applicationId: "app-0080",
+      applicant: { applicantId: "applicant-0080", firstName: "Ming", lastName: "Medlem" },
+      schedule: {
+        interviewId: "interview-1",
+        scheduledAt: "2026-09-10T14:00:00.000Z",
+        room: "Realfagbygget, R90",
+        campus: "Gløshaugen",
+        mapLink: "https://maps.example.org/r90",
+        message: "Interview invitation with room details.",
+        scheduledByPersonId: "1002",
+        committedAt: "2026-08-20T10:05:00.000Z",
+        scheduleRevision: 1,
+      },
+      invitationResponse: "Accepted",
+      questions: [
+        {
+          interviewId: "interview-1",
+          questionId: "q-1",
+          ordinal: 1,
+          prompt: "Why did you apply to this programme?",
+          helpText: null,
+          kind: "text",
+          alternatives: [],
+        },
+      ],
+      answers: [{ questionId: "q-1", answer: "I am drawn to the study programme's breadth." }],
+      score: { explanatoryPower: 7, roleModel: 8, suitability: 6 },
+      recommendation: "Ja",
+      completionState: "Completed",
+      cancellationState: "NotCancelled",
+      finalizedByPersonId: "1001",
+      finalizedAt: "2026-09-12T15:00:00.000Z",
+      cancelledAt: null,
+      revision: 3,
+      effectiveRevision: 3,
+      history: [{ revision: 3 }],
+      assessmentCorrection: {
+        sequence: 0,
+        canCorrect: true,
+        canReopen: false,
+        canClose: false,
+      },
+      canFinalize: false,
+      canCancel: false,
+    });
+    expect(observations[0]?.history.map((entry) => entry._tag)).toEqual(["Original"]);
+    expect(observations[0]?.assessmentCorrection._tag).toBe("Ordinary");
+  });
+
+  it("keeps the conduct schema channels when annotating its encoded example", () => {
+    expectTypeOf<typeof ConductObservation.Type>().toEqualTypeOf<
+      typeof RecruitmentInterviewConductObservationSchema.Type
+    >();
+    expectTypeOf<typeof ConductObservation.Encoded>().toEqualTypeOf<
+      typeof RecruitmentInterviewConductObservationSchema.Encoded
+    >();
+    expectTypeOf<typeof ConductObservation.DecodingServices>().toEqualTypeOf<
+      typeof RecruitmentInterviewConductObservationSchema.DecodingServices
+    >();
+    expectTypeOf<typeof ConductObservation.EncodingServices>().toEqualTypeOf<
+      typeof RecruitmentInterviewConductObservationSchema.EncodingServices
+    >();
+  });
+
   it("keeps merge-patch absence distinct from null and unknown fields", () => {
-    expect(Schema.decodeSync(ProfileMergePatch)({ firstName: "Ada" }, strict)).toEqual({
-      firstName: "Ada",
-    });
-    expect(Schema.decodeSync(ProfileMergePatch)({}, strict)).toEqual({});
-    expect(Schema.decodeSync(ProfileMergePatch)({ email: null }, strict)).toEqual({
-      email: null,
-    });
-    expect(() =>
-      Schema.decodeUnknownSync(ProfileMergePatch)({ personId: "person-1" }, strict),
-    ).toThrow();
+    expect(Schema.decodeResult(ProfileMergePatch)({ firstName: "Ada" }, strict)).toEqual(
+      Result.succeed({
+        firstName: "Ada",
+      }),
+    );
+    expect(Schema.decodeResult(ProfileMergePatch)({}, strict)).toEqual(Result.succeed({}));
+    expect(Schema.decodeResult(ProfileMergePatch)({ email: null }, strict)).toEqual(
+      Result.succeed({
+        email: null,
+      }),
+    );
+    expect(
+      Result.isFailure(
+        Schema.decodeUnknownResult(ProfileMergePatch)({ personId: "person-1" }, strict),
+      ),
+    ).toBe(true);
   });
 
   it("cuts the directory response over to people names without an alias", () => {
     const response = { activePeople: [], inactivePeople: [], nextCursor: null };
-    expect(Schema.decodeSync(PeopleDirectoryResponse)(response, strict)).toEqual(response);
-    expect(() =>
-      Schema.decodeUnknownSync(PeopleDirectoryResponse)(
-        { activeUsers: [], inactiveUsers: [], nextCursor: null },
-        strict,
+    expect(Schema.decodeResult(PeopleDirectoryResponse)(response, strict)).toEqual(
+      Result.succeed(response),
+    );
+    expect(
+      Result.isFailure(
+        Schema.decodeUnknownResult(PeopleDirectoryResponse)(
+          { activeUsers: [], inactiveUsers: [], nextCursor: null },
+          strict,
+        ),
       ),
-    ).toThrow();
+    ).toBe(true);
   });
 
   it("keeps endpoint problem variants correlated and validation extensions mandatory", () => {
@@ -1577,13 +1718,17 @@ describe("frozen v0.2 boundary schemas", () => {
       code: "internal.error",
     } as const;
 
-    expect(Schema.decodeSync(SystemHealthProblem)(problem, strict)).toEqual(problem);
-    expect(() =>
-      Schema.decodeUnknownSync(SystemHealthProblem)(
-        { ...problem, detail: "database password leaked" },
-        strict,
+    expect(Schema.decodeResult(SystemHealthProblem)(problem, strict)).toEqual(
+      Result.succeed(problem),
+    );
+    expect(
+      Result.isFailure(
+        Schema.decodeUnknownResult(SystemHealthProblem)(
+          { ...problem, detail: "database password leaked" },
+          strict,
+        ),
       ),
-    ).toThrow();
+    ).toBe(true);
 
     const validationProblem = {
       ...NativeProblemRegistry["validation.failed"],
@@ -1600,13 +1745,15 @@ describe("frozen v0.2 boundary schemas", () => {
       },
     } as const;
 
-    expect(
-      Schema.decodeSync(ProfileUpdateOwnProfileProblem)(validationProblem, strict),
-    ).toEqual(validationProblem);
+    expect(Schema.decodeResult(ProfileUpdateOwnProfileProblem)(validationProblem, strict)).toEqual(
+      Result.succeed(validationProblem),
+    );
     const { validation: _, ...validationCore } = validationProblem;
-    expect(() =>
-      Schema.decodeUnknownSync(ProfileUpdateOwnProfileProblem)(validationCore, strict),
-    ).toThrow();
+    expect(
+      Result.isFailure(
+        Schema.decodeUnknownResult(ProfileUpdateOwnProfileProblem)(validationCore, strict),
+      ),
+    ).toBe(true);
   });
 
   it("closes admission outcomes on two values and appends the new problems to commands only", () => {
@@ -1617,12 +1764,20 @@ describe("frozen v0.2 boundary schemas", () => {
 
     const substitute = { outcome: "Substitute" };
 
-    expect(Schema.decodeSync(AdmissionOutcomeCommandProblem)(final, strict)).toEqual(final);
-    expect(() => Schema.decodeUnknownSync(AdmissionOutcomeProblem)(final, strict)).toThrow();
-    expect(Schema.decodeSync(AdmissionOutcomeCommand)({ outcome: "Rejected" }, strict)).toEqual({
-      outcome: "Rejected",
-    });
-    expect(() => Schema.decodeUnknownSync(AdmissionOutcomeCommand)(substitute, strict)).toThrow();
+    expect(Schema.decodeResult(AdmissionOutcomeCommandProblem)(final, strict)).toEqual(
+      Result.succeed(final),
+    );
+    expect(
+      Result.isFailure(Schema.decodeUnknownResult(AdmissionOutcomeProblem)(final, strict)),
+    ).toBe(true);
+    expect(Schema.decodeResult(AdmissionOutcomeCommand)({ outcome: "Rejected" }, strict)).toEqual(
+      Result.succeed({
+        outcome: "Rejected",
+      }),
+    );
+    expect(
+      Result.isFailure(Schema.decodeUnknownResult(AdmissionOutcomeCommand)(substitute, strict)),
+    ).toBe(true);
     // The board has the two projections of the decider and the coordinator, and no member list.
     expect(Object.keys(AdmissionOutcomeBoardResource.cases)).toEqual(["Decide", "Announce"]);
   });

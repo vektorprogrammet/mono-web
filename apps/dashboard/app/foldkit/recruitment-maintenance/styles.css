@@ -141,3 +141,35 @@
     width: 100%;
   }
 }
+
+.rm-dialog {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+}
+.rm-dialog__backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 45%);
+}
+.rm-dialog__panel {
+  position: relative;
+  width: min(38rem, calc(100% - 2rem));
+  max-height: calc(100dvh - 2rem);
+  overflow: auto;
+  margin: 1rem auto;
+  padding: 1.25rem;
+  border-radius: 0.5rem;
+  background: white;
+}
+.rm-dialog:not([open]) {
+  display: none;
+}

@@ -1,6 +1,10 @@
+/** EX-0021: Stable SQL modules carry an upstream unstable annotation.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { expect, layer } from "@effect/vitest";
 import { Effect } from "effect";
-import type { Pool } from "pg";
+import { SqlClient } from "effect/sql";
+import { executePostgresMigration } from "./postgres-migration-statements.js";
 import { selectDatabaseMigration } from "./migrations.js";
 import { TestPlatform } from "./test-support/platform.js";
 import { withPostgresTestDatabase } from "./test-support/postgres.js";
@@ -41,53 +45,53 @@ const zonelessCalendarShifts = (definition: string) =>
   );
 
 /** Every definition in the schemas that the migrations own, as PostgreSQL prints it. */
-const readDefinitions = (pool: Pool) =>
-  Effect.promise(() =>
-    pool.query<{ readonly object: string; readonly definition: string }>(`
-      WITH owned AS (
-        SELECT oid FROM pg_namespace
-         WHERE nspname NOT IN ('pg_catalog', 'information_schema')
-           AND nspname NOT LIKE 'pg\\_toast%' AND nspname NOT LIKE 'pg\\_temp%'
-      )
-      SELECT 'check ' || conrelid::regclass || ' ' || conname AS object,
-             pg_get_constraintdef(oid) AS definition
-        FROM pg_constraint WHERE contype = 'c' AND connamespace IN (SELECT oid FROM owned)
-      UNION ALL
-      SELECT 'default ' || attrdef.adrelid::regclass || ' ' || attribute.attname,
-             pg_get_expr(attrdef.adbin, attrdef.adrelid)
-        FROM pg_attrdef attrdef
-        JOIN pg_attribute attribute
-          ON attribute.attrelid = attrdef.adrelid AND attribute.attnum = attrdef.adnum
-        JOIN pg_class relation ON relation.oid = attrdef.adrelid
-       WHERE relation.relnamespace IN (SELECT oid FROM owned)
-      UNION ALL
-      SELECT 'view ' || oid::regclass, pg_get_viewdef(oid)
-        FROM pg_class WHERE relkind IN ('v', 'm') AND relnamespace IN (SELECT oid FROM owned)
-      UNION ALL
-      SELECT 'index ' || indexrelid::regclass, pg_get_indexdef(indexrelid)
-        FROM pg_index JOIN pg_class relation ON relation.oid = pg_index.indexrelid
-       WHERE relation.relnamespace IN (SELECT oid FROM owned)
-      UNION ALL
-      SELECT 'trigger ' || tgrelid::regclass || ' ' || tgname, pg_get_triggerdef(oid)
-        FROM pg_trigger WHERE NOT tgisinternal
-      UNION ALL
-      SELECT 'function ' || function.oid::regprocedure, pg_get_functiondef(function.oid)
-        FROM pg_proc function JOIN pg_language language ON language.oid = function.prolang
-       WHERE language.lanname IN ('sql', 'plpgsql') AND function.prokind IN ('f', 'p')
-         AND function.pronamespace IN (SELECT oid FROM owned)
-         AND NOT EXISTS (
-           SELECT 1 FROM pg_depend
-            WHERE classid = 'pg_proc'::regclass AND objid = function.oid AND deptype = 'e'
-         )
-      ORDER BY object
-    `),
-  ).pipe(
-    Effect.map((result) =>
-      result.rows.flatMap(({ object, definition }) =>
-        zonelessCalendarShifts(definition).map((shift) => `${object}: ${shift}`),
+const readDefinitions = (pool: SqlClient.SqlClient) =>
+  pool
+    .unsafe<{ readonly object: string; readonly definition: string }>(`
+    WITH owned AS (
+      SELECT oid FROM pg_namespace
+       WHERE nspname NOT IN ('pg_catalog', 'information_schema')
+         AND nspname NOT LIKE 'pg\\_toast%' AND nspname NOT LIKE 'pg\\_temp%'
+    )
+    SELECT 'check ' || conrelid::regclass || ' ' || conname AS object,
+           pg_get_constraintdef(oid) AS definition
+      FROM pg_constraint WHERE contype = 'c' AND connamespace IN (SELECT oid FROM owned)
+    UNION ALL
+    SELECT 'default ' || attrdef.adrelid::regclass || ' ' || attribute.attname,
+           pg_get_expr(attrdef.adbin, attrdef.adrelid)
+      FROM pg_attrdef attrdef
+      JOIN pg_attribute attribute
+        ON attribute.attrelid = attrdef.adrelid AND attribute.attnum = attrdef.adnum
+      JOIN pg_class relation ON relation.oid = attrdef.adrelid
+     WHERE relation.relnamespace IN (SELECT oid FROM owned)
+    UNION ALL
+    SELECT 'view ' || oid::regclass, pg_get_viewdef(oid)
+      FROM pg_class WHERE relkind IN ('v', 'm') AND relnamespace IN (SELECT oid FROM owned)
+    UNION ALL
+    SELECT 'index ' || indexrelid::regclass, pg_get_indexdef(indexrelid)
+      FROM pg_index JOIN pg_class relation ON relation.oid = pg_index.indexrelid
+     WHERE relation.relnamespace IN (SELECT oid FROM owned)
+    UNION ALL
+    SELECT 'trigger ' || tgrelid::regclass || ' ' || tgname, pg_get_triggerdef(oid)
+      FROM pg_trigger WHERE NOT tgisinternal
+    UNION ALL
+    SELECT 'function ' || function.oid::regprocedure, pg_get_functiondef(function.oid)
+      FROM pg_proc function JOIN pg_language language ON language.oid = function.prolang
+     WHERE language.lanname IN ('sql', 'plpgsql') AND function.prokind IN ('f', 'p')
+       AND function.pronamespace IN (SELECT oid FROM owned)
+       AND NOT EXISTS (
+         SELECT 1 FROM pg_depend
+          WHERE classid = 'pg_proc'::regclass AND objid = function.oid AND deptype = 'e'
+       )
+    ORDER BY object
+  `)
+    .pipe(
+      Effect.map((result) =>
+        result.flatMap(({ object, definition }) =>
+          zonelessCalendarShifts(definition).map((shift) => `${object}: ${shift}`),
+        ),
       ),
-    ),
-  );
+    );
 
 layer(TestPlatform, { excludeTestServices: true })(
   "calendar arithmetic in the migrated schema",
@@ -112,29 +116,27 @@ layer(TestPlatform, { excludeTestServices: true })(
           const migrated = yield* readDefinitions(pool);
 
           // Each calendar shift is a finding; hours and a named zone are the negative controls.
-          yield* Effect.promise(() =>
-            pool.query(`
-                CREATE SCHEMA calendar_control;
-                CREATE TABLE calendar_control.windows (
-                  opened_at timestamptz NOT NULL,
-                  closes_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP + interval '1 day',
-                  CONSTRAINT calendar CHECK (closes_at <= opened_at + interval '30 days'),
-                  CONSTRAINT iso CHECK (closes_at <= opened_at + interval 'P1M'),
-                  CONSTRAINT elapsed CHECK (closes_at <= opened_at + interval '720 hours'),
-                  CONSTRAINT zoned CHECK (closes_at <= date_add(opened_at, interval '1 mon', 'UTC'))
-                );
-                CREATE VIEW calendar_control.earlier AS
-                  SELECT opened_at - interval '1 year' AS opened_before FROM calendar_control.windows;
-                CREATE FUNCTION calendar_control.extend(instant timestamptz) RETURNS timestamptz
-                  LANGUAGE plpgsql AS $$ BEGIN RETURN instant + interval '2 weeks'; END $$;
-                CREATE FUNCTION calendar_control.extend_days(instant timestamptz) RETURNS timestamptz
-                  LANGUAGE sql RETURN instant + make_interval(days => 2);
-                CREATE FUNCTION calendar_control.extend_hours(instant timestamptz) RETURNS timestamptz
-                  LANGUAGE sql RETURN instant + make_interval(hours => 2);
-                CREATE FUNCTION calendar_control.extend_zoned(instant timestamptz) RETURNS timestamptz
-                  LANGUAGE sql RETURN date_subtract(instant, interval '3 days', 'Europe/Oslo');
-              `),
-          );
+          yield* executePostgresMigration(`
+              CREATE SCHEMA calendar_control;
+              CREATE TABLE calendar_control.windows (
+                opened_at timestamptz NOT NULL,
+                closes_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP + interval '1 day',
+                CONSTRAINT calendar CHECK (closes_at <= opened_at + interval '30 days'),
+                CONSTRAINT iso CHECK (closes_at <= opened_at + interval 'P1M'),
+                CONSTRAINT elapsed CHECK (closes_at <= opened_at + interval '720 hours'),
+                CONSTRAINT zoned CHECK (closes_at <= date_add(opened_at, interval '1 mon', 'UTC'))
+              );
+              CREATE VIEW calendar_control.earlier AS
+                SELECT opened_at - interval '1 year' AS opened_before FROM calendar_control.windows;
+              CREATE FUNCTION calendar_control.extend(instant timestamptz) RETURNS timestamptz
+                LANGUAGE plpgsql AS $$ BEGIN RETURN instant + interval '2 weeks'; END $$;
+              CREATE FUNCTION calendar_control.extend_days(instant timestamptz) RETURNS timestamptz
+                LANGUAGE sql RETURN instant + make_interval(days => 2);
+              CREATE FUNCTION calendar_control.extend_hours(instant timestamptz) RETURNS timestamptz
+                LANGUAGE sql RETURN instant + make_interval(hours => 2);
+              CREATE FUNCTION calendar_control.extend_zoned(instant timestamptz) RETURNS timestamptz
+                LANGUAGE sql RETURN date_subtract(instant, interval '3 days', 'Europe/Oslo');
+            `).pipe(Effect.provideService(SqlClient.SqlClient, pool));
 
           return { migrated, controls: yield* readDefinitions(pool) };
         }),

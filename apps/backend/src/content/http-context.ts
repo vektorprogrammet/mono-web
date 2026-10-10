@@ -1,3 +1,7 @@
+/**
+ * EX-0024: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 /** Content HTTP operation identities, request actor types, and request actor resolution. */
 import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
 import {
@@ -10,7 +14,7 @@ import { Organization, type PersonId } from "@vektorprogrammet/domain/organizati
 import { ContentApi } from "@vektorprogrammet/http-api";
 import { type CredentialPresentation, Problem } from "@vektorprogrammet/http-api/http-semantics";
 import { Effect, Predicate } from "effect";
-import type { HttpApiGroup } from "effect/unstable/httpapi";
+import type { HttpApiGroup } from "effect/http-api";
 import {
   resolveRequestPersonAuthorityInTransaction,
   type TransactionPersonAuthority,

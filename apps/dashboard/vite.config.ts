@@ -61,6 +61,10 @@ export default defineConfig(({ command }) => {
         previewDevtoolsBuildEnabled(command, process.env) ? "true" : "false",
       ),
     },
+    // Vite keeps JSDoc comments in the unminified server bundle. Dependency prose that names
+    // Foldkit's DevTools would then trip the preview bundle gate without any DevTools code.
+    // Legal and annotation comments stay; only documentation comments leave the output.
+    build: { rolldownOptions: { output: { comments: { jsdoc: false } } } },
     plugins: [reactRouter(), foldkit(), tailwindcss(), defaultProfileImage()],
     // Workspace packages such as the SDK resolve to source; the plugins append Vite's default conditions.
     resolve: { alias, conditions: ["@vektorprogrammet/source"] },

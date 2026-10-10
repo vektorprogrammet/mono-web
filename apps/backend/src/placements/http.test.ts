@@ -14,7 +14,7 @@ import {
   PlacementProblem,
 } from "@vektorprogrammet/http-api";
 import { DateTime, Effect, Layer, Schema } from "effect";
-import { createHash } from "node:crypto";
+import { sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import { describe, expect, it } from "@effect/vitest";
 import { backendDatabase } from "../../test/database.js";
 import { decodeBackendConfig } from "../config.js";
@@ -40,7 +40,7 @@ const semesterId = "draft-semester";
 
 const scope = new URLSearchParams({ departmentId, semesterId }).toString();
 
-const digest = (value: string) => createHash("sha256").update(value).digest("hex");
+const digest = (value: string) => sha256Hex(new TextEncoder().encode(value));
 
 interface Registration {
   readonly person: string;

@@ -1,4 +1,5 @@
-import { Result, Schema, Encoding, Effect } from "effect";
+import { Result, Schema, Effect } from "effect";
+import { Base64 } from "effect/encoding";
 import { ProfileDecodeError } from "./errors.js";
 
 const DIRECTORY_CURSOR_VERSION = "v1";
@@ -18,7 +19,7 @@ export const encodeDirectoryCursor = (entry: {
   readonly firstName: string;
   readonly personId: string;
 }): string =>
-  Encoding.encodeBase64(
+  Base64.encode(
     JSON.stringify([DIRECTORY_CURSOR_VERSION, entry.lastName, entry.firstName, entry.personId]),
   );
 
@@ -36,7 +37,7 @@ export const decodeDirectoryCursor = (
 
     const complete = payload.length % 4 === 1 ? payload.slice(0, -1) : payload;
 
-    const text = yield* Encoding.decodeBase64String(
+    const text = yield* Base64.decodeString(
       complete.padEnd(Math.ceil(complete.length / 4) * 4, "="),
     ).pipe(Result.match({ onSuccess: Effect.succeed, onFailure: Effect.fail }));
 

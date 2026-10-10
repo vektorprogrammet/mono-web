@@ -164,7 +164,7 @@ export const createAdmissionPeriod = (
       input.config.maxBodyBytes,
     );
 
-    const admissionPeriodId = input.config.nextAdmissionPeriodId();
+    const admissionPeriodId = yield* input.config.nextAdmissionPeriodId;
 
     const idempotencyKey = yield* idempotencyKeyOf(request);
 
@@ -457,6 +457,10 @@ export const submitApplication = (
           },
           execute: Admissions.use((admissions) =>
             Effect.gen(function* () {
+              const applicationId = yield* input.config.nextApplicationId;
+              const applicantId = yield* input.config.nextApplicantId;
+              const activationToken = yield* input.config.nextActivationToken;
+
               const submitted = yield* admissions.executePublicApplication(
                 {
                   commandId: PublicApplicationCommandIdSchema.make(identity.commandId),
@@ -464,9 +468,9 @@ export const submitApplication = (
                 },
                 {
                   now,
-                  applicationId: input.config.nextApplicationId(),
-                  applicantId: input.config.nextApplicantId(),
-                  activationToken: input.config.nextActivationToken(),
+                  applicationId,
+                  applicantId,
+                  activationToken,
                 },
               );
 
@@ -498,7 +502,7 @@ export const submitApplication = (
       {
         retry: "serialization-or-unique-once",
         retryUniqueConstraints: [
-          "admission_applicants_normalized_email_key",
+          "admission_applications_period_email_unique",
           "native_http_idempotency_receipts_pkey",
         ],
       },

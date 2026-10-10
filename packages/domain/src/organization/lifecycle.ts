@@ -5,7 +5,7 @@ import { compareRfc3339Instants, Rfc3339InstantSchema } from "../time.js";
 import { DepartmentId, PersonId, TeamId } from "./schema.js";
 
 const Text = Schema.String.pipe(
-  Schema.check(Schema.isMinLength(1), Schema.isMaxLength(250), Schema.isPattern(/\S/)),
+  Schema.check(Schema.isMinLength(1), Schema.isMaxLength(250), Schema.isPattern(/\S/u)),
 );
 
 const Revision = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)));

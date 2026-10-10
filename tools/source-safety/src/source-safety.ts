@@ -38,9 +38,9 @@ const REVIEWED_SOURCE_PATHS = {
 const isReviewedSourcePath = (path: string): path is keyof typeof REVIEWED_SOURCE_PATHS =>
   Object.hasOwn(REVIEWED_SOURCE_PATHS, path);
 
-/** Bun `patchedDependencies` files are named `<package>@<semver>.patch`, which resembles an email address. */
+/** Bun patch names encode scoped package separators as %2F; versioned names resemble email addresses. */
 const packagePatchPathPattern =
-  /^patches\/[a-z0-9][a-z0-9._~-]*@\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?\.patch$/;
+  /^patches\/(?:@[a-z0-9][a-z0-9._~-]*%2F)?[a-z0-9][a-z0-9._~-]*@\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?\.patch$/;
 
 /** Returns the review reason for tracked source that is safe despite its path class, or null. */
 const reviewedSourcePathReason = (path: string): string | null => {
@@ -234,6 +234,19 @@ const approvedSqlSourceDigests = new Map<string, string>([
   [
     "packages/database/migrations/0082-admission-outcome-mail.sql",
     "sha256:cf0c122e49bd6ee714f20f01e6dba92bcddfae2faa85022baddb91cc90a63ccb",
+  ],
+  // Reviewed: historical citation rows derive only existing outcomes and announcement instants.
+  // The trigger records NEW decision evidence and versions the application fence. Literals name
+  // lifecycle states, provenance, operations, and refusal messages, never credentials or people.
+  [
+    "packages/database/migrations/0083-application-decision-correction-fence.sql",
+    "sha256:8c0b6ebb3103fc44c049b6d45543ef22b6d8ccd048b026b9b430232f5bad75f3",
+  ],
+  // Reviewed: the UPDATE derives an application key from its existing applicant row; no stored
+  // submission or identity link is replaced. Other literals are trigger operations and errors.
+  [
+    "packages/database/migrations/0084-application-email-period-ownership.sql",
+    "sha256:30b4f35b9edd8e15b41597707484e79c17114fd761a85e40a2d2267be98c8106",
   ],
 ]);
 

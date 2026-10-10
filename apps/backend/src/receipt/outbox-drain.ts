@@ -1,11 +1,10 @@
 /** Bounded delivery of one receipt's outbox effects, shared by the request drain and operator CLI. */
-import { randomUUID } from "node:crypto";
 import {
   Economy,
   ReceiptFileService,
   type EconomyOperations,
 } from "@vektorprogrammet/domain/receipt";
-import { DateTime, Effect, Option, Predicate } from "effect";
+import { Crypto, DateTime, Effect, Option, Predicate } from "effect";
 import { currentInstant } from "../authority.js";
 import type { ReceiptFileStore } from "./filesystem.js";
 import type { ReceiptApiConfig } from "./config.js";
@@ -48,7 +47,9 @@ const staleOutboxCutoff = (now: string): string =>
 /**
  * Recovers stale claims for the receipt, then delivers until the outbox is idle, one delivery
  * fails, or {@link MAX_DELIVERIES_PER_DRAIN} deliveries have succeeded (`Limit`).
- * Recovery and delivery failures never fail the committed request.
+ * Recovery and delivery failures never fail the committed request. The claim identity comes from
+ * the platform `Crypto`; when it cannot be generated nothing is claimed and the drain reports
+ * `Failed`, and the receipt worker delivers the outbox later.
  */
 export const drainReceiptOutboxWith = (
   economy: ReceiptOutboxDrainOperations,
@@ -57,7 +58,15 @@ export const drainReceiptOutboxWith = (
   receiptId: string,
 ) =>
   Effect.gen(function* () {
-    const claimId = `${options.outboxClaimId ?? DEFAULT_OUTBOX_CLAIM_ID}-${randomUUID()}`;
+    const crypto = yield* Crypto.Crypto;
+
+    const generated = yield* crypto.randomUUIDv4.pipe(
+      Effect.map((id) => `${options.outboxClaimId ?? DEFAULT_OUTBOX_CLAIM_ID}-${id}`),
+      Effect.option,
+    );
+
+    if (Option.isNone(generated)) return "Failed" as const;
+    const claimId = generated.value;
     const claimedBefore = staleOutboxCutoff(yield* currentInstant(options.config.now));
 
     const staleClaimIds = yield* economy

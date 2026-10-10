@@ -1,8 +1,12 @@
+/**
+ * EX-0021: required stable native process APIs retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 /** The Bun platform steps of the synthetic cohort rehearsals: files, commands, and configuration. */
 import assert from "node:assert/strict";
 import * as BunServices from "@effect/platform-bun/BunServices";
 import { Config, Data, Effect, FileSystem, Option, Path, Stream } from "effect";
-import { ChildProcess } from "effect/unstable/process";
+import { ChildProcess } from "effect/process";
 
 export class RehearsalCommandFailed extends Data.TaggedError("RehearsalCommandFailed")<{
   readonly command: string;

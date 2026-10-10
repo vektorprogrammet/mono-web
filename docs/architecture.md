@@ -72,6 +72,9 @@ packages/domain         -> Effect and portable domain dependencies
 
 Required rules:
 
+- The root catalog and Bun lock own application versions. `just layout` decodes the
+  resolved lock graph and rejects prerelease Effect packages, including peer-only
+  and nested entries. Separately owned stable infrastructure releases remain valid.
 - `packages/domain` must not import database, HTTP, application, browser, provider,
   or migration-tool code.
 - Product packages must not import from `tools`.
@@ -179,6 +182,46 @@ Public responses require explicit public-schema encoding. Raw model serializatio
 These boundaries do not require a new queue, event log, state runtime, or generic repository.
 Adoption criteria and verification practices live in [AGENTS.md](../AGENTS.md#boundary-practices).
 
+## Database and authentication lifetimes
+
+The backend owns two separate scoped pools. Native Effect SQL provides `Database`;
+Better Auth uses its supported pg/Kysely adapter on `AuthPoolLive`. Neither pool
+borrows the other pool's connection or transaction. The Bun host supplies caps of
+eight native connections and four authentication connections.
+
+The host supplies startup options explicitly for each pool. Production native
+database pools select `search_path=public`; Better Auth pools select
+`search_path=auth`. No database Layer supplies a schema-search fallback.
+Historical migration proofs select their earlier schema order explicitly.
+Business tables resolve to public, while authentication queries name auth
+explicitly; a same-named auth relation cannot redirect an unqualified business read.
+
+`nativePgLayer` keeps every checkout exclusive and disables multiplexing. Prepared
+statements are disabled unless the host explicitly selects a compatible pooler.
+The native driver owns reservation, transaction nesting, rollback, and release.
+Migration files pass through `executePostgresMigration`, which parses their original
+statement boundaries and runs them sequentially inside the caller's transaction.
+
+The dependency patches in the root manifest preserve the HTTP request union and
+queue verification and acknowledgement contracts. The native SQL lifetime repair
+adds explicit top-level admission interruptibility and opted physical shutdown
+observation; it does not infer a transaction outcome from cancellation or disposal.
+The [exception registry](effect-exceptions.json) records their scope, upstream
+capability gaps, verification requirements, and retirement triggers. Runtime
+acceptance and provider capacity remain separate gates in [STATE.md](../STATE.md).
+
+Native provisioning uses Better Auth's public endpoint-context API with a private,
+live-identity marker. Only the bounded provisioning helper mints it. Null, forged,
+copied, expired, or interrupted contexts grant no provisioning authority; marked
+account writes still read the current enabled Person access revision. The root
+catalog and lock require one Better Auth context module shared by the helper and
+the installed engine.
+
+The installed Better Auth dispatch sets a fresh context for each endpoint and
+resets it after merging before-hook evidence. Native database callbacks capture
+that hook argument before entering their owned Effect fiber. They do not infer
+request authority from an empty or stale ambient store.
+
 ## Boundary encoding
 
 Use Effect Schema at every external or durable boundary:
@@ -195,6 +238,12 @@ Decode once at entry. Keep the encoded and decoded forms explicit when they diff
 Do not maintain a second handwritten interface beside a schema-derived type.
 Canonical JSON for digests and stored evidence accepts only plain encoded data; encode a
 value through its schema before hashing it.
+
+The local D1 proof reads installed package versions and hashes the resolved runtime
+module bytes before its journeys run. Historical integration references stay
+explicitly historical; fixed RC versions or source hashes do not describe a
+stable runtime observation. Local Miniflare evidence does not prove a remote D1
+binding or provider behavior.
 
 Failures are typed and mapped once at the boundary. Do not parse error messages or
 turn every failure into an untyped 500 response.
@@ -282,6 +331,12 @@ Bind a JSON parameter as its value, `sql.json(canonicalJsonValue(value))`: the `
 encodes the argument, so JSON text such as `canonicalJson(value)` would be stored as a JSON
 string. `anti-slop/no-json-text-parameter` rejects JSON text there.
 
+The native client runs one statement per execution, so PostgreSQL rejects a text of several commands
+with `cannot insert multiple commands into a prepared statement`. Give each command its own
+`.unsafe(...)` call, or run a migration or fixture source through `executePostgresMigration` inside
+`sql.withTransaction`, which splits the source with the PostgreSQL parser. `anti-slop/no-multi-statement-unsafe`
+rejects a multi-statement literal in `.unsafe(...)`.
+
 Migration files are append-only after acceptance. A forward migration corrects an
 accepted schema. Runtime code does not guess around missing columns.
 
@@ -322,6 +377,30 @@ A generated artifact must name its source and generator. Generation must be
 repeatable. Git ignores generated artifacts; regenerate them instead of committing them.
 Do not hand-edit a generated client or maintain a separate route list in documentation.
 
+Recruitment's canonical declarations live in [recruitment.effx.ts](../packages/http-api/src/recruitment.effx.ts).
+[onboarding.effx.ts](../packages/http-api/src/onboarding.effx.ts) declares the two Recruitment-owned onboarding operations.
+These eighteen operations join the prior 56 operations in one 74-operation project IR across eleven generated groups.
+The complete external native contract retains 111 operations, including operations outside these generated groups.
+The contract and backend generation configurations consume the same declarations. Contracts generate before raw handlers.
+AOT access declarations describe policy. Request-local typed guards call the existing authorization interpreter at the original snapshot or transaction decision point.
+Generated contracts and raw bindings do not acquire business authority or replace domain-specific locks.
+
+Onboarding uses one native group under the external root, not a second generated root.
+Its generated factory registers `readBoard` and `command`, then requires typed completion of the handwritten Identity `claim` handler.
+A missing claim prevents construction of the group layer.
+Identity retains credential selection, account provisioning, capability consumption, and claim transaction ownership.
+After Identity migrates claim, the complete generated group replaces this completion seam.
+
+Fresh transaction authorization precedes HTTP receipt lookup. Exact replay returns the stored response capsule before mutation-only preconditions.
+New commands retain domain locks and atomic mutation, audit, outbox, and receipt writes.
+Frozen decision citations, final announcements, immutable message envelopes, and exact receipt bytes remain application-owned.
+The generated SDK consumes the canonical contract. It does not change those persistence semantics.
+
+Local journey fixtures must construct every dependency of their declared participants before the journey uses them.
+The Returning fixture owns its synthetic primary interviewer's contact projection before its primary appointment.
+Identity provisioning alone does not create that contact projection.
+Fixture completeness is test construction, not business authority. Production reads still refuse a missing required contact.
+
 ## Frontend state
 
 The homepage and dashboard render server-owned facts. The dashboard uses Foldkit
@@ -338,6 +417,39 @@ Rules:
   that owns the workflow.
 - Accessibility, mobile layout, keyboard use, and failure recovery are part of the
   journey contract.
+
+Recruitment and invitation-response bridges forward the executing Effect’s AbortSignal into
+fetch. Their RequestInit requires a non-null signal, with compile-only positive and negative
+controls. Response-body consumption shares the same cancellation lifetime. Foldkit Command
+fibers retain their embedded runtime as the lifetime owner. EmbedHandle disposal interrupts
+the owned browser requests. Abort does not prove rollback of a server command that already
+committed.
+
+The four Recruitment programs keep handwritten Foldkit Command bodies: assignment, scheduling/conduct, invitation response, and maintenance.
+They call the generated SDK directly or through the existing browser bridges. Generated Commands are not part of this cutover.
+
+The native correction-window Dialog owns background isolation, focus containment, dismissal, and ordinary opener restoration.
+Eligible Reopen and Close openers remain enabled while the dialog is open. Server `canReopen`, `canClose`, and mutation locks control eligibility.
+The update function refuses reentrant opens and pending dismissal. An open dialog grants no server authority.
+
+Successful Close changes the next valid action. The workflow does not preserve a physical Close node and relabel it as Reopen.
+The [maintenance Model](../apps/dashboard/app/foldkit/recruitment-maintenance/model.ts) owns the close ticket and the pending next-action focus identity.
+The [maintenance update](../apps/dashboard/app/foldkit/recruitment-maintenance/update.ts) correlates the successful mutation and staffing refresh with that identity.
+It requires Ready staffing, Closed correction state, and server-owned `canReopen`; it does not infer eligibility from roles, time, or local dialog state.
+Native Dialog close completion releases the ticket before the workflow dispatches focus on the current Reopen control. Ordinary Cancel/Escape/Tilbake retain native opener restoration.
+
+The [maintenance Commands](../apps/dashboard/app/foldkit/recruitment-maintenance/command.ts) own focus as a lazy, interruptible one-shot Command through native `Dom.focus`.
+The view and focus Command share the pure [Reopen target](../apps/dashboard/app/foldkit/recruitment-maintenance/correction-window.ts) for its id and eligible selector.
+This target describes a control identity, not correction-window authority.
+The runtime owns its fiber. Runtime disposal interrupts pending work; selection, release, and replacement invalidate the workflow's focus intent.
+The [staffing route](../apps/dashboard/app/routes/dashboard.intervjubemanning._index.tsx) binds the custom element to the actual location identity.
+Navigation to a replacement location tears down that element and its runtime, including while the destination loader is pending.
+Unrelated fetchers and background revalidation do not end that lifetime.
+Failures and cancellations clear pending focus intent. Results carry their workflow identity, and update rejects an identity that no longer matches.
+A Command key is an address, not a lock. Same-key dispatch alone cancels nothing, and one batch supplies no execution order.
+Replacement open/focus waits for the old native Close completion and any pending focus-cancellation completion. An unordered batch cannot supply that barrier.
+Cancellation clears focus intent immediately. A late close completion for an old dialog generation cannot change a replacement dialog or arm focus.
+No focus runner, timer, retry, weakened assertion, browser-node reuse, or framework change supplies this policy. The server remains the correction-window authority.
 
 ## Runtime composition
 

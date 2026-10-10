@@ -1,4 +1,8 @@
 import { Effect, Schema } from "effect";
+import { admissionStanding } from "@vektorprogrammet/domain/admissions";
+import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
+import { Instant } from "@vektorprogrammet/domain/time";
+import { readApplicationAdmissionEvidenceWithSql } from "../admissions/evidence.js";
 import { readSchoolServiceCommitments } from "./coverage.js";
 import { Database, type DatabaseOperations } from "../service.js";
 import type { OrganizationPersonAuthority } from "@vektorprogrammet/domain/organization";
@@ -113,6 +117,12 @@ export const readOwnAffiliation = (personId: PersonId, departmentId: DepartmentI
     }),
   );
 
+const decodeAffiliationApplications = Schema.decodeUnknownEffect(
+  Schema.Array(Schema.Struct({ applicationId: PublicApplicationIdSchema })),
+);
+
+const decodeAffiliationInstant = Schema.decodeUnknownEffect(Instant);
+
 export const mutateAffiliation = (
   current: Affiliation,
   action: OwnAffiliationCommand["action"] | "Establish" | "Reject" | "Revoke",
@@ -124,6 +134,41 @@ export const mutateAffiliation = (
       const status = nextAffiliationStatus(current.status, action);
 
       if (status === null) return yield* fail("affiliation.transition-invalid");
+
+      if (action === "Request") {
+        const applications = yield* decodeAffiliationApplications(
+          yield* sql`
+          SELECT application.application_id AS "applicationId"
+          FROM public.admission_applications application
+          JOIN public.applicant_account_links link USING(applicant_id)
+          WHERE link.person_id=${current.personId} AND application.department_id=${current.departmentId}
+          ORDER BY application.application_id
+        `,
+        ).pipe(Effect.orDie);
+
+        const evidence = yield* Effect.forEach(applications, ({ applicationId }) =>
+          readApplicationAdmissionEvidenceWithSql(sql, applicationId, current.departmentId, {
+            lock: true,
+          }).pipe(
+            Effect.catchTags({
+              SchemaError: Effect.die,
+              AdmissionOutcomeFailure: () => fail("affiliation.transition-invalid"),
+            }),
+          ),
+        );
+
+        const at = yield* decodeAffiliationInstant(now).pipe(Effect.orDie);
+
+        if (
+          !evidence.some(
+            (application) =>
+              application.linkedPersonId === current.personId &&
+              admissionStanding(application, at) === "Admitted",
+          )
+        )
+          return yield* fail("affiliation.transition-invalid");
+      }
+
       const revision = current.revision + 1;
       yield* sql`INSERT INTO public.organization_volunteer_affiliations(person_id,department_id,status,revision) VALUES(${current.personId},${current.departmentId},${status},${revision}) ON CONFLICT(person_id,department_id) DO UPDATE SET status=EXCLUDED.status,revision=EXCLUDED.revision`;
       yield* sql`INSERT INTO public.organization_volunteer_affiliation_audit(person_id,department_id,revision,action,actor_person_id,occurred_at) VALUES(${current.personId},${current.departmentId},${revision},${action},${actor},${now})`;

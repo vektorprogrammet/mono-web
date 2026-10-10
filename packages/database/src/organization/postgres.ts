@@ -1,7 +1,11 @@
+/**
+ * EX-0021: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { canonicalJsonValue } from "@vektorprogrammet/domain/shared-kernel";
 import { Database, type DatabaseOperations } from "../service.js";
 import { lockPersonAuthorization } from "./authority-postgres.js";
-import * as Statement from "effect/unstable/sql/Statement";
+import * as Statement from "effect/sql/Statement";
 import { flow, Effect, Schema } from "effect";
 import {
   DepartmentNotFound,

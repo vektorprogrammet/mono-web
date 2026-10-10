@@ -6,7 +6,7 @@
  * writes non-finite numbers as `null`. It accepts plain data only, so encode a `DateTime`, a
  * `Date`, a class instance, or bytes through its owning schema first.
  */
-import { Schema, flow, Match, Predicate } from "effect";
+import { Schema, flow, Match, Predicate, Result } from "effect";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 
@@ -39,10 +39,13 @@ const isPlainData = (input: unknown): input is PlainData => {
   );
 };
 
-const decodePlainData = Schema.decodeUnknownSync(
-  Schema.declare(isPlainData, {
-    message: "canonical JSON accepts plain data only; encode through the owning schema",
-  }),
+const decodePlainData = flow(
+  Schema.decodeUnknownResult(
+    Schema.declare(isPlainData, {
+      message: "canonical JSON accepts plain data only; encode through the owning schema",
+    }),
+  ),
+  Result.getOrThrow,
 );
 
 const canonicalPlainData: (value: PlainData) => Schema.Json = Match.type<PlainData>().pipe(
@@ -170,3 +173,6 @@ export const canonicalJsonBytes: <A>(datum: A) => Uint8Array<ArrayBuffer> = flow
  * @construct digest
  */
 export const sha256Hex = (bytes: Uint8Array): string => bytesToHex(sha256(bytes));
+
+/** Returns the SHA-256 bytes for the same input contract as sha256Hex, without changing the input. */
+export const sha256Bytes = (bytes: Uint8Array): Uint8Array => sha256(bytes);

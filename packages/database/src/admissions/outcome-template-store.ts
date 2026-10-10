@@ -1,4 +1,8 @@
 /**
+ * EX-0021: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+/**
  * The versioned store of the admission outcome mail templates (spec 0027, migration 0082).
  *
  * Every function runs in the caller's transaction on the captured `Database` and grants no
@@ -9,8 +13,8 @@
  * override. Revisions are append-only, so a save adds one and changes no earlier revision.
  */
 import { Effect, Option, Predicate, Schema } from "effect";
-import { SqlSchema } from "effect/unstable/sql";
-import { isSqlError } from "effect/unstable/sql/SqlError";
+import { SqlSchema } from "effect/sql";
+import { isSqlError } from "effect/sql/SqlError";
 import {
   decodeOutcomeTemplateDraft,
   OutcomeTemplateFailure,

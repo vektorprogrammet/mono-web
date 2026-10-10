@@ -1,10 +1,14 @@
 /**
+ * EX-0020: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+/**
  * Public schemas for recruitment assignment, scheduling, conduct, and invitation responses.
  *
  * @since 0.1.0
  */
 import { Schema, SchemaGetter } from "effect";
-import { Model } from "effect/unstable/schema";
+import { Model } from "effect/schema";
 import {
   AdmissionPeriodActorSchema,
   type AdmissionPeriodActor,
@@ -18,7 +22,7 @@ import {
   PublicApplicationPhoneSchema,
 } from "../application/schema.js";
 import { DepartmentId, PersonId } from "../organization/schema.js";
-import { isRfc3339Instant, Rfc3339InstantSchema } from "../time.js";
+import { Instant, isRfc3339Instant, Rfc3339InstantSchema } from "../time.js";
 import { PersonContactEmail, PersonContactPhone } from "../profile/schema.js";
 
 const StableId = Schema.String.pipe(
@@ -1099,6 +1103,40 @@ export interface RecruitmentConductContext {
   readonly authorizationInstant?: string;
 }
 
+/** Server-owned correction authority. Literal flags rule out contradictory lifecycle observations. */
+export const AssessmentCorrection = Schema.TaggedUnion({
+  Ordinary: {
+    sequence: NonNegative,
+    canCorrect: Schema.Boolean,
+    canReopen: Schema.Literal(false),
+    canClose: Schema.Literal(false),
+  },
+  Closed: {
+    sequence: NonNegative,
+    canCorrect: Schema.Literal(false),
+    canReopen: Schema.Boolean,
+    canClose: Schema.Literal(false),
+  },
+  Open: {
+    sequence: NonNegative,
+    openedBy: PersonId,
+    endsAt: Instant,
+    canCorrect: Schema.Boolean,
+    canReopen: Schema.Literal(false),
+    canClose: Schema.Boolean,
+  },
+  Expired: {
+    sequence: NonNegative,
+    openedBy: PersonId,
+    endsAt: Instant,
+    canCorrect: Schema.Literal(false),
+    canReopen: Schema.Boolean,
+    canClose: Schema.Literal(false),
+  },
+});
+
+export type AssessmentCorrection = typeof AssessmentCorrection.Type;
+
 export const RecruitmentInterviewConductObservationSchema = Schema.Struct({
   interviewId: RecruitmentInterviewId,
   applicationId: PublicApplicationIdSchema,
@@ -1121,6 +1159,7 @@ export const RecruitmentInterviewConductObservationSchema = Schema.Struct({
   history: Schema.Array(RecruitmentInterviewCorrectionHistoryEntrySchema),
   cancelledAt: Schema.NullOr(Rfc3339InstantSchema),
   revision: Revision,
+  assessmentCorrection: AssessmentCorrection,
   canFinalize: Schema.Boolean,
   canCancel: Schema.Boolean,
 });

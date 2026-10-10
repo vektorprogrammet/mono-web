@@ -1,4 +1,5 @@
-import { Effect, Encoding, Result, Schema } from "effect";
+import { Effect, Result, Schema } from "effect";
+import { Base64 } from "effect/encoding";
 import { isRfc3339Instant } from "../time.js";
 import { TeamApplicationInvalidCursor } from "./errors.js";
 import { TeamApplicationId } from "./schema.js";
@@ -49,7 +50,7 @@ export const decodeTeamApplicationCursor = (
   Effect.gen(function* () {
     yield* Schema.decodeEffect(TeamApplicationCursor)(cursor);
 
-    const text = yield* Encoding.decodeBase64String(cursor).pipe(
+    const text = yield* Base64.decodeString(cursor).pipe(
       Result.match({ onSuccess: Effect.succeed, onFailure: Effect.fail }),
     );
 
@@ -69,7 +70,7 @@ export const teamApplicationPage = <A>(
 
   return {
     items: rows.slice(0, TEAM_APPLICATION_PAGE_SIZE),
-    nextCursor: Encoding.encodeBase64(
+    nextCursor: Base64.encode(
       JSON.stringify(["team-application-v1", last.timestamp, last.applicationId]),
     ),
   };

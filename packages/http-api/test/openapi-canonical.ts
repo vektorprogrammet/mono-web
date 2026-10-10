@@ -71,7 +71,9 @@ export const setIn = (
   if (rest.length === 0) {
     const members = Object.entries(object).filter(([key]) => key !== head);
 
-    return Object.fromEntries(replacement === undefined ? members : [...members, [head, replacement]]);
+    return Object.fromEntries(
+      replacement === undefined ? members : [...members, [head, replacement]],
+    );
   }
 
   const child = object[head];

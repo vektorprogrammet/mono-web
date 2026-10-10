@@ -69,6 +69,11 @@ describe("paths", () => {
       ["packages/database/vitest.config.json", true],
       ["tools/verification/credential-race.ts", false],
       ["patches/effect@4.0.0-rc.116.patch", false],
+      ["patches/effect@4.0.0.patch", false],
+      ["patches/@effect%2Fsql-pg@4.0.0.patch", false],
+      ["patches/@scope%2Fpackage@4.0.0-rc.1.patch", false],
+      ["patches/@effect%2Fperson@university.no.patch", true],
+      ["patches/@effect%2Fsql-pg@4.0.0.patch/credentials.json", true],
       ["apps/backend/test/database.sql", true],
       ["apps/backend/test/database-seed.ts", true],
       ["tools/verification/credentials.json", true],
@@ -137,16 +142,15 @@ describe("SQL", () => {
       "packages/database/migrations/0027-native-oauth-provider.sql",
       "packages/database/migrations/0029-native-http-semantics.sql",
       "packages/database/migrations/0059-school-service-person-intervals.sql",
+      "packages/database/migrations/0083-application-decision-correction-fence.sql",
+      "packages/database/migrations/0084-application-email-period-ownership.sql",
     ]) {
       const migration = readFileSync(join(repoRoot, migrationPath));
       const migrationText = new TextDecoder().decode(migration);
       expect(unsafeSqlSourceTextReason(migrationText)).toBe("UNSAFE_SOURCE");
       expect(sourceTextSafetyReason(migrationPath, migration)).toBeNull();
       expect(
-        sourceTextSafetyReason(
-          migrationPath,
-          new TextEncoder().encode(`${migrationText}\n-- digest drift\n`),
-        ),
+        sourceTextSafetyReason(migrationPath, new TextEncoder().encode(`${migrationText} `)),
       ).toBe("UNSAFE_SOURCE");
     }
   });

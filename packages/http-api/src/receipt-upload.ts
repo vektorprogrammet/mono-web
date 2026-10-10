@@ -1,5 +1,9 @@
+/**
+ * EX-0022: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { Data, Effect, Stream } from "effect";
-import * as Multipart from "effect/unstable/http/Multipart";
+import * as Multipart from "effect/http/Multipart";
 
 export { RECEIPT_FILE_MAX_BYTES } from "@vektorprogrammet/domain/receipt";
 

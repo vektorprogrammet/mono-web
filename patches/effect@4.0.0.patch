@@ -1,0 +1,297 @@
+diff --git a/dist/http-api/HttpApiEndpoint.d.ts b/dist/http-api/HttpApiEndpoint.d.ts
+index c57b01144d17b20faf302e6d84732c77c0ecf348..8530b28750963ebdd09bf56a2b8c66c75586d620 100644
+--- a/dist/http-api/HttpApiEndpoint.d.ts
++++ b/dist/http-api/HttpApiEndpoint.d.ts
+@@ -308,12 +308,8 @@ export type ClientRequest<Params extends Schema.Constraint, Query extends Schema
+     readonly query: Query["Type"];
+ }) & ([Headers["Type"]] extends [never] ? {} : {
+     readonly headers: Headers["Type"];
+-}) & ([Payload["Type"]] extends [never] ? {} : Payload["Type"] extends infer P ? P extends Brand<HttpApiSchema.MultipartTypeId> | Brand<HttpApiSchema.MultipartStreamTypeId> ? {
+-    readonly payload: FormData;
+-} : {
+-    readonly payload: Payload["Type"];
+-} : {
+-    readonly payload: Payload["Type"];
++}) & ([Payload["Type"]] extends [never] ? {} : {
++    readonly payload: Payload["Type"] extends infer P ? P extends Brand<HttpApiSchema.MultipartTypeId> | Brand<HttpApiSchema.MultipartStreamTypeId> ? FormData : P : Payload["Type"];
+ })) extends infer Req ? keyof Req extends never ? (void | {
+     readonly responseMode?: ResponseMode;
+     readonly sseOptions?: Sse.DecodeOptions | undefined;
+diff --git a/dist/persistence/PersistedQueue.d.ts b/dist/persistence/PersistedQueue.d.ts
+index 46a018c2292ea338ce479e0776625f1a63f288f3..f27ef00b9cb97d400996ffc3653396899ed5d5bc 100644
+--- a/dist/persistence/PersistedQueue.d.ts
++++ b/dist/persistence/PersistedQueue.d.ts
+@@ -22,6 +22,7 @@ import * as Layer from "../Layer.ts";
+ import * as Schedule from "../Schedule.ts";
+ import * as Schema from "../Schema.ts";
+ import * as Scope from "../Scope.ts";
++import type * as Migrator from "../sql/Migrator.ts";
+ import * as SqlClient from "../sql/SqlClient.ts";
+ import type { SqlError } from "../sql/SqlError.ts";
+ import * as Redis from "./Redis.ts";
+@@ -373,7 +374,11 @@ export declare const makeStoreSql: (options?: {
+     readonly pollInterval?: Duration.Input | undefined;
+     readonly lockRefreshInterval?: Duration.Input | undefined;
+     readonly lockExpiration?: Duration.Input | undefined;
+-} | undefined) => Effect.Effect<PersistedQueueStore["Service"], SqlError, SqlClient.SqlClient | Scope.Scope>;
++    /** Retry window for acknowledgements, not an individual SQL deadline. Defaults to lockExpiration. */
++    readonly ackRetryDuration?: Duration.Input | undefined;
++    /** Verify externally provisioned schema without migrations, DDL or migration locks. Omission runs migrations. */
++    readonly migrations?: "verify" | undefined;
++} | undefined) => Effect.Effect<PersistedQueueStore["Service"], SqlError | Migrator.MigrationError, SqlClient.SqlClient | Scope.Scope>;
+ /**
+  * Provides a SQL-backed `PersistedQueueStore` using `makeStoreSql`.
+  *
+@@ -386,6 +391,10 @@ export declare const layerStoreSql: (options?: {
+     readonly pollInterval?: Duration.Input | undefined;
+     readonly lockRefreshInterval?: Duration.Input | undefined;
+     readonly lockExpiration?: Duration.Input | undefined;
+-} | undefined) => Layer.Layer<PersistedQueueStore, SqlError, SqlClient.SqlClient>;
++    /** Retry window for acknowledgements, not an individual SQL deadline. Defaults to lockExpiration. */
++    readonly ackRetryDuration?: Duration.Input | undefined;
++    /** Verify externally provisioned schema without migrations, DDL or migration locks. Omission runs migrations. */
++    readonly migrations?: "verify" | undefined;
++} | undefined) => Layer.Layer<PersistedQueueStore, SqlError | Migrator.MigrationError, SqlClient.SqlClient>;
+ export {};
+ //# sourceMappingURL=PersistedQueue.d.ts.map
+\ No newline at end of file
+diff --git a/dist/persistence/PersistedQueue.js b/dist/persistence/PersistedQueue.js
+index 68841c48dbd48a2d0e77b043b7653afa8eb7977b..31b94a22742cc1d69c861e94cea66ea2d2125009 100644
+--- a/dist/persistence/PersistedQueue.js
++++ b/dist/persistence/PersistedQueue.js
+@@ -822,6 +822,9 @@ return removed
+  * @since 4.0.0
+  */
+ export const layerStoreRedis = /*#__PURE__*/flow(makeStoreRedis, /*#__PURE__*/Layer.effect(PersistedQueueStore));
++const decodeSqlMigrationVersion = Schema.decodeUnknownEffect(Schema.Array(Schema.Struct({
++  migration_id: Schema.NullOr(Schema.Int)
++})));
+ /**
+  * Creates a SQL-backed `PersistedQueueStore`.
+  *
+@@ -843,11 +846,30 @@ export const makeStoreSql = /*#__PURE__*/Effect.fnUntraced(function* (options) {
+   const lockRefreshInterval = Duration.max(options?.lockRefreshInterval ? Duration.fromInputUnsafe(options.lockRefreshInterval) : Duration.seconds(30), Duration.millis(1));
+   const lockExpiration = Duration.max(options?.lockExpiration ? Duration.fromInputUnsafe(options.lockExpiration) : Duration.minutes(2), Duration.millis(1));
+   const workerId = crypto.randomUUID();
+-  const ackRetrySchedule = makeAckRetrySchedule(lockExpiration);
+-  yield* Effect.orDie(Migrator.make({})({
+-    loader: sqlMigrations(tableName),
+-    table: `${tableName}_migrations`
+-  }));
++  const ackRetrySchedule = makeAckRetrySchedule(options?.ackRetryDuration ?? lockExpiration);
++  if (options?.migrations === "verify") {
++    const current = yield* sqlMigrations(tableName);
++    const expected = current.reduce((max, [id]) => Math.max(max, id), 0);
++    const rows = yield* sql`SELECT MAX(migration_id) AS migration_id FROM ${sql(`${tableName}_migrations`)}`;
++    const versions = yield* decodeSqlMigrationVersion(rows).pipe(Effect.mapError(cause => new Migrator.MigrationError({
++      kind: "BadState", cause, message: "Invalid persisted queue migration ledger"
++    })));
++    const actual = versions[0]?.migration_id;
++    if (versions.length !== 1 || actual === null || actual === undefined || actual < expected) {
++      return yield* new Migrator.MigrationError({
++        kind: "BadState", message: "Persisted queue schema requires operator migrations"
++      });
++    }
++    // Column availability only: the operator remains responsible for types, indexes and constraints.
++    yield* sql`SELECT sequence, id, queue_name, element, state, attempts, last_failure,
++      visible_at, acquired_at, acquired_by, created_at, updated_at
++      FROM ${tableNameSql} WHERE 1 = 0`;
++  } else {
++    yield* Effect.orDie(Migrator.make({})({
++      loader: sqlMigrations(tableName),
++      table: `${tableName}_migrations`
++    }));
++  }
+   const sqlNow = sql.onDialectOrElse({
+     // GETDATE() rounds to 1/300s and can land in the future, hiding freshly
+     // written visible_at values from the poll query
+diff --git a/dist/sql/SqlClient.d.ts b/dist/sql/SqlClient.d.ts
+index 15ecc056e80bbc296a818988567d0eb0f5f48135..89406d72e986cfe8bc1da2374a7a3dcc5188a085 100644
+--- a/dist/sql/SqlClient.d.ts
++++ b/dist/sql/SqlClient.d.ts
+@@ -119,6 +119,8 @@ export declare namespace SqlClient {
+         readonly rollbackSavepoint?: ((name: string) => string) | undefined;
+         readonly transformRows?: (<A extends object>(row: ReadonlyArray<A>) => ReadonlyArray<A>) | undefined;
+         readonly reactiveQueue?: <A, E, R>(keys: ReadonlyArray<unknown> | ReadonlyRecord<string, ReadonlyArray<unknown>>, effect: Effect.Effect<A, E, R>) => Effect.Effect<Queue.Dequeue<A, E>, never, R | Scope.Scope>;
++        /** Transaction admission opt-in; omitted or false preserves the caller mask. */
++        readonly acquisitionInterruptible?: boolean | undefined
+     }
+ }
+ /**
+@@ -172,6 +174,7 @@ export declare const makeSqliteAcquirers: <C extends Connection.Connection>(opti
+  * @since 4.0.0
+  */
+ export declare const makeWithTransaction: <I, S>(options: {
++    readonly acquisitionInterruptible?: boolean | undefined;
+     readonly transactionService: Context.Key<I, readonly [conn: S, counter: number]>;
+     readonly spanAttributes: ReadonlyArray<readonly [string, unknown]>;
+     readonly acquireConnection: Effect.Effect<readonly [Scope.Closeable | undefined, S], SqlError>;
+diff --git a/dist/sql/SqlClient.js b/dist/sql/SqlClient.js
+index 1fc213f4b1cfa4f2c98202a65debb48dc822a5f2..62e6ebe497fea62d4a21e63043c63b5c7751ab71 100644
+--- a/dist/sql/SqlClient.js
++++ b/dist/sql/SqlClient.js
+@@ -52,6 +52,7 @@ export const make = /*#__PURE__*/Effect.fnUntraced(function* (options) {
+   const transactionAcquirer = options.transactionAcquirer ?? options.acquirer;
+   const control = options.prepareTransactionControls === true ? (conn, sql) => conn.execute(sql, [], undefined) : (conn, sql) => conn.executeUnprepared(sql, [], undefined);
+   const withTransaction = makeWithTransaction({
++      acquisitionInterruptible: options.acquisitionInterruptible,
+     transactionService,
+     spanAttributes: options.spanAttributes,
+     acquireConnection: Effect.flatMap(Scope.make(), scope => Scope.provide(transactionAcquirer, scope).pipe(Effect.onError(cause => Scope.close(scope, Exit.failCause(cause))), Effect.map(conn => [scope, conn]))),
+@@ -177,7 +178,7 @@ export const makeWithTransaction = options => {
+     const services = fiber.context;
+     const clock = fiber.getRef(Clock);
+     const connOption = Context.getOption(services, options.transactionService);
+-    const conn = connOption._tag === "Some" ? Effect.succeed([undefined, connOption.value[0]]) : options.acquireConnection;
++    const conn = connOption._tag === "Some" ? Effect.succeed([undefined, connOption.value[0]]) : (options.acquisitionInterruptible === true ? Effect.interruptible(options.acquireConnection) : restore(options.acquireConnection));
+     const id = connOption._tag === "Some" ? connOption.value[1] + 1 : 0;
+     const transaction = Effect.flatMap(conn, ([scope, conn]) => (id === 0 ? options.begin(conn) : options.savepoint(conn, id)).pipe(Effect.flatMap(() => Effect.onExitPrimitive(Effect.provideContext(restore(effect), services.pipe(Context.add(options.transactionService, [conn, id]), Context.add(transactionSemaphore, Semaphore.makeUnsafe(1)), Context.add(Tracer.ParentSpan, span))), exit => {
+       let effect;
+diff --git a/src/http-api/HttpApiEndpoint.ts b/src/http-api/HttpApiEndpoint.ts
+index 714926546847992e04816b5ab73d46960d484a7b..21fb9c33467db76097033e2a10078a383c26b73d 100644
+--- a/src/http-api/HttpApiEndpoint.ts
++++ b/src/http-api/HttpApiEndpoint.ts
+@@ -535,11 +535,11 @@ export type ClientRequest<
+   & ([Query["Type"]] extends [never] ? {} : { readonly query: Query["Type"] })
+   & ([Headers["Type"]] extends [never] ? {} : { readonly headers: Headers["Type"] })
+   & ([Payload["Type"]] extends [never] ? {}
+-    : Payload["Type"] extends infer P ?
+-      P extends Brand<HttpApiSchema.MultipartTypeId> | Brand<HttpApiSchema.MultipartStreamTypeId>
+-        ? { readonly payload: FormData }
+-      : { readonly payload: Payload["Type"] }
+-    : { readonly payload: Payload["Type"] })
++    : { readonly payload: Payload["Type"] extends infer P
++      ? P extends Brand<HttpApiSchema.MultipartTypeId> | Brand<HttpApiSchema.MultipartStreamTypeId>
++        ? FormData
++        : P
++      : Payload["Type"] })
+ ) extends infer Req ? keyof Req extends never ? (void | {
+       readonly responseMode?: ResponseMode
+       readonly sseOptions?: Sse.DecodeOptions | undefined
+diff --git a/src/persistence/PersistedQueue.ts b/src/persistence/PersistedQueue.ts
+index 6439ca53b950a79fd6bf841478eb5dc89ee08ea2..e643b931b852268d8ce3087025e9af98acaf0e76 100644
+--- a/src/persistence/PersistedQueue.ts
++++ b/src/persistence/PersistedQueue.ts
+@@ -1287,6 +1287,10 @@ export const layerStoreRedis: (
+   Redis.Redis
+ > = flow(makeStoreRedis, Layer.effect(PersistedQueueStore))
+ 
++const decodeSqlMigrationVersion = Schema.decodeUnknownEffect(
++  Schema.Array(Schema.Struct({ migration_id: Schema.NullOr(Schema.Int) }))
++)
++
+ /**
+  * Creates a SQL-backed `PersistedQueueStore`.
+  *
+@@ -1306,10 +1310,14 @@ export const makeStoreSql: (
+     readonly pollInterval?: Duration.Input | undefined
+     readonly lockRefreshInterval?: Duration.Input | undefined
+     readonly lockExpiration?: Duration.Input | undefined
++    /** Retry window for acknowledgements, not an individual SQL deadline. Defaults to lockExpiration. */
++    readonly ackRetryDuration?: Duration.Input | undefined
++    /** Verify externally provisioned schema without migrations, DDL or migration locks. Omission runs migrations. */
++    readonly migrations?: "verify" | undefined
+   } | undefined
+ ) => Effect.Effect<
+   PersistedQueueStore["Service"],
+-  SqlError,
++  SqlError | Migrator.MigrationError,
+   SqlClient.SqlClient | Scope.Scope
+ > = Effect.fnUntraced(function*(options) {
+   const sql = (yield* SqlClient.SqlClient).withoutTransforms()
+@@ -1329,14 +1337,35 @@ export const makeStoreSql: (
+   )
+   const workerId = crypto.randomUUID()
+ 
+-  const ackRetrySchedule = makeAckRetrySchedule(lockExpiration)
++  const ackRetrySchedule = makeAckRetrySchedule(options?.ackRetryDuration ?? lockExpiration)
+ 
+-  yield* Effect.orDie(
+-    Migrator.make({})({
+-      loader: sqlMigrations(tableName),
+-      table: `${tableName}_migrations`
+-    })
+-  )
++  if (options?.migrations === "verify") {
++    const current = yield* sqlMigrations(tableName)
++    const expected = current.reduce((max, [id]) => Math.max(max, id), 0)
++    const rows = yield* sql`SELECT MAX(migration_id) AS migration_id FROM ${sql(`${tableName}_migrations`)}`
++    const versions = yield* decodeSqlMigrationVersion(rows).pipe(
++      Effect.mapError((cause) => new Migrator.MigrationError({
++        kind: "BadState", cause, message: "Invalid persisted queue migration ledger"
++      }))
++    )
++    const actual = versions[0]?.migration_id
++    if (versions.length !== 1 || actual === null || actual === undefined || actual < expected) {
++      return yield* new Migrator.MigrationError({
++        kind: "BadState", message: "Persisted queue schema requires operator migrations"
++      })
++    }
++    // Column availability only: the operator remains responsible for types, indexes and constraints.
++    yield* sql`SELECT sequence, id, queue_name, element, state, attempts, last_failure,
++      visible_at, acquired_at, acquired_by, created_at, updated_at
++      FROM ${tableNameSql} WHERE 1 = 0`
++  } else {
++    yield* Effect.orDie(
++      Migrator.make({})({
++        loader: sqlMigrations(tableName),
++        table: `${tableName}_migrations`
++      })
++    )
++  }
+ 
+   const sqlNow = sql.onDialectOrElse({
+     // GETDATE() rounds to 1/300s and can land in the future, hiding freshly
+@@ -2043,9 +2072,13 @@ export const layerStoreSql: (
+     readonly pollInterval?: Duration.Input | undefined
+     readonly lockRefreshInterval?: Duration.Input | undefined
+     readonly lockExpiration?: Duration.Input | undefined
++    /** Retry window for acknowledgements, not an individual SQL deadline. Defaults to lockExpiration. */
++    readonly ackRetryDuration?: Duration.Input | undefined
++    /** Verify externally provisioned schema without migrations, DDL or migration locks. Omission runs migrations. */
++    readonly migrations?: "verify" | undefined
+   } | undefined
+ ) => Layer.Layer<
+   PersistedQueueStore,
+-  SqlError,
++  SqlError | Migrator.MigrationError,
+   SqlClient.SqlClient
+ > = flow(makeStoreSql, Layer.effect(PersistedQueueStore))
+diff --git a/src/sql/SqlClient.ts b/src/sql/SqlClient.ts
+index 7bac29faa9942353bbefbf4601801627f069683d..0009131f03a762ed65eb1b689dd974b5ab958cef 100644
+--- a/src/sql/SqlClient.ts
++++ b/src/sql/SqlClient.ts
+@@ -160,6 +160,8 @@ export declare namespace SqlClient {
+       keys: ReadonlyArray<unknown> | ReadonlyRecord<string, ReadonlyArray<unknown>>,
+       effect: Effect.Effect<A, E, R>
+     ) => Effect.Effect<Queue.Dequeue<A, E>, never, R | Scope.Scope>
++      /** Transaction admission opt-in; omitted or false preserves the caller mask. */
++      readonly acquisitionInterruptible?: boolean | undefined
+   }
+ }
+ 
+@@ -196,6 +198,7 @@ export const make = Effect.fnUntraced(function*(options: SqlClient.MakeOptions)
+     ? (conn: Connection.Connection, sql: string) => conn.execute(sql, [], undefined)
+     : (conn: Connection.Connection, sql: string) => conn.executeUnprepared(sql, [], undefined)
+   const withTransaction = makeWithTransaction({
++      acquisitionInterruptible: options.acquisitionInterruptible,
+     transactionService,
+     spanAttributes: options.spanAttributes,
+     acquireConnection: Effect.flatMap(
+@@ -370,6 +373,7 @@ const isNoTransactionError = (error: SqlError): boolean => {
+  * @since 4.0.0
+  */
+ export const makeWithTransaction = <I, S>(options: {
++  readonly acquisitionInterruptible?: boolean | undefined
+   readonly transactionService: Context.Key<I, readonly [conn: S, counter: number]>
+   readonly spanAttributes: ReadonlyArray<readonly [string, unknown]>
+   readonly acquireConnection: Effect.Effect<readonly [Scope.Closeable | undefined, S], SqlError>
+@@ -405,7 +409,7 @@ export const makeWithTransaction = <I, S>(options: {
+             const connOption = Context.getOption(services, options.transactionService)
+             const conn = connOption._tag === "Some"
+               ? Effect.succeed([undefined, connOption.value[0]] as const)
+-              : options.acquireConnection
++            : (options.acquisitionInterruptible === true ? Effect.interruptible(options.acquireConnection) : restore(options.acquireConnection))
+             const id = connOption._tag === "Some" ? connOption.value[1] + 1 : 0
+             const transaction = Effect.flatMap(
+               conn,

@@ -1,4 +1,8 @@
 /**
+ * EX-0021: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+/**
  * Claim-fenced status transitions shared by PostgreSQL outbox tables.
  *
  * A participating table has `effect_id text PRIMARY KEY`, `status text`, `attempts integer`,
@@ -28,8 +32,8 @@
  * records no delivery evidence. SQL failures remain `SqlError` for the caller to map.
  */
 import { Data, Effect } from "effect";
-import type { SqlError } from "effect/unstable/sql/SqlError";
-import * as Statement from "effect/unstable/sql/Statement";
+import type { SqlError } from "effect/sql/SqlError";
+import * as Statement from "effect/sql/Statement";
 import type { DatabaseOperations } from "./service.js";
 
 /** One claim-fenced outbox table and its terminal payload policy. */

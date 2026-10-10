@@ -1,3 +1,7 @@
+/**
+ * EX-0021: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import type { ReceiptActor } from "@vektorprogrammet/domain/receipt";
 import { observePostgresStatements } from "../src/test-support/observe-postgres.js";
 import assert from "node:assert/strict";
@@ -82,11 +86,14 @@ import { ProfileLive } from "@vektorprogrammet/database/profile";
 import { Recruitment } from "@vektorprogrammet/domain/recruitment";
 import { RecruitmentLive } from "@vektorprogrammet/database/recruitment";
 import { Result, Data, Predicate, Deferred, Effect, Fiber, Layer, Redacted, Schema } from "effect";
-import type { SqlError } from "effect/unstable/sql/SqlError";
+import type { SqlError } from "effect/sql/SqlError";
+import * as SqlClient from "effect/sql/SqlClient";
 import { spec0055OrganizationAuthorityFixtures } from "@vektorprogrammet/domain/organization/authority-fixtures";
 import { resolveOrganizationPersonAuthorityForRead } from "../src/organization/authority-postgres.js";
 import { executeReceiptCommand } from "../src/receipt/postgres.js";
 import { DatabaseLive } from "../src/layers.js";
+import { NativeDatabaseStartupOptions } from "../src/search-path.js";
+import { executePostgresMigration } from "../src/postgres-migration-statements.js";
 import { TestPlatform } from "../src/test-support/platform.js";
 import { databaseMigrationDefinitions, databaseSchemaRevision } from "../src/migrations.js";
 import { proveRuleReconciliationMigration } from "../src/rule-reconciliation-migration-postgres-proof.js";
@@ -287,6 +294,7 @@ const makeProofLayer = (url: Redacted.Redacted<string>, applicationName: string)
     url: Redacted.make(Redacted.value(url)),
     applicationName,
     maxConnections: 1,
+    startupOptions: NativeDatabaseStartupOptions,
   });
 
 const makeZeroRuleProofLayer = (url: Redacted.Redacted<string>, applicationName: string) => {
@@ -308,9 +316,14 @@ const makeZeroRuleProofLayer = (url: Redacted.Redacted<string>, applicationName:
   return Layer.merge(supportLayer, RecruitmentLive.pipe(Layer.provide(supportLayer)));
 };
 
+/**
+ * The native driver runs one statement per execution, so the reset source runs in one transaction
+ * through the maintained statement parser. A parser failure is a defect of the proof.
+ */
 const resetDatabaseObjects = (sql: DatabaseOperations) =>
   sql
-    .unsafe(`
+    .withTransaction(
+      executePostgresMigration(`
     DO $$
     DECLARE extension_name text;
     BEGIN
@@ -335,8 +348,9 @@ const resetDatabaseObjects = (sql: DatabaseOperations) =>
     END $$;
     DROP SCHEMA IF EXISTS public CASCADE;
     CREATE SCHEMA public;
-  `)
-    .pipe(Effect.asVoid);
+  `).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
+    )
+    .pipe(Effect.catchTag("DatabaseMigrationExecutionError", Effect.die), Effect.asVoid);
 
 const seedDatabase = (sql: DatabaseOperations) =>
   sql.withTransaction(
@@ -4791,6 +4805,7 @@ const program = (databaseUrl: Redacted.Redacted<string>) =>
     ).pipe(
       Effect.catchTags({
         MigrationError: Effect.die,
+        SchemaError: Effect.die,
         SqlError: Effect.die,
       }),
     );

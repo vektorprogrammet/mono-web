@@ -6,6 +6,7 @@ import {
 } from "@vektorprogrammet/domain/authz";
 import { Schema, Struct } from "effect";
 import { accessSpecAnnotations, personNativeAccess } from "./access.js";
+import { decodeDeclaredOrThrow } from "./declaration-decoding.js";
 
 /** Explicit exported resolver symbols used by the SocialEvents contract. */
 export const SocialEventsScopeResolver = { id: "social-events.scope" } as const satisfies {
@@ -86,7 +87,7 @@ const SocialEventsAccess = Schema.Struct({
   ),
 );
 
-const decodeSocialEventsAccess = Schema.decodeUnknownSync(SocialEventsAccess, {
+const decodeSocialEventsAccess = decodeDeclaredOrThrow(SocialEventsAccess, {
   onExcessProperty: "error",
 });
 

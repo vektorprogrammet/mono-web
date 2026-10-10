@@ -1,4 +1,8 @@
 /**
+ * EX-0028: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+/**
  * Golden harness self-test.
  *
  * Without arguments this driver runs a probe journey in six child runners: pass,
@@ -22,7 +26,7 @@ import * as BunRuntime from "@effect/platform-bun/BunRuntime";
 import * as BunServices from "@effect/platform-bun/BunServices";
 import { sha256Hex, canonicalJsonBytes } from "@vektorprogrammet/domain/shared-kernel";
 import { Effect, FileSystem, Schema, Stream } from "effect";
-import { ChildProcess } from "effect/unstable/process";
+import { ChildProcess } from "effect/process";
 import {
   eventually,
   HarnessFailure,

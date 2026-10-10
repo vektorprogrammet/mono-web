@@ -1,4 +1,8 @@
 /**
+ * EX-0022: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+/**
  * Public HTTP contracts for health and first-party session resources.
  *
  * @since 0.1.0
@@ -6,7 +10,7 @@
 import { PersonId } from "@vektorprogrammet/domain/organization";
 import { PUBLIC_SYSTEM_ACCESS } from "@vektorprogrammet/domain/authz";
 import { Schema } from "effect";
-import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi";
+import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/http-api";
 import { annotateAccessSpec, browserSessionNativeAccess } from "./access.js";
 import { operationAnnotations, SessionSecurity } from "./common.js";
 import {

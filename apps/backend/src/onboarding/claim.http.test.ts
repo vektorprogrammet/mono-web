@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import { Database, IdentitySnapshot, OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import { commandOnboarding } from "@vektorprogrammet/database/onboarding";
 import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
@@ -12,6 +12,7 @@ import { IdentityActor, IdentitySessionNotFound } from "@vektorprogrammet/domain
 import { OnboardingClaim, OnboardingClaimResult } from "@vektorprogrammet/domain/onboarding";
 import { DepartmentId, Organization, PersonId } from "@vektorprogrammet/domain/organization";
 import { NativeProblem } from "@vektorprogrammet/http-api";
+import { Instant } from "@vektorprogrammet/domain/time";
 import { DateTime, Effect, Layer, Schema } from "effect";
 import { describe, expect, it } from "@effect/vitest";
 import { backendDatabase } from "../../test/database.js";
@@ -55,14 +56,23 @@ const tokens = {
 
 const seed = Database.use((sql) =>
   Effect.gen(function* () {
-    // The claim compares expiry with the database clock, so invitations are issued now.
-    const issuedAt = DateTime.formatIso(yield* DateTime.now);
+    // Expiry and fixture windows read the same SQL wall clock. Issue reads it again after fencing.
+    const currentTime = sql<{
+      now: string;
+    }>`SELECT to_char(clock_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS now`.pipe(
+      Effect.flatMap((rows) => Schema.decodeEffect(Instant)(rows[0]!.now)),
+      Effect.orDie,
+    );
 
+    const at = yield* currentTime;
+    const issuedAt = DateTime.formatIso(at);
+    const opensAt = DateTime.formatIso(DateTime.add(at, { days: -30 }));
+    const closesAt = DateTime.formatIso(DateTime.add(at, { days: 30 }));
     yield* sql`INSERT INTO admission_period_departments (department_id, name) VALUES ('claim-department', 'Trondheim')`;
-    yield* sql`INSERT INTO admission_period_semesters (semester_id, start_at, end_at) VALUES ('claim-semester', '2031-08-01T00:00:00.000Z', '2032-01-01T00:00:00.000Z')`;
+    yield* sql`INSERT INTO admission_period_semesters (semester_id, start_at, end_at) VALUES ('claim-semester', ${opensAt}, ${closesAt})`;
     yield* sql`
       INSERT INTO admission_periods (admission_period_id, department_id, semester_id, start_at, end_at, last_command_id)
-      VALUES ('claim-period', 'claim-department', 'claim-semester', '2031-09-01T08:00:00.000Z', '2031-10-01T20:00:00.000Z', 'claim-period-created')
+      VALUES ('claim-period', 'claim-department', 'claim-semester', ${opensAt}, ${closesAt}, 'claim-period-created')
     `;
     yield* sql`INSERT INTO admission_period_fields_of_study (field_of_study_id, department_id, name) VALUES ('claim-field', 'claim-department', 'Matematikk')`;
     yield* sql`INSERT INTO person_profiles (person_id, first_name, last_name) VALUES ('claim-issuer', 'Cora', 'Coordinator'), ('member-1', 'Mona', 'Member')`;
@@ -74,8 +84,31 @@ const seed = Database.use((sql) =>
       `;
       yield* sql`
         INSERT INTO admission_applications (application_id, applicant_id, admission_period_id, department_id, field_of_study_id, year_of_study, submitted_at)
-        VALUES (${`claim-application-${applicant}`}, ${`claim-applicant-${applicant}`}, 'claim-period', 'claim-department', 'claim-field', 2, '2031-09-15T12:00:00.000Z')
+        VALUES (${`claim-application-${applicant}`}, ${`claim-applicant-${applicant}`}, 'claim-period', 'claim-department', 'claim-field', 2, ${opensAt})
       `;
+      yield* sql.withTransaction(
+        Effect.gen(function* () {
+          const interviewId = `claim-interview-${applicant}`;
+          const schemaId = `claim-schema-${applicant}`;
+
+          const assignedAt = DateTime.formatIso(
+            DateTime.add(DateTime.makeUnsafe(issuedAt), { hours: -2 }),
+          );
+
+          const scheduledAt = DateTime.formatIso(
+            DateTime.add(DateTime.makeUnsafe(issuedAt), { hours: -1 }),
+          );
+
+          yield* sql`INSERT INTO recruitment_interview_schemas(interview_schema_id,name,question_count) VALUES(${schemaId},'Synthetic onboarding interview',1)`;
+          yield* sql`INSERT INTO recruitment_interview_schema_questions(interview_schema_id,question_id,ordinal,prompt,kind,alternatives) VALUES(${schemaId},'explanation',0,'Explain how you would help a pupil.','text','[]'::jsonb)`;
+          yield* sql`INSERT INTO recruitment_interviews(interview_id,application_id,department_id,interviewer_person_id,interview_schema_id,assigned_by_person_id,assigned_at,revision) VALUES(${interviewId},${`claim-application-${applicant}`},${"claim-department"},${"claim-issuer"},${schemaId},${"claim-issuer"},${assignedAt},2)`;
+          yield* sql`INSERT INTO recruitment_interview_question_snapshots(interview_id,question_id,ordinal,prompt,kind,alternatives) SELECT ${interviewId},question_id,ordinal,prompt,kind,alternatives FROM recruitment_interview_schema_questions WHERE interview_schema_id=${schemaId}`;
+          yield* sql`INSERT INTO recruitment_interview_schedules(interview_id,scheduled_at,room,campus,message,scheduled_by_person_id,committed_at,schedule_revision) VALUES(${interviewId},${scheduledAt},'A1','Synthetic campus','Welcome',${"claim-issuer"},${assignedAt},1)`;
+          yield* sql`INSERT INTO recruitment_invitations(invitation_id,interview_id,schedule_revision,capability_sha256,response_state,response_revision,responded_at,created_at) VALUES(${interviewId + "-invitation"},${interviewId},1,repeat(md5(${interviewId}),2),'Accepted',1,${assignedAt},${assignedAt})`;
+          yield* sql`INSERT INTO recruitment_invitation_response_audit(invitation_id,interview_id,schedule_revision,response_revision,response_state,responded_at) VALUES(${interviewId + "-invitation"},${interviewId},1,1,'Accepted',${assignedAt})`;
+          yield* sql`INSERT INTO recruitment_interview_conducts(interview_id,answers,explanatory_power,role_model,suitability,finalized_by_person_id,finalized_at,interview_revision,recommendation) VALUES(${interviewId},'[{"questionId":"explanation","answer":"Work through a concrete example with the pupil."}]'::jsonb,7,8,9,${"claim-issuer"},${issuedAt},2,'Ja')`;
+        }),
+      );
       yield* sql.withTransaction(
         commandOnboarding({
           departmentId: DepartmentId.make("claim-department"),
@@ -84,10 +117,10 @@ const seed = Database.use((sql) =>
             action: "Issue",
           },
           actor: PersonId.make("claim-issuer"),
-          now: issuedAt,
+          now: currentTime,
           invitationId: `claim-invitation-${applicant}`,
           token: tokens[applicant],
-          digest: createHash("sha256").update(tokens[applicant]).digest("hex"),
+          digest: sha256Hex(new TextEncoder().encode(tokens[applicant])),
         }),
       );
     }

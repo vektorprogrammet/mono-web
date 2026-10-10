@@ -1,4 +1,4 @@
-import { Data, Match, Schema } from "effect";
+import { Data, Schema } from "effect";
 import { AdmissionPeriodId } from "../admission-period/schema.js";
 import {
   PublicApplicationEmailSchema,
@@ -39,24 +39,10 @@ export const AdmissionOutcomeBasis = Schema.Literals([
 
 export type AdmissionOutcomeBasis = typeof AdmissionOutcomeBasis.Type;
 
-/** `ApplicationSubmitted` may still be decided; `OutcomeAnnounced` is terminal. */
+/** Unannounced explicit decisions may be revised against the same cited basis; announcement is final. */
 export const AdmissionOutcomeState = Schema.Literals(["ApplicationSubmitted", "OutcomeAnnounced"]);
 
 export type AdmissionOutcomeState = typeof AdmissionOutcomeState.Type;
-
-/**
- * The outcome that follows from a basis and the latest recorded revision, or null while none
- * follows. A recorded revision never overrides `Ja` or `Nei`.
- */
-export const effectiveAdmissionOutcome = (
-  basis: AdmissionOutcomeBasis,
-  decision: AdmissionOutcome | null,
-): AdmissionOutcome | null =>
-  Match.value(basis).pipe(
-    Match.when("Ja", (): AdmissionOutcome => "Admitted"),
-    Match.when("Nei", (): AdmissionOutcome => "Rejected"),
-    Match.orElse(() => decision),
-  );
 
 export const AdmissionOutcomeScope = Schema.Struct({
   departmentId: DepartmentId,

@@ -18,7 +18,7 @@ encodePathIdentity(identity: string): string
 - Throws: The `Problem` request.malformed when `identity` is not a string of Unicode scalar values, such as one with a lone surrogate.
 - Requirements: none
 - Side effects: none
-- Source: [apps/backend/src/http-semantics.ts:381](../../apps/backend/src/http-semantics.ts#L381)
+- Source: [apps/backend/src/http-semantics.ts:382](../../apps/backend/src/http-semantics.ts#L382)
 
 **How it works**
 
@@ -55,7 +55,7 @@ normalizeTarget(routeTemplate: string, identities: Readonly<Record<string, strin
 - Throws: The `Problem` request.malformed when `identities` lacks a name of the template, or an identity is not a string of Unicode scalar values.
 - Requirements: none
 - Side effects: none
-- Source: [apps/backend/src/http-semantics.ts:413](../../apps/backend/src/http-semantics.ts#L413)
+- Source: [apps/backend/src/http-semantics.ts:414](../../apps/backend/src/http-semantics.ts#L414)
 
 **How it works**
 
@@ -88,7 +88,7 @@ deriveHttpIdentity(identity: NativeIdempotencyIdentity): DerivedHttpIdentity
 - Throws: The `Problem` request.malformed when the subject, operation id, or target is outside its grammar, and idempotency-key.invalid when the key is.
 - Requirements: none
 - Side effects: none
-- Source: [apps/backend/src/http-semantics.ts:463](../../apps/backend/src/http-semantics.ts#L463)
+- Source: [apps/backend/src/http-semantics.ts:464](../../apps/backend/src/http-semantics.ts#L464)
 
 **How it works**
 
@@ -109,3 +109,36 @@ const identity = deriveHttpIdentity({ credentialSubject: `Person:${personId}`, q
 Hashing the request bytes, or building a key by hand: the body or header spelling then
 changes the identity of one command. Derive it from the tuple, and digest the semantic request
 apart from it with `semanticRequestDigest`.
+
+## `withIdentityRequestCancellation`
+
+Keeps an identity request's cancellation signal attached to its native Effect fiber.
+
+```ts
+withIdentityRequestCancellation(
+  request: Request
+): (<A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>)
+```
+
+- Inputs: `request: Request`
+- Output: `(<A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>)`
+- Errors: none
+- Requirements: none
+- Side effects: Registers one abort listener only while the operation runs, removing it on exit.
+- Source: [packages/database/src/password-recovery.ts:55](../../packages/database/src/password-recovery.ts#L55)
+
+**How it works**
+
+An already-aborted request interrupts before work starts. Aborting during work
+interrupts the work and awaits its finalizers. Completion removes the abort listener.
+The success, failure, and requirement channels are unchanged; cancellation never becomes success.
+
+**Use**
+
+```ts
+handle(request).pipe(withIdentityRequestCancellation(request));
+```
+
+**Avoid**
+
+Running a runtime inside the operation or recovering interruption as an HTTP response.

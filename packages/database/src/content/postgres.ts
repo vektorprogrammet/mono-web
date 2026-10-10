@@ -1,6 +1,7 @@
 import { flow, Predicate, Effect, Schema } from "effect";
 import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import { Database, type DatabaseOperations } from "../service.js";
+import { ArticleIdFromText } from "./article-id.js";
 import type {
   OrganizationAuthorityInstant,
   OrganizationPersonAuthority,
@@ -68,8 +69,10 @@ const persistenceError = (operation: string, cause: unknown): ContentPersistence
 
 type DraftRow = typeof DraftRowSchema.Type;
 
+type DraftRowEncoded = typeof DraftRowSchema.Encoded;
+
 const DraftRowSchema = Schema.Struct({
-  articleId: ArticleId,
+  articleId: ArticleIdFromText,
   createdByPersonId: PersonId,
   title: Schema.String,
   slug: Schema.String,
@@ -79,6 +82,12 @@ const DraftRowSchema = Schema.Struct({
   updatedAt: Rfc3339InstantSchema,
   currentVersionNumber: Schema.NullOr(ArticleVersionNumber),
   revision: Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0))),
+});
+
+/** The draft JSON of a RETURNING row, whose bigint `article_id` crosses as text (see ArticleIdFromText). */
+const ArticleDraftTextIdRowSchema = Schema.Struct({
+  ...ArticleDraft.json.fields,
+  articleId: ArticleIdFromText,
 });
 
 const departmentIdsForArticles = (
@@ -98,7 +107,9 @@ const departmentIdsForArticles = (
         ),
         Effect.flatMap(
           Schema.decodeUnknownEffect(
-            Schema.Array(Schema.Struct({ articleId: Schema.String, departmentId: DepartmentId })),
+            Schema.Array(
+              Schema.Struct({ articleId: ArticleIdFromText, departmentId: DepartmentId }),
+            ),
           ),
         ),
         Effect.mapError((cause) => persistenceError("decode content departments", cause)),
@@ -106,7 +117,7 @@ const departmentIdsForArticles = (
           const map = new Map<number, Array<DepartmentId>>();
 
           for (const row of rows) {
-            const key = Number(row.articleId);
+            const key = row.articleId;
             const list = map.get(key) ?? [];
             list.push(row.departmentId);
             map.set(key, list);
@@ -123,7 +134,7 @@ const departmentIdsForArticles = (
         }),
       );
 
-const decodeDraftRows = Schema.decodeUnknownSync(Schema.Array(DraftRowSchema), {
+const decodeDraftRows = Schema.decodeUnknownEffect(Schema.Array(DraftRowSchema), {
   onExcessProperty: "error",
 });
 
@@ -192,9 +203,9 @@ export const readWorkspacePostgres = (input: {
             }
           }
 
-          const rows = yield* database<DraftRow>`
+          const rows = yield* database<DraftRowEncoded>`
             SELECT
-              CAST(article.article_id AS integer) AS "articleId",
+              article.article_id::text AS "articleId",
               article.title,
               article.slug,
               article.body_html AS "bodyHtml",
@@ -212,10 +223,9 @@ export const readWorkspacePostgres = (input: {
             ),
           );
 
-          const drafts = yield* Effect.try({
-            try: () => decodeDraftRows(rows),
-            catch: (cause) => decodeError("decode content draft rows", cause),
-          });
+          const drafts = yield* decodeDraftRows(rows).pipe(
+            Effect.mapError((cause) => decodeError("decode content draft rows", cause)),
+          );
 
           const departmentIdsByArticle = yield* departmentIdsForArticles(
             database,
@@ -348,9 +358,9 @@ export const readArticleDetailInTransactionPostgres = (input: {
         : new ContentNotInScope({});
     }
 
-    const rows = yield* database<DraftRow>`
+    const rows = yield* database<DraftRowEncoded>`
       SELECT
-        CAST(article.article_id AS integer) AS "articleId",
+        article.article_id::text AS "articleId",
         article.title,
         article.slug,
         article.body_html AS "bodyHtml",
@@ -368,10 +378,10 @@ export const readArticleDetailInTransactionPostgres = (input: {
       ),
     );
 
-    const draft = yield* Effect.try({
-      try: () => decodeDraftRows(rows)[0],
-      catch: (cause) => decodeError("decode content article detail row", cause),
-    });
+    const draft = yield* decodeDraftRows(rows).pipe(
+      Effect.map((decoded) => decoded[0]),
+      Effect.mapError((cause) => decodeError("decode content article detail row", cause)),
+    );
 
     if (draft === undefined) return yield* new ContentArticleNotFound({});
 
@@ -613,10 +623,10 @@ const authorityDecisionOrDenial = (
 const readDraftForUpdate = (
   sql: DatabaseOperations,
   articleId: ArticleId,
-): Effect.Effect<DraftRow | undefined, ContentPersistenceError> =>
-  sql<DraftRow>`
+): Effect.Effect<DraftRow | undefined, ContentDecodeError | ContentPersistenceError> =>
+  sql<DraftRowEncoded>`
     SELECT
-      CAST(article.article_id AS integer) AS "articleId",
+      article.article_id::text AS "articleId",
       article.title,
       article.slug,
       article.body_html AS "bodyHtml",
@@ -630,9 +640,16 @@ const readDraftForUpdate = (
     WHERE article.article_id = ${articleId}
     FOR UPDATE
   `.pipe(
-    Effect.map((rows) => rows[0]),
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("lock content article", cause)),
+    ),
+    Effect.flatMap((rows) =>
+      rows[0] === undefined
+        ? Effect.undefined
+        : decodeDraftRows(rows).pipe(
+            Effect.map((decoded) => decoded[0]),
+            Effect.mapError((cause) => decodeError("decode locked content article row", cause)),
+          ),
     ),
   );
 
@@ -764,7 +781,7 @@ export const createDraftPostgres = (input: {
 
           const slug = dedupeSlug(baseSlug, taken);
 
-          const inserted = yield* database<ArticleDraftJson>`
+          const inserted = yield* database<typeof ArticleDraftTextIdRowSchema.Encoded>`
             INSERT INTO public.content_articles (
               title, slug, body_html, sticky, created_by_person_id,
               created_at, updated_at, current_version_number, revision
@@ -773,7 +790,7 @@ export const createDraftPostgres = (input: {
               date_trunc('milliseconds', now(), 'UTC'), date_trunc('milliseconds', now(), 'UTC'), NULL, 0
             )
             RETURNING
-              CAST(article_id AS integer) AS "articleId",
+              article_id::text AS "articleId",
               title,
               slug,
               body_html AS "bodyHtml",
@@ -783,7 +800,7 @@ export const createDraftPostgres = (input: {
               current_version_number AS "currentVersionNumber",
               revision
           `.pipe(
-            Effect.mapError((cause): ContentPersistenceError | ContentSlugConflict => {
+            Effect.mapError((cause: unknown): ContentPersistenceError | ContentSlugConflict => {
               const driverCause =
                 (cause === null || Predicate.isObjectOrArray(cause)) &&
                 cause !== null &&
@@ -824,9 +841,12 @@ export const createDraftPostgres = (input: {
             }),
           );
 
-          const observation = yield* Schema.decodeUnknownEffect(ArticleDraft.json)(inserted[0], {
-            onExcessProperty: "error",
-          }).pipe(Effect.mapError((cause) => decodeError("decode created article draft", cause)));
+          const observation = yield* Schema.decodeUnknownEffect(ArticleDraftTextIdRowSchema)(
+            inserted[0],
+            {
+              onExcessProperty: "error",
+            },
+          ).pipe(Effect.mapError((cause) => decodeError("decode created article draft", cause)));
 
           yield* replaceArticleDepartments(database, observation.articleId, command.departmentIds);
           yield* insertReceiptAndAudit({
@@ -1159,13 +1179,13 @@ export const reviseDraftPostgres = (input: {
             return yield* new ContentNotPublisher({ articleId: draft.articleId });
           }
 
-          const revised = yield* database<ArticleDraftJson>`
+          const revised = yield* database<typeof ArticleDraftTextIdRowSchema.Encoded>`
             UPDATE public.content_articles
             SET title = ${command.title}, body_html = ${sanitizedBody}, sticky = ${sticky},
                 updated_at = date_trunc('milliseconds', now(), 'UTC'), revision = revision + 1
             WHERE article_id = ${draft.articleId}
             RETURNING
-              CAST(article_id AS integer) AS "articleId",
+              article_id::text AS "articleId",
               title,
               slug,
               body_html AS "bodyHtml",
@@ -1180,9 +1200,12 @@ export const reviseDraftPostgres = (input: {
             ),
           );
 
-          const observation = yield* Schema.decodeUnknownEffect(ArticleDraft.json)(revised[0], {
-            onExcessProperty: "error",
-          }).pipe(Effect.mapError((cause) => decodeError("decode revised article draft", cause)));
+          const observation = yield* Schema.decodeUnknownEffect(ArticleDraftTextIdRowSchema)(
+            revised[0],
+            {
+              onExcessProperty: "error",
+            },
+          ).pipe(Effect.mapError((cause) => decodeError("decode revised article draft", cause)));
 
           yield* replaceArticleDepartments(database, draft.articleId, command.departmentIds);
           yield* insertReceiptAndAudit({
@@ -1208,7 +1231,7 @@ export const reviseDraftPostgres = (input: {
   });
 
 const ContentArticleHttpSourceSchema = Schema.Struct({
-  articleId: ArticleId,
+  articleId: ArticleIdFromText,
   createdByPersonId: PersonId,
   articleRevision: Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0))),
   authorProfileRevision: Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0))),
@@ -1228,7 +1251,7 @@ export const readContentArticleHttpSourcePostgres = (
     Effect.gen(function* () {
       const rows = yield* database`
         SELECT
-          article.article_id::integer AS "articleId",
+          article.article_id::text AS "articleId",
           article.created_by_person_id AS "createdByPersonId",
           article.revision AS "articleRevision",
           author.revision AS "authorProfileRevision"
@@ -1311,7 +1334,7 @@ export const readContentAuthorityHttpSourcesPostgres = (
   );
 
 const PublishedNewsCollectionHttpSourceSchema = Schema.Struct({
-  articleId: ArticleId,
+  articleId: ArticleIdFromText,
   currentVersionNumber: ArticleVersionNumber,
   publishedAt: Rfc3339InstantSchema,
   authorProfileRevision: Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0))),
@@ -1332,7 +1355,7 @@ export const readPublishedNewsCollectionHttpSourcesPostgres = (
 
     return database`
       SELECT
-        article.article_id::integer AS "articleId",
+        article.article_id::text AS "articleId",
         article.current_version_number AS "currentVersionNumber",
         to_char(
           version.published_at AT TIME ZONE 'UTC',
@@ -1378,7 +1401,7 @@ export const readPublishedNewsCollectionHttpSourcesPostgres = (
   });
 
 const PublishedNewsArticleHttpSourceSchema = Schema.Struct({
-  articleId: ArticleId,
+  articleId: ArticleIdFromText,
   currentVersionNumber: ArticleVersionNumber,
   selectedVersionNumber: ArticleVersionNumber,
   publishedAt: Rfc3339InstantSchema,
@@ -1400,7 +1423,7 @@ export const readPublishedNewsArticleHttpSourcePostgres = (
     Effect.gen(function* () {
       const rows = yield* database`
         SELECT
-          article.article_id::integer AS "articleId",
+          article.article_id::text AS "articleId",
           article.current_version_number AS "currentVersionNumber",
           version.version_number AS "selectedVersionNumber",
           to_char(
