@@ -45,9 +45,16 @@ class Pooler extends Context.Service<Pooler, DisposablePgBouncer>()(
 ) {}
 
 /**
+ * The production Database search path as a database default. `-c name=value` of the startup
+ * options is the option form of `ALTER DATABASE ... SET name=value`, so one constant declares both.
+ */
+const databaseSearchPathSetting = NativeDatabaseStartupOptions.replace("-c ", "");
+
+/**
  * A cluster with the pilot database behind a transaction pooler. The database names the
  * application's search path: PgBouncer restores a client's startup `search_path` only where the
- * server reports it, which PostgreSQL 17 does not.
+ * server reports it, which PostgreSQL 17 does not. The database default is the declared
+ * production path, so both majors resolve it alike.
  */
 const pooler = Layer.effect(
   Pooler,
@@ -63,7 +70,7 @@ const pooler = Layer.effect(
       startupOptions: NativeDatabaseStartupOptions,
     });
 
-    yield* admin.unsafe("ALTER DATABASE pilot SET search_path = auth, public").pipe(Effect.orDie);
+    yield* admin.unsafe(`ALTER DATABASE pilot SET ${databaseSearchPathSetting}`).pipe(Effect.orDie);
 
     return yield* Effect.acquireRelease(
       Effect.promise(() => startDisposablePgBouncer(cluster, { poolSize: 4 })),
@@ -190,7 +197,7 @@ const preparedCapacity = Effect.fnUntraced(function* () {
   });
 
   const rows = yield* Schema.decodeEffect(
-    Schema.Array(Schema.Struct({ key: Schema.String, value: Schema.String })),
+    Schema.Array(Schema.Struct({ key: Schema.String, value: Schema.NullOr(Schema.String) })),
   )(result.rows);
 
   return yield* Schema.decodeUnknownEffect(Schema.FiniteFromString.check(Schema.isGreaterThan(0)))(
