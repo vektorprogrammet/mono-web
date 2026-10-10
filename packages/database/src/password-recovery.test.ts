@@ -62,7 +62,7 @@ const seedRecoveryRequest = (sql: SqlClient.SqlClient) =>
     INSERT INTO public.person_profiles(person_id, first_name, last_name) VALUES ('recovery-request-person', 'Recovery', 'Request');
     INSERT INTO auth."user"(id, name, email, "emailVerified") VALUES ('recovery-request-person', 'Recovery Request', 'recovery-request@example.invalid', TRUE);
     INSERT INTO auth.verification(id, identifier, value, "expiresAt", "createdAt", "updatedAt")
-    VALUES ('recovery-request-verification', 'reset-password:${recoveryToken}', 'recovery-request-person', CURRENT_TIMESTAMP + INTERVAL '1 hour', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+    VALUES ('recovery-request-verification', 'reset-password:${recoveryToken}', 'recovery-request-person', date_trunc('milliseconds', CURRENT_TIMESTAMP + INTERVAL '1 hour'), date_trunc('milliseconds', CURRENT_TIMESTAMP), date_trunc('milliseconds', CURRENT_TIMESTAMP));
   `).pipe(Effect.provideService(SqlClient.SqlClient, sql));
 
 const decodeAcceptedAudit = Schema.decodeUnknownEffect(
@@ -117,7 +117,7 @@ const seedRecoveryDelivery = (sql: SqlClient.SqlClient) =>
   INSERT INTO public.person_profiles(person_id, first_name, last_name) VALUES ('recovery-delivery-person', 'Recovery', 'Delivery');
   INSERT INTO auth."user"(id, name, email, "emailVerified") VALUES ('recovery-delivery-person', 'Recovery Delivery', 'recovery-delivery@example.invalid', TRUE);
   INSERT INTO auth.verification(id, identifier, value, "expiresAt", "createdAt", "updatedAt")
-  VALUES ('recovery-delivery-verification', 'reset-password:synthetic-delivery-token', 'recovery-delivery-person', CURRENT_TIMESTAMP + INTERVAL '1 hour', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+  VALUES ('recovery-delivery-verification', 'reset-password:synthetic-delivery-token', 'recovery-delivery-person', date_trunc('milliseconds', CURRENT_TIMESTAMP + INTERVAL '1 hour'), date_trunc('milliseconds', CURRENT_TIMESTAMP), date_trunc('milliseconds', CURRENT_TIMESTAMP));
   INSERT INTO auth.password_reset_email_outbox(effect_id, verification_id, subject_person_id, status)
   VALUES ('password-reset:recovery-delivery-verification', 'recovery-delivery-verification', 'recovery-delivery-person', 'Pending');
 `).pipe(Effect.provideService(SqlClient.SqlClient, sql));
@@ -252,7 +252,7 @@ layer(TestPlatform, { excludeTestServices: true })("owned recovery boundary", (i
 
           yield* executePostgresMigration(`
           INSERT INTO auth.verification(id, identifier, value, "expiresAt", "createdAt", "updatedAt")
-          VALUES ('recovery-request-verification-two', 'reset-password:${secondRecoveryToken}', 'recovery-request-person', CURRENT_TIMESTAMP + INTERVAL '1 hour', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+          VALUES ('recovery-request-verification-two', 'reset-password:${secondRecoveryToken}', 'recovery-request-person', date_trunc('milliseconds', CURRENT_TIMESTAMP + INTERVAL '1 hour'), date_trunc('milliseconds', CURRENT_TIMESTAMP), date_trunc('milliseconds', CURRENT_TIMESTAMP));
         `).pipe(Effect.provideService(SqlClient.SqlClient, sql));
 
           const firstCapture = yield* captureSendResetPassword(sql, first);
