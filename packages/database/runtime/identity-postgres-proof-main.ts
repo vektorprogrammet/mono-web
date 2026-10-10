@@ -3,7 +3,8 @@
  * @effect-diagnostics unstableApiUsage:off
  */
 import * as SqlClient from "effect/sql/SqlClient";
-import { AuthPoolLive, nativePgLayer } from "../src/pg-pool.js";
+import type { Pool } from "pg";
+import { AuthPgPool, AuthPoolLive, nativePgLayer } from "../src/pg-pool.js";
 import { DatabaseRuntimeLive } from "../src/runtime-layer.js";
 import {
   NativeAuthEngineLive,
@@ -380,21 +381,32 @@ const persistedSessions = (pool: SqlClient.SqlClient) =>
       })),
     );
 
-const assertAuthSearchPath = (pool: SqlClient.SqlClient) =>
-  pool
-    .unsafe<{
-      readonly currentSchema: string;
-      readonly searchPath: string;
-    }>(`SELECT
+const searchPathQuery = `SELECT
      current_schema() AS "currentSchema",
-     current_setting('search_path') AS "searchPath"`)
-    .pipe(
-      Effect.map((searchPath) => {
-        assert.deepEqual(searchPath, [{ currentSchema: "auth", searchPath: "auth,public" }]);
+     current_setting('search_path') AS "searchPath"`;
 
-        return searchPath[0]?.searchPath;
-      }),
-    );
+interface SearchPathRow {
+  readonly currentSchema: string;
+  readonly searchPath: string;
+}
+
+/** The native Database pool declares the public policy of every production business pool. */
+const assertDatabaseSearchPath = (sql: SqlClient.SqlClient) =>
+  sql.unsafe<SearchPathRow>(searchPathQuery).pipe(
+    Effect.map((rows) => {
+      assert.deepEqual(rows, [{ currentSchema: "public", searchPath: "public" }]);
+    }),
+  );
+
+/** The Better Auth pool declares the auth policy, so the adapter's unqualified tables resolve in auth. */
+const assertAuthPoolSearchPath = (pool: Pool) =>
+  Effect.tryPromise(() => pool.query<SearchPathRow>(searchPathQuery)).pipe(
+    Effect.map(({ rows }) => {
+      assert.deepEqual(rows, [{ currentSchema: "auth", searchPath: "auth" }]);
+
+      return rows[0]?.searchPath;
+    }),
+  );
 
 const exerciseCredentialsAndSessions = (
   engine: AuthEngine,
@@ -548,8 +560,10 @@ const runIdentityPostgresProof = (postgresUrl: string) =>
     const independent = yield* Layer.build(Layer.fresh(nativeAuthLayer));
     const engine = Context.get(auth, NativeAuthEngine);
     const independentlyConstructedEngine = Context.get(independent, NativeAuthEngine);
-    const searchPath = yield* assertAuthSearchPath(Context.get(auth, Database));
-    yield* assertAuthSearchPath(Context.get(independent, Database));
+    const searchPath = yield* assertAuthPoolSearchPath(Context.get(auth, AuthPgPool));
+    yield* assertAuthPoolSearchPath(Context.get(independent, AuthPgPool));
+    yield* assertDatabaseSearchPath(Context.get(auth, Database));
+    yield* assertDatabaseSearchPath(Context.get(independent, Database));
     const identity = yield* seedCallerSuppliedIdentity(engine, observer);
 
     const authentication = yield* exerciseCredentialsAndSessions(
