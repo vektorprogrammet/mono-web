@@ -251,7 +251,6 @@ export const EXPECTED_MIGRATION_23_PUBLIC_TABLES = [
   "public.admission_period_command_receipts",
   "public.admission_period_departments",
   "public.admission_period_fields_of_study",
-  "public.admission_period_outbox",
   "public.admission_period_semesters",
   "public.admission_periods",
   "public.authz_rules",

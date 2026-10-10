@@ -456,19 +456,6 @@ export const readOrganizationImportStableState = (
       ORDER BY approval_grant_id ASC
     `;
 
-    const admissionPeriodOutbox = yield* sql`
-      SELECT
-        effect_id AS "effectId", effect_type AS "effectType", admission_period_id AS "admissionPeriodId",
-        command_id AS "commandId", ordinal, payload_json AS "payloadJson", status, attempts,
-        claim_id AS "claimId",
-        CASE WHEN claimed_at IS NULL THEN NULL
-          ELSE to_char(claimed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
-        END AS "claimedAt",
-        last_failure_tag AS "lastFailureTag"
-      FROM public.admission_period_outbox
-      ORDER BY effect_id ASC
-    `;
-
     const applicationOutbox = yield* sql`
       SELECT
         effect_id AS "effectId", effect_type AS "effectType", application_id AS "applicationId",
@@ -562,7 +549,6 @@ export const readOrganizationImportStableState = (
 
     const outbox = makeStableByteSet("outbox", [
       table("public.admission_application_outbox", applicationOutbox),
-      table("public.admission_period_outbox", admissionPeriodOutbox),
       table("public.economy_receipt_outbox", receiptOutbox),
       table("public.recruitment_invitation_outbox", invitationOutbox),
       table("public.recruitment_invitation_response_outbox", invitationResponseOutbox),

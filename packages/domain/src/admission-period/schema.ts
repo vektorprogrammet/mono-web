@@ -32,12 +32,6 @@ export const AdmissionPeriodCommandId = NonEmptyIdSchema.pipe(
 
 export type AdmissionPeriodCommandId = typeof AdmissionPeriodCommandId.Type;
 
-export const AdmissionPeriodEffectId = NonEmptyIdSchema.pipe(
-  Schema.brand("AdmissionPeriodEffectId"),
-);
-
-export type AdmissionPeriodEffectId = typeof AdmissionPeriodEffectId.Type;
-
 export const RevisionSchema = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)));
 
 const ReferenceNameSchema = Schema.String.pipe(

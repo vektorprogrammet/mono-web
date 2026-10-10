@@ -20,10 +20,6 @@ import {
 } from "@vektorprogrammet/domain/admission-period";
 import { admissionPeriodCommandDigest } from "@vektorprogrammet/domain/admission-period";
 import {
-  AdmissionPeriodOutboxRequestSchema,
-  type AdmissionPeriodOutboxRequest,
-} from "@vektorprogrammet/domain/admission-period";
-import {
   AdmissionDepartment,
   AdmissionPeriod,
   AdmissionPeriodCommandSchema,
@@ -267,8 +263,6 @@ const writePeriod = (
 // A domain value that fails its own contract encoder is a broken invariant, so the failure is a defect.
 const encodeObservation = Schema.encodeEffect(AdmissionPeriodObservationSchema);
 
-const encodeOutboxRequest = Schema.encodeEffect(AdmissionPeriodOutboxRequestSchema);
-
 const writePeriodCommandReceipt = (
   sql: DatabaseOperations,
   command: AdmissionPeriodCommand,
@@ -295,32 +289,6 @@ const writePeriodCommandReceipt = (
       ),
     );
   });
-
-const writeOutbox = (
-  sql: DatabaseOperations,
-  requests: ReadonlyArray<AdmissionPeriodOutboxRequest>,
-): Effect.Effect<void, AdmissionPeriodPersistenceError> =>
-  Effect.forEach(
-    requests,
-    (request, ordinal) =>
-      Effect.gen(function* () {
-        const encodedRequest = yield* encodeOutboxRequest(request).pipe(Effect.orDie);
-
-        yield* sql`
-      INSERT INTO admission_period_outbox (
-        effect_id, effect_type, admission_period_id, command_id, ordinal, payload_json
-      ) VALUES (
-        ${request.effectId}, ${request._tag}, ${request.admissionPeriodId},
-        ${request.commandId}, ${ordinal}, ${sql.json(canonicalJsonValue(encodedRequest))}
-      )
-    `;
-      }),
-    { discard: true },
-  ).pipe(
-    Effect.catchTag("SqlError", (cause) =>
-      Effect.fail(periodPersistenceError("insert admission outbox", cause)),
-    ),
-  );
 
 const writeAudit = (
   sql: DatabaseOperations,
@@ -355,7 +323,6 @@ const replayPeriodResult = (
     original: observation,
   }),
   replayed: true,
-  outboxCount: 0,
 });
 
 const effectiveCreateDepartment = (
@@ -491,7 +458,6 @@ export const executeAdmissionPeriodCommand = (
             decision.period,
             context.now,
           );
-          yield* writeOutbox(sql, decision.outbox);
           yield* writeAudit(
             sql,
             command,
@@ -505,7 +471,6 @@ export const executeAdmissionPeriodCommand = (
             period: decision.period,
             observation: decision.observation,
             replayed: false,
-            outboxCount: decision.outbox.length,
           };
         }),
       )

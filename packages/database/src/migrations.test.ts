@@ -1890,3 +1890,191 @@ describe("decision instant precision upgrade from registered 84", () => {
     { timeout: 180_000 },
   );
 });
+
+// Migration 86 drops the admission period outbox, a table that every period create and revise
+// wrote and that nothing read. The rows come from the statements of the code before the
+// migration; the other admission period tables keep their exact rows and constraints.
+const outboxRetirement = selectDatabaseMigration("86_retire-admission-period-outbox");
+
+const outboxRetirementSurvivors = [
+  "admission_period_departments",
+  "admission_period_semesters",
+  "admission_period_fields_of_study",
+  "admission_periods",
+  "admission_period_command_receipts",
+  "admission_period_audit",
+] as const;
+
+// Registered 85 seed: one create and one revise with their period, receipts, audits, and outbox rows.
+const outboxRetirementSeed = `
+INSERT INTO public.admission_period_departments (department_id, name) VALUES ('retire-department', 'Retire');
+INSERT INTO public.admission_period_fields_of_study (field_of_study_id, department_id, name) VALUES ('retire-field', 'retire-department', 'Math');
+INSERT INTO public.admission_period_semesters (semester_id, start_at, end_at)
+  VALUES ('retire-semester', '2035-01-01T00:00:00.000Z', '2035-07-01T00:00:00.000Z');
+INSERT INTO public.admission_periods (admission_period_id, department_id, semester_id, start_at, end_at, revision, last_command_id)
+  VALUES ('retire-period', 'retire-department', 'retire-semester', '2035-02-01T00:00:00.000Z', '2035-03-15T00:00:00.000Z', 1, 'retire-revise');
+INSERT INTO public.admission_period_command_receipts (command_id, command_sha256, command_json, observation_json, admission_period_id, committed_at)
+  VALUES ('retire-create', repeat('a', 64), '{"_tag":"CreateAdmissionPeriod"}'::jsonb, '{"_tag":"Created"}'::jsonb, 'retire-period', '2035-01-15T00:00:00.000Z'),
+    ('retire-revise', repeat('b', 64), '{"_tag":"ReviseAdmissionPeriod"}'::jsonb, '{"_tag":"Revised"}'::jsonb, 'retire-period', '2035-01-16T00:00:00.000Z');
+INSERT INTO public.admission_period_audit (command_id, admission_period_id, actor_person_id, action, admission_period_revision, occurred_at)
+  VALUES ('retire-create', 'retire-period', 'retire-admin', 'AdmissionPeriodCreated', 0, '2035-01-15T00:00:00.000Z'),
+    ('retire-revise', 'retire-period', 'retire-admin', 'AdmissionPeriodRevised', 1, '2035-01-16T00:00:00.000Z');
+INSERT INTO public.admission_period_outbox (effect_id, effect_type, admission_period_id, command_id, ordinal, payload_json)
+  VALUES ('admission-period:' || repeat('c', 64), 'PublishAdmissionPeriodChanged', 'retire-period', 'retire-create', 0, '{"_tag":"PublishAdmissionPeriodChanged"}'::jsonb),
+    ('admission-period:' || repeat('d', 64), 'PublishAdmissionPeriodChanged', 'retire-period', 'retire-revise', 0, '{"_tag":"PublishAdmissionPeriodChanged"}'::jsonb);
+`;
+
+// Every row and every constraint definition of the surviving tables, as exact text.
+const outboxRetirementSnapshotSql = `SELECT jsonb_build_object(
+  'rows', jsonb_build_object(${outboxRetirementSurvivors
+    .map(
+      (table) =>
+        `'${table}', (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text), '[]'::jsonb) FROM public.${table} t)`,
+    )
+    .join(", ")}),
+  'constraints', (
+    SELECT coalesce(jsonb_agg(jsonb_build_array(conrelid::regclass::text, conname, pg_get_constraintdef(oid))
+      ORDER BY conrelid::regclass::text, conname), '[]'::jsonb)
+    FROM pg_constraint
+    WHERE conrelid IN (${outboxRetirementSurvivors.map((table) => `'public.${table}'::regclass`).join(", ")})
+  )
+)::text AS bytes`;
+
+// The relations and constraints that are named after the outbox, and every outbox table of the database.
+const outboxRetirementFootprintSql = `SELECT
+  (SELECT count(*)::integer FROM pg_class
+    WHERE relnamespace = 'public'::regnamespace AND starts_with(relname, 'admission_period_outbox')) AS relations,
+  (SELECT count(*)::integer FROM pg_constraint WHERE starts_with(conname, 'admission_period_outbox')) AS constraints,
+  (SELECT coalesce(string_agg(table_schema || '.' || table_name, ',' ORDER BY table_schema, table_name), '')
+    FROM information_schema.tables
+    WHERE table_type = 'BASE TABLE' AND table_schema IN ('public', 'auth') AND table_name LIKE '%outbox') AS "outboxTables"`;
+
+const outboxRetirementCountSql =
+  "SELECT count(*)::integer AS count FROM public.admission_period_outbox";
+
+const retiredOutboxTable = "public.admission_period_outbox";
+
+const observeOutboxRetirement = Effect.fnUntraced(function* (pool: SqlClient.SqlClient) {
+  const [footprint] = yield* pool.unsafe<{
+    readonly relations: number;
+    readonly constraints: number;
+    readonly outboxTables: string;
+  }>(outboxRetirementFootprintSql);
+
+  const [snapshot] = yield* pool.unsafe<{ readonly bytes: string }>(outboxRetirementSnapshotSql);
+
+  return {
+    relations: footprint?.relations,
+    constraints: footprint?.constraints,
+    outboxTables: footprint?.outboxTables.split(",") ?? [],
+    survivors: snapshot?.bytes,
+  };
+});
+
+// The statement runs in a server-side block, so its SQLSTATE stays in the database:
+// PGlite's socket server closes a connection that reports one.
+const outboxRetirementAttempt = Effect.fnUntraced(function* (
+  pool: SqlClient.SqlClient,
+  statement: string,
+) {
+  yield* pool.unsafe(`CREATE OR REPLACE FUNCTION public.outbox_retirement_attempt(statement text) RETURNS text
+   LANGUAGE plpgsql AS $$
+   BEGIN
+     EXECUTE statement;
+     RETURN 'accepted';
+   EXCEPTION WHEN OTHERS THEN
+     RETURN 'rejected ' || SQLSTATE;
+   END $$`);
+
+  const [attempted] = yield* pool.unsafe<{ readonly outcome: string }>(
+    "SELECT public.outbox_retirement_attempt($1) AS outcome",
+    [statement],
+  );
+
+  yield* pool.unsafe("DROP FUNCTION public.outbox_retirement_attempt(text)");
+
+  return attempted?.outcome;
+});
+
+const proveOutboxRetirement = Effect.fnUntraced(function* (pool: SqlClient.SqlClient) {
+  yield* executePostgresMigration(outboxRetirementSeed).pipe(
+    Effect.provideService(SqlClient.SqlClient, pool),
+  );
+
+  const before = yield* observeOutboxRetirement(pool);
+  const [rowsBefore] = yield* pool.unsafe<{ readonly count: number }>(outboxRetirementCountSql);
+  const source = yield* readMigrationSource(outboxRetirement.migration.url);
+
+  // The control: the probes see the table, its rows, and its objects before the migration.
+  expect(rowsBefore?.count).toBe(2);
+  expect(before.outboxTables).toContain(retiredOutboxTable);
+  expect(before.relations).toBeGreaterThan(0);
+  expect(before.constraints).toBeGreaterThan(0);
+
+  // A dependent object blocks the drop: the migration never cascades into what it does not own.
+  yield* pool.unsafe(
+    "CREATE VIEW public.period_outbox_dependent_view AS SELECT effect_id FROM public.admission_period_outbox",
+  );
+  expect(yield* outboxRetirementAttempt(pool, source)).toBe("rejected 2BP01");
+
+  const [rowsBlocked] = yield* pool.unsafe<{ readonly count: number }>(outboxRetirementCountSql);
+
+  expect(rowsBlocked?.count).toBe(2);
+  yield* pool.unsafe("DROP VIEW public.period_outbox_dependent_view");
+
+  yield* pool.withTransaction(
+    executePostgresMigration(source).pipe(Effect.provideService(SqlClient.SqlClient, pool)),
+  );
+
+  const after = yield* observeOutboxRetirement(pool);
+
+  // The table, its indexes, and its constraints are gone, and only they.
+  expect(yield* outboxRetirementAttempt(pool, outboxRetirementCountSql)).toBe("rejected 42P01");
+  expect(after.relations).toBe(0);
+  expect(after.constraints).toBe(0);
+  expect(after.outboxTables).toEqual(
+    before.outboxTables.filter((table) => table !== retiredOutboxTable),
+  );
+
+  // Every other admission period table keeps its exact rows and constraint definitions.
+  expect(before.survivors).toContain("retire-create");
+  expect(before.survivors).toContain("retire-revise");
+  expect(after.survivors).toBe(before.survivors);
+});
+
+// The existing harness and hosted supported-major matrix run the same upgrade on PG17 and PG18.
+describe("admission period outbox retirement upgrade from registered 85", () => {
+  it.live(
+    "drops only the outbox and keeps the periods, receipts, and audit rows on PGlite",
+    () =>
+      withPostgresTestDatabase(proveOutboxRetirement, outboxRetirement.preceding).pipe(
+        Effect.provide(TestPlatform),
+      ),
+    { timeout: 180_000 },
+  );
+  it.live(
+    "drops only the outbox and keeps the periods, receipts, and audit rows on the selected PostgreSQL major",
+    () =>
+      Effect.gen(function* () {
+        const postgres = yield* Effect.acquireRelease(
+          Effect.promise(() => startDisposablePostgres({ listen: "socket", maxConnections: 4 })),
+          (opened) => Effect.promise(() => opened.stop()),
+        );
+
+        const pool = yield* postgresTestClient({
+          url: Redacted.make(postgres.url),
+          maxConnections: 1,
+          startupOptions: NativeDatabaseStartupOptions,
+        });
+
+        for (const migration of outboxRetirement.preceding)
+          yield* pool.withTransaction(
+            executePostgresMigration(yield* readMigrationSource(migration.url)).pipe(
+              Effect.provideService(SqlClient.SqlClient, pool),
+            ),
+          );
+        yield* proveOutboxRetirement(pool);
+      }).pipe(Effect.scoped, Effect.provide(TestPlatform)),
+    { timeout: 180_000 },
+  );
+});

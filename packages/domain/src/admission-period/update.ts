@@ -13,8 +13,6 @@ import {
   StaleAdmissionPeriodRevision,
   type AdmissionPeriodFailure,
 } from "./errors.js";
-import { admissionPeriodOutboxRequest } from "./effects.js";
-import type { AdmissionPeriodOutboxRequest } from "./effects.js";
 import { admissionPeriodCommandDigest } from "./digest.js";
 import {
   AdmissionPeriodObservationSchema,
@@ -39,7 +37,6 @@ export interface AdmissionPeriodDecisionContext {
 export interface AdmissionPeriodDecision {
   readonly period: AdmissionPeriod;
   readonly observation: AdmissionPeriodObservation;
-  readonly outbox: ReadonlyArray<AdmissionPeriodOutboxRequest>;
   readonly auditAction: "AdmissionPeriodCreated" | "AdmissionPeriodRevised";
 }
 
@@ -178,7 +175,6 @@ export const decideAdmissionPeriod = (
       return {
         period,
         observation: createdObservation(command.commandId, period),
-        outbox: [admissionPeriodOutboxRequest(command.commandId, period)],
         auditAction: "AdmissionPeriodCreated" as const,
       };
     }
@@ -221,7 +217,6 @@ export const decideAdmissionPeriod = (
     return {
       period,
       observation: revisedObservation(command.commandId, period),
-      outbox: [admissionPeriodOutboxRequest(command.commandId, period)],
       auditAction: "AdmissionPeriodRevised" as const,
     };
   });
