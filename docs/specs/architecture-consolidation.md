@@ -1049,26 +1049,46 @@ rounded totals above.
 ### Ranked simplification order
 
 This order assumes the schema-collapse step 0 lands first and the operator
-accepts §12 decisions 2 and 3. Items 2 and 3 follow the approved
-`commands-and-concurrency.md` contract. Each item names its falsifier.
+accepts §12 decisions 2, 3, and 6. Items 3 and 4 follow the approved
+`commands-and-concurrency.md` contract. Each item names its falsifier. Item 1
+follows the rat-stack principle `subtract-before-you-add`: remove the unused
+structure before the machinery that builds on the same code.
 
-1. Replace `NativeHttpResponseCapsule` with `HttpResponseCapsule` and share the
+1. Delete the dead `admission_period_outbox` and its effect, as §12 decision 6
+   recommends. The operator has not approved that decision yet. Removal covers
+   the INSERT (`packages/database/src/admission-period/postgres.ts:294-314`),
+   the `PublishAdmissionPeriodChanged` request type and its constructor
+   (`packages/domain/src/admission-period/effects.ts:18-31`) with the places
+   that put it in a decision, and the table, which the collapsed schema does
+   not carry (migration 0002 and the checksum freeze forbid editing it
+   before). Three readers must change in the same cutover: the admission period
+   journey (`apps/dashboard/e2e/run-real-admission-period-management.mjs:503-551,633-634`
+   asserts the outbox rows and the effect type), and the rehearsal tools
+   (`tools/verification/organization-import-rehearsal-main.ts:249`,
+   `organization-import-rehearsal-postgres.ts:461-462,559`, and
+   `organization-import-rehearsal.test.ts:425-430`). A domain test that
+   asserts the effect list also changes. This section did not enumerate those
+   tests. Falsifier: a search of `apps`, `packages`, and `tools` for
+   `admission_period_outbox` and `PublishAdmissionPeriodChanged` finds
+   nothing, and the admission period journey and the rehearsal tests pass
+   without the removed assertions.
+2. Replace `NativeHttpResponseCapsule` with `HttpResponseCapsule` and share the
    allowed-header set. Falsifier: the type check fails, or any use of
    `NativeHttpResponseCapsule` remains after the cutover.
-2. Implement `runCommand` with `Tx` and declared lock sets. Falsifier: the
+3. Implement `runCommand` with `Tx` and declared lock sets. Falsifier: the
    negative controls in `commands-and-concurrency.md` fail to reject a write
    outside the runner or fail to prove that equal lock sets serialize.
-3. Put lifecycle machines inside `runCommand`. Falsifier: any lifecycle
+4. Put lifecycle machines inside `runCommand`. Falsifier: any lifecycle
    equivalence, reachability, state-set, Tx-only, or PostgreSQL test in
    `lifecycle-machines.md` fails.
-4. Replace the 17 domain receipt tables and 21 audit tables with one table
+5. Replace the 17 domain receipt tables and 21 audit tables with one table
    each, as recommended in §12 decisions 2 and 3. Falsifier: §10.1 (one
    aggregate adds no table) or §10.7 (one write path) fails.
-5. Replace the delivery paths with one mechanism after Workers S2 lands.
+6. Replace the delivery paths with one mechanism after Workers S2 lands.
    Falsifier: §10.1 (new aggregate delivery), §10.10 (predecessor ordering),
    or any Workers S2 acceptance test fails. Include the admission-outcome path,
    which the current S2 contract does not list.
-6. Group `main.ts` Layers by context after steps 2-5 remove per-context receipt,
+7. Group `main.ts` Layers by context after steps 3-6 remove per-context receipt,
    audit, and worker Layers. Falsifier: the named Layer count does not fall
    below 23, or a context-specific receipt, audit, or worker Layer remains.
 

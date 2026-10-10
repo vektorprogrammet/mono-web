@@ -302,7 +302,7 @@ The spike checked against the skill:
 | Plant a bug before trusting a property | Followed. Seven mutations, as the Spike evidence section lists. |
 | `xstate-effect/no-inline-effect` blocks an inline Effect in a machine | Not yet. The rule is the file `scripts/oxlint-plugin-xstate-effect.ts` of rat-stack (MIT). The pilot slice ports it into `tools/oxlint` with the notice, or records why not. |
 | Prove the replacement, move the callers, delete the old path (`prove-move-delete`) | Matches the Order section. A slice proves equivalence, switches every caller, and deletes the legacy decider. |
-| Subtract before adding (`subtract-before-you-add`) | Gap. `admission_period_outbox` is written and never read (consolidation section 14). Deleting it is a subtraction that belongs before the pilot, and section 14 does not list it in the ranked order yet. |
+| Subtract before adding (`subtract-before-you-add`) | Followed in the plan. `admission_period_outbox` is written and never read (consolidation section 14). Deleting it is item 1 of the ranked order in section 14, before the pilot. The operator has not approved consolidation decision 6, which that deletion needs. |
 
 When a check and this text disagree, the check wins and this text changes. That
 is the rule of the rat-stack fence.
