@@ -54,12 +54,14 @@
       "@effect/sql-pglite": "4.0.0",
       "@foldkit/ui": "0.165.0",
       "@noble/hashes": "2.3.0",
+      "@xstate/effect": "0.1.0-alpha.7",
       "better-auth": "1.7.1",
       "effect": "4.0.0",
       "fast-check": "4.9.0",
       "foldkit": "0.165.0",
       "pg": "8.23.0",
-      "vitest": "5.0.0"
+      "vitest": "5.0.0",
+      "xstate": "6.0.0-alpha.65"
     },
     "sql-parser": {
       "libpg-query": "18.1.5"

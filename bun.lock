@@ -227,9 +227,11 @@
         "@effect/platform-bun": "catalog:effect-v4",
         "@effect/sql-d1": "catalog:effect-v4",
         "@noble/hashes": "catalog:effect-v4",
+        "@xstate/effect": "catalog:effect-v4",
         "effect": "catalog:effect-v4",
         "ip-address": "10.7.0",
         "parse5": "8.0.1",
+        "xstate": "catalog:effect-v4",
       },
       "devDependencies": {
         "@effect/vitest": "catalog:effect-v4",
@@ -395,12 +397,14 @@
       "@effect/vitest": "4.0.0",
       "@foldkit/ui": "0.165.0",
       "@noble/hashes": "2.3.0",
+      "@xstate/effect": "0.1.0-alpha.7",
       "better-auth": "1.7.1",
       "effect": "4.0.0",
       "fast-check": "4.9.0",
       "foldkit": "0.165.0",
       "pg": "8.23.0",
       "vitest": "5.0.0",
+      "xstate": "6.0.0-alpha.65",
     },
     "sql-parser": {
       "libpg-query": "18.1.5",
@@ -1708,6 +1712,8 @@
     "@webassemblyjs/wasm-parser": ["@webassemblyjs/wasm-parser@1.14.1", "", { "dependencies": { "@webassemblyjs/ast": "1.14.1", "@webassemblyjs/helper-api-error": "1.13.2", "@webassemblyjs/helper-wasm-bytecode": "1.13.2", "@webassemblyjs/ieee754": "1.13.2", "@webassemblyjs/leb128": "1.13.2", "@webassemblyjs/utf8": "1.13.2" } }, "sha512-JLBl+KZ0R5qB7mCnud/yyX08jWFw5MsoalJ1pQ4EdFlgj9VdXKGuENGsiCIjegI1W7p91rUlcB/LB5yRJKNTcQ=="],
 
     "@webassemblyjs/wast-printer": ["@webassemblyjs/wast-printer@1.14.1", "", { "dependencies": { "@webassemblyjs/ast": "1.14.1", "@xtuc/long": "4.2.2" } }, "sha512-kPSSXE6De1XOR820C90RIo2ogvZG+c3KiHzqUoO/F34Y2shGzesfqv7o57xrxovZJH/MetF5UjroJ/R/3isoiw=="],
+
+    "@xstate/effect": ["@xstate/effect@0.1.0-alpha.7", "", { "peerDependencies": { "effect": "^4.0.0", "xstate": "^6.0.0-alpha.65" } }, "sha512-EYHVGzFxFVfQfp14Evqx+qOQKMh7khHVFriolVqUgGXdQEv0hJm/x+O7jSyzWItaT+DA74XsPd2OTvgSbhC+kw=="],
 
     "@xtuc/ieee754": ["@xtuc/ieee754@1.2.0", "", {}, "sha512-DX8nKgqcGwsc0eJSqYt5lwP4DH5FlHnmuWWBRy7X0NcaGR0ZtuyeESgMwTYVEtxmsNGY+qit4QYT/MIYTOTPeA=="],
 
@@ -3208,6 +3214,8 @@
     "wrappy": ["wrappy@1.0.2", "", {}, "sha512-l4Sp/DRseor9wL6EvV2+TuQn63dMkPjZ/sp9XkghTEbV9KlPS1xUsZ3u7/IQO4wxtcFB4bgpQPRcR3QCvezPcQ=="],
 
     "ws": ["ws@8.21.0", "", { "peerDependencies": { "bufferutil": "^4.0.1", "utf-8-validate": ">=5.0.2" }, "optionalPeers": ["bufferutil", "utf-8-validate"] }, "sha512-Vsp28b7DRcimFQvrqu2Wek3z1iYxDCWqHYB8Qsnk/S4RfaCQzPGPyBNuVjJV3cd6UiKtUtp6sNM77gWvzcCH+g=="],
+
+    "xstate": ["xstate@6.0.0-alpha.65", "", { "bin": { "xstate": "./bin/xstate.js" } }, "sha512-fCRPjxUeefg4AFzEcnBv/Z6A1UoNLBVWeWaXQ7C3DQ3iuobV/A9OLneLDN0SosN2exYmwLxMP4N1Sy0G7oHpsg=="],
 
     "xtend": ["xtend@4.0.2", "", {}, "sha512-LKYU1iAXJXUgAXn9URjiu+MWhyUXHsvfp7mcuYm9dSUKK0/CjtrUwFAxD82/mCWbtLsGjFIad0wIsod4zrTAEQ=="],
 
