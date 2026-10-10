@@ -249,7 +249,7 @@ Fix an instance when a change touches it (see [AGENTS.md](AGENTS.md#construction
 - Instants: domain fields still use `Rfc3339InstantSchema`, not `Instant` (`packages/domain/src/time.ts`).
   The authority instant (M2), per-slice cutovers (M3), and deletion of the string helpers such as `compareRfc3339Instants` (M4) remain.
 - Receipt keyset cursors carry microsecond text (`packages/database/src/receipt/cursor.ts`). They stay exact because storage is millisecond; M3 moves them to `Instant`.
-- `packages/database/runtime/schema-boundary-postgres-proof-main.ts` (`proof:schema-boundary-postgres`, run by no `just` set) failed at `65e98276`, before and after its move to an Effect program, with "New interview conduct requires an explicit recommendation": its seed inserts an interview conduct without the recommendation that migration 0037 requires of every new conduct.
+- `packages/database/runtime/schema-boundary-postgres-proof-main.ts` (`proof:schema-boundary-postgres`) is run by no `just` set or hosted job, so it stayed red unnoticed: migration 0037 and the migrations after it broke its fresh seed and its comparison of the moved tables at the head. Host it as a `just proof` name and in the Tests workflow.
 - Parameters bound through raw `pg` `query` calls, `sql.in`, or `sql.unsafe` are not typed. Only the `Database` template rejects a `DateTime` argument.
   Raw calls include the identity and OAuth adapters, `packages/database/src/service-principal-grants-live.ts`, the cohort importers in `packages/database/src`,
   and `packages/database/src/placements/current-assignment-cohort.ts`.
