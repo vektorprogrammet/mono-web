@@ -263,11 +263,49 @@ others after the second slice.
   Effect peer. `feat/effect-stable-v4` satisfies both peers, with `effect`
   4.0.0 and the exact `xstate` pin.
 - Inline Effect. rat-stack rejects an inline Effect in a machine callback with
-  the lint rule `xstate-effect/no-inline-effect`. The pilot slice adds an
-  equivalent check or records why none is needed.
+  the lint rule `xstate-effect/no-inline-effect`. The pilot slice ports that
+  rule (see the rat-stack section) or records why none is needed.
 - Outbox envelope. The last step waits for the delivery mechanism of the
   consolidation draft and for `feat/workers-s2-delivery`. Its specification,
   `docs/specs/workers-s2-delivery.md`, exists on that branch only.
+
+## rat-stack as the reference
+
+Operator decision, 2026-10-10: use rat-stack as the reference for how this
+repository builds. `AGENTS.md` already names it the architectural reference.
+This specification follows the skill
+[add a lifecycle machine](https://ratstack.sh/skills/add-a-lifecycle-machine)
+and the principles `keep-unknown-distinct`, `tests-detect-broken-behavior`,
+`prove-move-delete`, and `subtract-before-you-add`. The `@rat-stack/*`
+packages are workspace packages of the rat-stack template. A check of the npm
+registry on 2026-10-10 returned 404 for `@rat-stack/core` and
+`@rat-stack/capability`. This repository copies a pattern, and ports a rule
+with the MIT notice of rat-stack. It does not install a package.
+
+rat-stack covers lifecycles, the lint fence, and the test method. It has no
+command transaction runner, no receipt or audit table, and no outbox delivery.
+Its store skill says that its port has no atomic multi-write operation. Those
+constructs stay in this repository, as consolidation sections 8 and 14
+describe.
+
+The spike checked against the skill:
+
+| Pattern | Result |
+| --- | --- |
+| Effects live in declared `fromEffect` actors, and `setupEffect` declares them | Followed. |
+| `createEffectActor` runs inside `Effect.scoped`, from `Effect.fn` | Followed. |
+| A known refusal is a final outcome in a typed union | Followed (`Decided` or `Refused`). |
+| An actor error is not turned into a final state (`keep-unknown-distinct`) | Followed. `persisting` has no `onError`, and a failed write is a defect. |
+| Wait with `join` and `Effect.orDie`, behind one diagnostic override | Differs. The spike waits with `waitFor`. In this repository the override needs an entry in `docs/effect-exceptions.json`. The spike keeps `waitFor`, so no entry is needed. |
+| `watchActor` shows each actor to the devtools | Not adopted. It comes from `@rat-stack/capability`, which is not published. |
+| A model test with `getShortestPaths`, then generated histories through `getPathsFromEvents`, with child completion driven by a `Deferred` fake, and a probe after completion | Partly followed. The spike uses `getShortestPaths`, a `Deferred` in the cancellation test, and an equivalence property against the legacy decider. It has no generated histories through `getPathsFromEvents` and no probe after completion. The pilot slice adds the model test from `skills/add-a-lifecycle-machine/templates/lifecycle.model.test.md`. |
+| Plant a bug before trusting a property | Followed. Seven mutations, as the Spike evidence section lists. |
+| `xstate-effect/no-inline-effect` blocks an inline Effect in a machine | Not yet. The rule is the file `scripts/oxlint-plugin-xstate-effect.ts` of rat-stack (MIT). The pilot slice ports it into `tools/oxlint` with the notice, or records why not. |
+| Prove the replacement, move the callers, delete the old path (`prove-move-delete`) | Matches the Order section. A slice proves equivalence, switches every caller, and deletes the legacy decider. |
+| Subtract before adding (`subtract-before-you-add`) | Gap. `admission_period_outbox` is written and never read (consolidation section 14). Deleting it is a subtraction that belongs before the pilot, and section 14 does not list it in the ranked order yet. |
+
+When a check and this text disagree, the check wins and this text changes. That
+is the rule of the rat-stack fence.
 
 ## Falsifiers
 
