@@ -54,3 +54,42 @@ A Kysely dialect over the native client and a custom Better Auth adapter are bot
 ## Order
 
 After the review fixes that touch `packages/database` land. They change `pg-pool.ts` callers: OAuthFix, OrganizationFix, AdmissionsCoreFix, EconomyFix, DeliveryFix, ContentTeamsFix.
+
+## Stable release and local Worker amendment (2026-10-09)
+
+The approved target is Effect and SQL 4.0.0. No release-candidate adapter remains.
+The two-pool decision stays in force. No custom Better Auth adapter or Kysely driver replaces the supported adapter.
+
+Each host supplies separate native and auth connection limits:
+
+| Owner                       | Native Database | Better Auth | Total |
+| --------------------------- | --------------- | ----------- | ----- |
+| Bun backend process         | 8               | 4           | 12    |
+| Local Worker fetch          | 2               | 2           | 4     |
+| Local Worker delivery event | 2               | none        | 2     |
+
+An overlapping fetch and its delivery event can use six application connections. Concurrent invocations add their limits.
+This local amendment grants no cloud configuration or deployment authority.
+
+The request signal and response body own the fetch graph. Each tail or Cron event owns a separate graph.
+No event captures the request pool, runtime, memo map, or signal. A delivery-only graph acquires no auth pool.
+
+Worker acquisition retains its existing absolute deadlines and server preflight.
+The server must enforce `statement_timeout` of at most 1s and `idle_in_transaction_session_timeout` of at most 2s.
+The Worker runs no migrations, session `SET`, or startup GUC commands.
+Transaction-local commands remain inside the native transaction. Isolation configuration precedes every other transaction statement.
+
+The old RC pool evidence does not prove stable-driver cleanup. The existing bounded-cleanup acceptance remains a requirement.
+A real saturated-pool test must observe interrupted transaction acquisition with no late query or write.
+A real transport test must observe physical socket closure, separately from scope completion and the remote transaction outcome.
+If the native driver fails either requirement, a minimal native source repair needs approval and a real afterproof.
+No timeout fallback, private transaction service, fabricated close receipt, or weaker deadline replaces that requirement.
+
+The native driver accepts one extended-protocol statement, including with `prepare: false`.
+The migration boundary uses the maintained PostgreSQL parser and original UTF-8 source offsets.
+Its tests cover dollar quoting, nested comments, string literals, Unicode, and rollback after a later statement fails.
+The migration ledger and applied migration checksums remain unchanged.
+
+Native JSON binds the value once. Empty arrays and affected-row predicates retain their existing meaning.
+Domain callers use native Database transactions. Only the supported Better Auth boundary retains raw `pg` access.
+Provider work starts after the claim transaction releases its connection. Settlement uses a new fenced transaction.
