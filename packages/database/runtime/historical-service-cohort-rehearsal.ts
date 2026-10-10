@@ -60,6 +60,21 @@ const decodeReasonRows = Schema.decodeUnknownEffect(
   Schema.Array(Schema.Struct({ reason: Schema.String })),
 );
 
+/**
+ * The refusal of the append-only trigger as the native driver nests it: the SQL error carries a
+ * reason, and the reason carries the server's `raise_exception` error with its message.
+ */
+const isAppendOnlyRefusal = Schema.is(
+  Schema.Struct({
+    reason: Schema.Struct({
+      cause: Schema.Struct({
+        code: Schema.Literal("P0001"),
+        message: Schema.String.check(Schema.isPattern(/append-only/u)),
+      }),
+    }),
+  }),
+);
+
 assertNoAmbientConfiguration([
   "HISTORICAL_SERVICE_PG_URL",
   "HISTORICAL_SERVICE_INPUT",
@@ -569,7 +584,7 @@ try {
     Effect.runPromise(
       pool.unsafe(`UPDATE public.assistant_service_history SET evidence_ref = 'changed'`),
     ),
-    /append-only/,
+    isAppendOnlyRefusal,
   );
 
   const restoredFactsExpected = await facts(pool);
