@@ -813,21 +813,21 @@ const runNormalDatabaseRead = (url: string) =>
           UPDATE public.organization_team_interest_registrations
           SET submitter_name = 'Schema Runtime Submitter', revision = revision + 1
           WHERE submitter_email = 'schema-submitter@example.invalid'
-          RETURNING registration_id AS "registrationId"
+          RETURNING registration_id::text AS "registrationId"
         `;
 
-      const schoolWrite = yield* database<{ readonly schoolId: number }>`
+      const schoolWrite = yield* database<{ readonly schoolId: string }>`
           UPDATE public.schools_directory_schools
           SET contact_person = 'Schema Runtime Contact'
           WHERE email = 'schema-school@example.invalid'
-          RETURNING school_id AS "schoolId"
+          RETURNING school_id::text AS "schoolId"
         `;
 
-      const articleWrite = yield* database<{ readonly articleId: number }>`
+      const articleWrite = yield* database<{ readonly articleId: string }>`
           UPDATE public.content_articles
           SET title = 'Schema Runtime Article'
           WHERE slug = 'schema-article'
-          RETURNING article_id AS "articleId"
+          RETURNING article_id::text AS "articleId"
         `;
 
       const schemaQuestionWrite = yield* database<{ readonly questionId: string }>`
