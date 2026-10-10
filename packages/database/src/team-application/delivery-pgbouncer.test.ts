@@ -235,7 +235,7 @@ layer(pooledLayer, { excludeTestServices: true, timeout: "120 seconds" })(
               ),
             )(before);
 
-            expect(decoded[0]?.schemas).toEqual(["auth", "public"]);
+            expect(decoded[0]?.schemas).toEqual(["public"]);
 
             for (let value = 0; value < 5; value++)
               expect(yield* sql`SELECT ${value}::integer AS value`).toEqual([{ value }]);
