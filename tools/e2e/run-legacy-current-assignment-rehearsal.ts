@@ -54,6 +54,11 @@ const decodeJsonRows = Schema.decodeUnknownEffect(
   Schema.Array(Schema.Record(Schema.String, Schema.Json)),
 );
 
+/** A `count(*)::text AS count` query returns exactly one row; int8 would arrive as bigint, so the SQL projects text. */
+const decodeCountRow = Schema.decodeUnknownEffect(
+  Schema.Tuple([Schema.Struct({ count: Schema.String })]),
+);
+
 /** Promise host boundary: retain typed cohort errors without recovering defects or interruption. */
 const runCohort = <A, E>(effect: Effect.Effect<A, E>): Promise<A> =>
   Effect.runPromise(Effect.result(effect)).then(Result.getOrThrow);
@@ -368,7 +373,7 @@ const assertCanonical = async (sql: SqlClient.SqlClient): Promise<void> => {
         SELECT count(*)::text AS count FROM public.assistant_placements
         WHERE semester_id <> 'legacy-semester:2'
       `)
-          .pipe(Effect.flatMap(decodeJsonRows)),
+          .pipe(Effect.flatMap(decodeCountRow)),
       )
     )[0].count,
     "0",
@@ -767,7 +772,7 @@ const runRehearsal = async (temporaryRoot: string) => {
             JOIN public.person_cohort_snapshots s ON s.snapshot_key = r.person_snapshot_key
       AND s.source_revision = a.source_revision AND s.snapshot_id = a.snapshot_id
           `)
-            .pipe(Effect.flatMap(decodeJsonRows)),
+            .pipe(Effect.flatMap(decodeCountRow)),
         )
       )[0].count,
       "1",

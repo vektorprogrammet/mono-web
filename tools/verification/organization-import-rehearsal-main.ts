@@ -2036,7 +2036,8 @@ const runRehearsal = async (
     );
 
     stage = "backend and strict native projections";
-    const router = await runtime.runPromise(HttpRouter.HttpRouter);
+    const backendRuntime = runtime;
+    const router = await backendRuntime.runPromise(HttpRouter.HttpRouter);
 
     const api = backendHttpHandler(
       nativeRouterWebHandler(router),
@@ -2055,7 +2056,7 @@ const runRehearsal = async (
     backendServer = Bun.serve({
       hostname: "127.0.0.1",
       port: 0,
-      fetch: (request) => Effect.runPromise(api(request)),
+      fetch: (request) => backendRuntime.runPromise(api(request)),
     });
     backendPort = backendServer.port;
     const backendOrigin = `http://127.0.0.1:${backendPort}`;

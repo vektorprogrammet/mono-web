@@ -47,6 +47,11 @@ const decodeJsonRows = Schema.decodeUnknownEffect(
   Schema.Array(Schema.Record(Schema.String, Schema.Json)),
 );
 
+/** A `count(*)::text AS count` query returns exactly one row; int8 would arrive as bigint, so the SQL projects text. */
+const decodeCountRow = Schema.decodeUnknownEffect(
+  Schema.Tuple([Schema.Struct({ count: Schema.String })]),
+);
+
 /** Promise host boundary: retain typed cohort errors without recovering defects or interruption. */
 const runCohort = <A, E>(effect: Effect.Effect<A, E>): Promise<A> =>
   Effect.runPromise(Effect.result(effect)).then(Result.getOrThrow);
@@ -777,7 +782,7 @@ const rehearse = async () =>
               "SELECT count(*)::text AS count FROM public.organization_cohort_imports WHERE target_id=$1",
               [teamId],
             )
-            .pipe(Effect.flatMap(decodeJsonRows)),
+            .pipe(Effect.flatMap(decodeCountRow)),
         )
       )[0].count,
       "0",
@@ -789,7 +794,7 @@ const rehearse = async () =>
             .unsafe(
               "SELECT count(*)::text AS count FROM public.organization_memberships WHERE person_id='legacy-person-1'",
             )
-            .pipe(Effect.flatMap(decodeJsonRows)),
+            .pipe(Effect.flatMap(decodeCountRow)),
         )
       )[0].count,
       "0",
@@ -885,7 +890,7 @@ const rehearse = async () =>
         await Effect.runPromise(
           concurrent.sql
             .unsafe("SELECT count(*)::text AS count FROM public.organization_cohort_snapshots")
-            .pipe(Effect.flatMap(decodeJsonRows)),
+            .pipe(Effect.flatMap(decodeCountRow)),
         )
       )[0].count,
       "1",
