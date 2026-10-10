@@ -1055,23 +1055,40 @@ follows the rat-stack principle `subtract-before-you-add`: remove the unused
 structure before the machinery that builds on the same code.
 
 1. Delete the dead `admission_period_outbox` and its effect, as §12 decision 6
-   recommends. The operator has not approved that decision yet. Removal covers
-   the INSERT (`packages/database/src/admission-period/postgres.ts:294-314`),
-   the `PublishAdmissionPeriodChanged` request type and its constructor
-   (`packages/domain/src/admission-period/effects.ts:18-31`) with the places
-   that put it in a decision, and the table, which the collapsed schema does
-   not carry (migration 0002 and the checksum freeze forbid editing it
-   before). Three readers must change in the same cutover: the admission period
-   journey (`apps/dashboard/e2e/run-real-admission-period-management.mjs:503-551,633-634`
-   asserts the outbox rows and the effect type), and the rehearsal tools
-   (`tools/verification/organization-import-rehearsal-main.ts:249`,
-   `organization-import-rehearsal-postgres.ts:461-462,559`, and
-   `organization-import-rehearsal.test.ts:425-430`). A domain test that
-   asserts the effect list also changes. This section did not enumerate those
-   tests. Falsifier: a search of `apps`, `packages`, and `tools` for
-   `admission_period_outbox` and `PublishAdmissionPeriodChanged` finds
-   nothing, and the admission period journey and the rehearsal tests pass
-   without the removed assertions.
+   recommends. The operator agreed to the deletion on 2026-10-10. The scope
+   below comes from a search of `apps`, `packages`, and `tools` at `815a28f8`.
+   - Database adapter: the INSERT and its helpers, `writeOutbox`,
+     `encodeOutboxRequest`, and the two imports
+     (`packages/database/src/admission-period/postgres.ts:23-24,269,294-314`),
+     the two uses (`:485,499`), and the `outboxCount` of the replay result
+     (`:349`).
+   - Domain: the effects module (`packages/domain/src/admission-period/effects.ts`),
+     the `outbox` field of the decision and its two constructors
+     (`update.ts:16-17,42,181,224`), the `outboxCount` of the command result
+     (`context.ts:24`), and `AdmissionPeriodEffectId` if nothing else uses it
+     (`schema.ts:31-35`). No domain or backend test asserts this outbox. The
+     `outboxCount` fields of the receipt, application, and returning contexts
+     are other lifecycles and stay.
+   - Table: a new migration drops it. Migrations 0002 and 0072 are frozen by
+     their checksums. Main ends at 0082, and `feat/effect-stable-v4` already
+     holds 0083 to 0085, so the drop takes the next free number after that
+     branch lands. After the schema collapse no migration is needed.
+   - Readers, in the same cutover: the admission period journey
+     (`apps/dashboard/e2e/run-real-admission-period-management.mjs:503-551`
+     reads the rows, `:616-617` pins `outboxCount` at 3 and no duplicate
+     effect, and `:633-634` pins the effect type), and the rehearsal tools
+     (`tools/verification/organization-import-rehearsal-main.ts:249`,
+     `organization-import-rehearsal-postgres.ts:453-464,559`, and
+     `organization-import-rehearsal.test.ts:425-430`).
+   - Conflicts: `feat/effect-stable-v4` edits the admission period adapter,
+     both rehearsal files, and `checksums.json`. `feat/workers-s2-delivery`
+     edits `organization-import-rehearsal-main.ts`. Build the deletion as a
+     branch stacked on `feat/effect-stable-v4`. `just land` accepts it once
+     that branch has landed.
+   - Falsifier: a search of `apps`, `packages`, and `tools` for
+     `admission_period_outbox` and `PublishAdmissionPeriodChanged` finds
+     nothing, and the admission period journey and the rehearsal tests pass
+     without the removed assertions.
 2. Replace `NativeHttpResponseCapsule` with `HttpResponseCapsule` and share the
    allowed-header set. Falsifier: the type check fails, or any use of
    `NativeHttpResponseCapsule` remains after the cutover.
