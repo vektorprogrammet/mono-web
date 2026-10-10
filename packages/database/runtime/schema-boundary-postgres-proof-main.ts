@@ -49,7 +49,9 @@ const nativeFunctions = [
   "prevent_recruitment_interview_lifecycle_mutation",
 ] as const;
 
-const historicalMigrations = selectDatabaseMigration("22_native-domain-schema-boundary").preceding;
+const boundary = selectDatabaseMigration("22_native-domain-schema-boundary");
+
+const historicalMigrations = boundary.preceding;
 
 const databaseUrl = (name: string) =>
   Effect.gen(function* () {
@@ -166,6 +168,38 @@ const runHistoricalSources = (postgresUrl: string) =>
     Effect.provide(
       nativePgLayer(
         poolConfig(postgresUrl, "schema-boundary-historical-loader", historicalStartupOptions),
+      ),
+    ),
+  );
+
+/**
+ * Applies the boundary migration alone, in the transaction that the migrator gives it, and records
+ * it in the ledger. The moved tables equal their historical selves at this revision only: later
+ * migrations add columns and constraints to them, and the registered loader applies those after.
+ */
+const runBoundaryMigration = (postgresUrl: string) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const sql = yield* PgClient.PgClient;
+
+    const source = yield* path
+      .fromFileUrl(boundary.migration.url)
+      .pipe(Effect.flatMap((file) => fs.readFileString(file)));
+
+    yield* sql.withTransaction(
+      Effect.gen(function* () {
+        yield* executePostgresMigration(source);
+        yield* sql.unsafe(
+          "INSERT INTO public.vektorprogrammet_schema_migrations (migration_id, name) VALUES ($1, $2)",
+          [historicalMigrations.length + 1, boundary.migration.name],
+        );
+      }),
+    );
+  }).pipe(
+    Effect.provide(
+      nativePgLayer(
+        poolConfig(postgresUrl, "schema-boundary-boundary-loader", historicalStartupOptions),
       ),
     ),
   );
@@ -568,6 +602,14 @@ const seedParents = (client: Session) =>
 const seedInventory = (client: Session, schema: "auth" | "public") =>
   Effect.gen(function* () {
     const table = (name: string) => relationName(schema, name);
+
+    // Migration 0037 adds `recommendation` and requires it of every new conduct. The current layout
+    // seeds one; the historical layout has no such column.
+    const conduct =
+      schema === "public"
+        ? { column: ", recommendation", value: ", 'Ja'" }
+        : { column: "", value: "" };
+
     yield* query(
       client,
       `INSERT INTO ${table("organization_global_administrator_grants")} (grant_id, person_id, start_at, revision) VALUES ('schema-boundary-grant', 'schema-boundary-person', '2030-01-01T00:00:00Z', 0)`,
@@ -626,7 +668,7 @@ const seedInventory = (client: Session, schema: "auth" | "public") =>
     );
     yield* query(
       client,
-      `INSERT INTO ${table("recruitment_interview_conducts")} (interview_id, answers, explanatory_power, role_model, suitability, finalized_by_person_id, finalized_at, interview_revision) VALUES ('schema-boundary-interview', '[]'::jsonb, 8, 9, 7, 'schema-boundary-person', '2030-01-05T00:00:00Z', 0)`,
+      `INSERT INTO ${table("recruitment_interview_conducts")} (interview_id, answers, explanatory_power, role_model, suitability, finalized_by_person_id, finalized_at, interview_revision${conduct.column}) VALUES ('schema-boundary-interview', '[]'::jsonb, 8, 9, 7, 'schema-boundary-person', '2030-01-05T00:00:00Z', 0${conduct.value})`,
     );
     yield* query(
       client,
@@ -901,6 +943,36 @@ const program = Effect.gen(function* () {
     }),
   );
 
+  yield* runBoundaryMigration(upgradeUrl);
+
+  const atBoundary = yield* withSession(
+    upgradeUrl,
+    "schema-boundary-upgrade-boundary",
+    (boundaryClient) =>
+      Effect.gen(function* () {
+        const evidence: SchemaEvidence = {
+          catalog: yield* catalogEvidence(boundaryClient),
+          tables: yield* evidenceForSchema(boundaryClient, "public"),
+        };
+
+        assertCatalog(evidence.catalog, "public", true);
+        assert.deepEqual(comparableTables(evidence.tables), comparableTables(before.tables));
+        assert.deepEqual(
+          evidence.catalog.functions.map(({ function_name, function_body }) => ({
+            function_name,
+            function_body,
+          })),
+          before.catalog.functions.map(({ function_name, function_body }) => ({
+            function_name,
+            function_body,
+          })),
+        );
+        assert.deepEqual(triggerTargets(evidence.tables), triggerTargets(before.tables));
+
+        return evidence.catalog;
+      }),
+  );
+
   yield* runRegisteredMigrations(upgradeUrl);
 
   const after = yield* withSession(upgradeUrl, "schema-boundary-upgrade-after", (afterClient) =>
@@ -912,18 +984,6 @@ const program = Effect.gen(function* () {
 
       assertCatalog(evidence.catalog, "public", true);
       assert.deepEqual(evidence.catalog, freshCatalog);
-      assert.deepEqual(comparableTables(evidence.tables), comparableTables(before.tables));
-      assert.deepEqual(
-        evidence.catalog.functions.map(({ function_name, function_body }) => ({
-          function_name,
-          function_body,
-        })),
-        before.catalog.functions.map(({ function_name, function_body }) => ({
-          function_name,
-          function_body,
-        })),
-      );
-      assert.deepEqual(triggerTargets(evidence.tables), triggerTargets(before.tables));
       yield* assertImmutableMutations(afterClient);
       yield* query(afterClient, "SET search_path TO auth, public");
       yield* query(afterClient, "CREATE TABLE auth.content_articles (article_id bigint NOT NULL)");
@@ -1038,6 +1098,7 @@ const program = Effect.gen(function* () {
     inventory,
     fresh: freshCatalog,
     upgradeBefore: before.catalog,
+    upgradeAtBoundary: atBoundary,
     upgradeAfter: after.catalog,
     collisionRollback: true,
     normalRuntimeEvidence,
