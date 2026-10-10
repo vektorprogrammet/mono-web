@@ -279,6 +279,7 @@ export default defineConfig({
     "anti-slop/no-hand-rolled-postgres": "error",
     "anti-slop/no-json-text-parameter": "error",
     "anti-slop/no-module-mocking": "error",
+    "anti-slop/no-multi-statement-unsafe": "error",
     "anti-slop/no-object-parameters": "error",
     "anti-slop/no-reduce-accumulator-copy": "error",
     "anti-slop/no-reflect-apply": "error",

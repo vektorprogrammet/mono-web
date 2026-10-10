@@ -331,6 +331,12 @@ Bind a JSON parameter as its value, `sql.json(canonicalJsonValue(value))`: the `
 encodes the argument, so JSON text such as `canonicalJson(value)` would be stored as a JSON
 string. `anti-slop/no-json-text-parameter` rejects JSON text there.
 
+The native client runs one statement per execution, so PostgreSQL rejects a text of several commands
+with `cannot insert multiple commands into a prepared statement`. Give each command its own
+`.unsafe(...)` call, or run a migration or fixture source through `executePostgresMigration` inside
+`sql.withTransaction`, which splits the source with the PostgreSQL parser. `anti-slop/no-multi-statement-unsafe`
+rejects a multi-statement literal in `.unsafe(...)`.
+
 Migration files are append-only after acceptance. A forward migration corrects an
 accepted schema. Runtime code does not guess around missing columns.
 
