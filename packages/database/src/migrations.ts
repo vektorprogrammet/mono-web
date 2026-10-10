@@ -657,6 +657,11 @@ export const databaseMigrationDefinitions = [
     name: "application-decision-instant-precision",
     url: new URL("../migrations/0085-application-decision-instant-precision.sql", import.meta.url),
   },
+  {
+    id: "86_retire-admission-period-outbox",
+    name: "retire-admission-period-outbox",
+    url: new URL("../migrations/0086-retire-admission-period-outbox.sql", import.meta.url),
+  },
 ] as const;
 
 /**

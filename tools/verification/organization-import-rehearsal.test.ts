@@ -422,12 +422,12 @@ describe("spec 0067 SQL observation seam", () => {
           yield* observed`WITH selected AS (SELECT 1) UPDATE "auth"."session" SET "updatedAt" = now() WHERE false`;
           yield* observed`-- comment
         DELETE FROM "public"."economy_receipts" WHERE false`;
-          yield* observed`/* comment */ INSERT INTO "public"."admission_period_outbox" (effect_id) SELECT 'e' WHERE false`;
-          yield* observed`WITH claimable AS (SELECT effect_id FROM "public"."admission_period_outbox")
-        UPDATE "public"."admission_period_outbox" SET claimed_at = now() WHERE false`;
+          yield* observed`/* comment */ INSERT INTO "public"."admission_application_outbox" (effect_id) SELECT 'e' WHERE false`;
+          yield* observed`WITH claimable AS (SELECT effect_id FROM "public"."admission_application_outbox")
+        UPDATE "public"."admission_application_outbox" SET claimed_at = now() WHERE false`;
           yield* observed`SELECT pg_advisory_xact_lock(hashtextextended(${"vektorprogrammet:person-authorization:v1:person-1"}, 0))`;
-          yield* observed`SELECT effect_id FROM "public"."admission_period_outbox" FOR UPDATE SKIP LOCKED`;
-          yield* observed`SELECT effect_id, claim_id, claimed_at FROM "public"."admission_period_outbox" ORDER BY effect_id`;
+          yield* observed`SELECT effect_id FROM "public"."admission_application_outbox" FOR UPDATE SKIP LOCKED`;
+          yield* observed`SELECT effect_id, claim_id, claimed_at FROM "public"."admission_application_outbox" ORDER BY effect_id`;
         }),
       ),
     );

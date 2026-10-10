@@ -501,13 +501,6 @@ async function readPostgresEvidence(environment) {
         'periodCount', (SELECT count(*) FROM admission_periods),
         'commandCount', (SELECT count(*) FROM admission_period_command_receipts),
         'auditCount', (SELECT count(*) FROM admission_period_audit),
-        'outboxCount', (SELECT count(*) FROM admission_period_outbox),
-        'duplicateEffectCount', (
-          SELECT count(*) FROM (
-            SELECT effect_id FROM admission_period_outbox
-            GROUP BY effect_id HAVING count(*) > 1
-          ) duplicate_effects
-        ),
         'applicationCount', (SELECT count(*) FROM admission_applications),
         'applicationCommandCount', (
           SELECT count(*) FROM admission_application_command_receipts
@@ -538,16 +531,6 @@ async function readPostgresEvidence(environment) {
             'revision', admission_period_revision
           ) ORDER BY admission_period_revision)
           FROM admission_period_audit
-        ), '[]'::json),
-        'outbox', COALESCE((
-          SELECT json_agg(json_build_object(
-            'effectId', effect_id,
-            'effectType', effect_type,
-            'admissionPeriodId', admission_period_id,
-            'commandId', command_id,
-            'ordinal', ordinal
-          ) ORDER BY command_id, ordinal)
-          FROM admission_period_outbox
         ), '[]'::json)
       )::text;
     `,
@@ -573,7 +556,6 @@ const leaderCommandId = (endpoint, normalizedTarget, idempotencyKey) =>
 
 function assertDurableEvidence(postgres, lifecycle) {
   const audits = Array.isArray(postgres.audits) ? postgres.audits : [];
-  const outbox = Array.isArray(postgres.outbox) ? postgres.outbox : [];
 
   const periodTarget = reviseAdmissionPeriod.path.replace(
     ":admissionPeriodId",
@@ -601,7 +583,6 @@ function assertDurableEvidence(postgres, lifecycle) {
   const acceptedCommandIds = [createCommandId, concurrentWinnerCommandId, closeCommandId];
 
   const auditCommandIds = audits.map((audit) => audit.commandId);
-  const outboxCommandIds = outbox.map((effect) => effect.commandId);
 
   const expectedActions = [
     "AdmissionPeriodCreated",
@@ -613,8 +594,6 @@ function assertDurableEvidence(postgres, lifecycle) {
     postgres.periodCount !== 1 ||
     postgres.commandCount !== 3 ||
     postgres.auditCount !== 3 ||
-    postgres.outboxCount !== 3 ||
-    postgres.duplicateEffectCount !== 0 ||
     postgres.applicationCount !== 1 ||
     postgres.applicationCommandCount !== 1 ||
     postgres.period?.id !== lifecycle.period.id ||
@@ -628,11 +607,7 @@ function assertDurableEvidence(postgres, lifecycle) {
     lifecycle.concurrent.loser.code !== "precondition.failed" ||
     audits.map((audit) => audit.revision).join(",") !== "0,1,2" ||
     audits.map((audit) => audit.action).join(",") !== expectedActions.join(",") ||
-    acceptedCommandIds.some((commandId) => !auditCommandIds.includes(commandId)) ||
-    acceptedCommandIds.some((commandId) => !outboxCommandIds.includes(commandId)) ||
-    outbox.some(
-      (effect) => effect.effectType !== "PublishAdmissionPeriodChanged" || effect.ordinal !== 0,
-    )
+    acceptedCommandIds.some((commandId) => !auditCommandIds.includes(commandId))
   ) {
     throw new Error("Admission persistence evidence did not prove the frozen journey laws");
   }

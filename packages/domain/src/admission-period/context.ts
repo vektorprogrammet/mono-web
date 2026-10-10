@@ -21,5 +21,4 @@ export interface AdmissionPeriodTransactionResult {
   readonly period: AdmissionPeriod;
   readonly observation: AdmissionPeriodObservation;
   readonly replayed: boolean;
-  readonly outboxCount: number;
 }
