@@ -1,3 +1,6 @@
+/** EX-0021: Stable SQL modules carry an upstream unstable annotation.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import assert from "node:assert/strict";
 import { PrincipalSchema, composeCapabilityEvidence } from "@vektorprogrammet/domain/authz";
 import { readApplicableAuthorizationRules } from "./authz/postgres.js";
@@ -12,10 +15,12 @@ import {
 } from "@vektorprogrammet/domain/receipt";
 import { resolveReceiptAuthorityForRead } from "./receipt/authority-postgres.js";
 import { Predicate, Effect, Redacted } from "effect";
+import * as SqlClient from "effect/sql/SqlClient";
 import { resolveOrganizationPersonAuthorityForRead } from "./organization/authority-postgres.js";
 import { executeReceiptCommand } from "./receipt/postgres.js";
 import { DatabaseLive } from "./layers.js";
 import { NativeDatabaseStartupOptions } from "./search-path.js";
+import { executePostgresMigration } from "./postgres-migration-statements.js";
 import { proveRuleReconciliationMigration } from "./rule-reconciliation-migration-postgres-proof.js";
 
 const authorizationInstant = "2037-06-15T12:00:00.000Z";
@@ -36,9 +41,14 @@ const assertDisposablePostgres = (url: Redacted.Redacted<string>): void => {
   assert.match(decodeURIComponent(parsed.pathname.slice(1)), /proof|test/u);
 };
 
+/** The native driver runs one statement per execution, so the parser splits the reset source. */
 const resetDatabase = (sql: DatabaseOperations) =>
   sql
-    .unsafe("DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;")
+    .withTransaction(
+      executePostgresMigration("DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;").pipe(
+        Effect.provideService(SqlClient.SqlClient, sql),
+      ),
+    )
     .pipe(Effect.asVoid, Effect.orDie);
 
 const seed = (sql: DatabaseOperations) =>

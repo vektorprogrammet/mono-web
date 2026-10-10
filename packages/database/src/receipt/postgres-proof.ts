@@ -1,7 +1,12 @@
+/** EX-0021: Stable SQL modules carry an upstream unstable annotation.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { Database, type DatabaseOperations } from "../service.js";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import assert from "node:assert/strict";
 import { Predicate, Effect } from "effect";
+import * as SqlClient from "effect/sql/SqlClient";
+import { executePostgresMigration } from "../postgres-migration-statements.js";
 import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import {
   RECEIPT_PAGE_SIZE,
@@ -144,9 +149,20 @@ const count = (sql: DatabaseOperations, table: string) =>
     .unsafe<CountRow>(`SELECT count(*)::text AS count FROM ${table}`)
     .pipe(Effect.map((rows) => Number(rows[0]?.count ?? "0")));
 
+/**
+ * Runs a multi-statement fixture in one transaction. The native driver runs one statement per
+ * execution, so the maintained statement parser splits the source.
+ */
+const executeFixture = (sql: DatabaseOperations, source: string) =>
+  sql.withTransaction(
+    executePostgresMigration(source).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
+  );
+
 export const runReceiptPostgresProof = Effect.gen(function* () {
   const sql = yield* Database;
-  yield* sql.unsafe(`
+  yield* executeFixture(
+    sql,
+    `
       INSERT INTO person_profiles (person_id, first_name, last_name) VALUES
         ('proof-person', 'Receipt', 'Owner'),
         ('proof-approver', 'Receipt', 'Approver'),
@@ -184,7 +200,8 @@ export const runReceiptPostgresProof = Effect.gen(function* () {
           '2026-01-01T00:00:00.000Z'),
         ('proof-wrong-approval', 'proof-wrong-scope-approver', 'Department',
           'other-department', '2026-01-01T00:00:00.000Z');
-    `);
+    `,
+  );
 
   const firstContext = context("proof-receipt-1", "PROOF-0001", "2026-08-20T12:00:00.000Z");
 
@@ -268,7 +285,9 @@ export const runReceiptPostgresProof = Effect.gen(function* () {
     principal(ownerPersonId, "2026-08-20T13:02:00.000Z"),
   );
 
-  yield* sql.unsafe(`
+  yield* executeFixture(
+    sql,
+    `
     CREATE FUNCTION reject_receipt_proof_audit() RETURNS trigger AS $$
     BEGIN
       IF NEW.command_id = 'proof-command-rollback' THEN
@@ -280,7 +299,8 @@ export const runReceiptPostgresProof = Effect.gen(function* () {
     CREATE TRIGGER receipt_proof_audit_failure
       BEFORE INSERT ON economy_receipt_audit
       FOR EACH ROW EXECUTE FUNCTION reject_receipt_proof_audit();
-  `);
+  `,
+  );
   const rollbackContext = context("proof-receipt-3", "PROOF-0003", "2026-08-20T14:00:00.000Z");
 
   const failedTransaction = yield* Effect.exit(
@@ -291,10 +311,13 @@ export const runReceiptPostgresProof = Effect.gen(function* () {
     ),
   );
 
-  yield* sql.unsafe(`
+  yield* executeFixture(
+    sql,
+    `
     DROP TRIGGER receipt_proof_audit_failure ON economy_receipt_audit;
     DROP FUNCTION reject_receipt_proof_audit();
-  `);
+  `,
+  );
 
   const provenance = (
     row: LegacyReceiptRow,

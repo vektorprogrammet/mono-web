@@ -16,9 +16,11 @@ import {
   Result,
 } from "effect";
 import { isSqlError } from "effect/sql/SqlError";
+import * as SqlClient from "effect/sql/SqlClient";
 import { DatabaseLive } from "./layers.js";
 import { NativeDatabaseStartupOptions } from "./search-path.js";
 import { type DatabaseMigrationDefinition, selectDatabaseMigration } from "./migrations.js";
+import { executePostgresMigration } from "./postgres-migration-statements.js";
 
 const expectedFailures = [
   { reasonCode: "INTERVAL_INVALID", ruleId: "migration-preflight-interval" },
@@ -30,26 +32,38 @@ const expectedFailures = [
   { reasonCode: "VARIANT_INVALID", ruleId: "migration-preflight-variant" },
 ] as const;
 
+/**
+ * Runs a multi-statement source in one transaction, as the migrator runs a migration. The native
+ * driver runs one statement per execution, so the maintained statement parser splits the source.
+ */
+const executeSource = (sql: DatabaseOperations, source: string) =>
+  sql.withTransaction(
+    executePostgresMigration(source).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
+  );
+
 const reset = (sql: DatabaseOperations) =>
-  sql
-    .unsafe(`
+  executeSource(
+    sql,
+    `
       DROP SCHEMA IF EXISTS auth CASCADE;
       DROP SCHEMA IF EXISTS public CASCADE;
       CREATE SCHEMA public;
-    `)
-    .pipe(Effect.asVoid, Effect.orDie);
+    `,
+  ).pipe(Effect.asVoid, Effect.orDie);
 
 const executeMigration = (sql: DatabaseOperations, migration: DatabaseMigrationDefinition) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
 
-    yield* sql.unsafe(yield* fs.readFileString(yield* path.fromFileUrl(migration.url)));
+    yield* executeSource(sql, yield* fs.readFileString(yield* path.fromFileUrl(migration.url)));
   });
 
 const prepareMigration25State = (sql: DatabaseOperations) =>
   Effect.gen(function* () {
-    yield* sql.unsafe(`
+    yield* executeSource(
+      sql,
+      `
       INSERT INTO public.person_profiles (person_id, first_name, last_name)
       VALUES ('migration-preflight-person', 'Migration', 'Preflight');
       INSERT INTO public.organization_departments (
@@ -60,8 +74,11 @@ const prepareMigration25State = (sql: DatabaseOperations) =>
       );
       INSERT INTO public.authz_tags (tag_id, name, revision)
       VALUES ('migration-preflight-tag', 'Migration preflight', 0);
-    `);
-    yield* sql.unsafe(`
+    `,
+    );
+    yield* executeSource(
+      sql,
+      `
       ALTER TABLE public.authz_rules
         DROP CONSTRAINT authz_rules_subject_person_id_fkey,
         DROP CONSTRAINT authz_rules_subject_tag_id_fkey,
@@ -73,7 +90,8 @@ const prepareMigration25State = (sql: DatabaseOperations) =>
         DROP CONSTRAINT authz_rules_revision_nonnegative;
       ALTER TABLE public.authz_rules
         ADD CONSTRAINT authz_rules_params_declared CHECK (true);
-    `);
+    `,
+    );
   });
 
 const insertValidRows = (sql: DatabaseOperations) =>
