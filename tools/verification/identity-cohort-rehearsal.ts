@@ -114,6 +114,30 @@ const digest = flow(Schema.decodeUnknownSync(Schema.Json), (value) =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex"),
 );
 
+/** A single-column projection of one row: a missing or extra row fails the decode. */
+const decodeSourceKindRow = Schema.decodeUnknownEffect(
+  Schema.Tuple([Schema.Struct({ source_kind: Schema.String })]),
+);
+
+const decodeActorPrincipalRow = Schema.decodeUnknownEffect(
+  Schema.Tuple([Schema.Struct({ actor_principal: Schema.String })]),
+);
+
+const decodeEmailVerifiedRow = Schema.decodeUnknownEffect(
+  Schema.Tuple([Schema.Struct({ emailVerified: Schema.Boolean })]),
+);
+
+const decodePasswordRow = Schema.decodeUnknownEffect(
+  Schema.Tuple([Schema.Struct({ password: Schema.String })]),
+);
+
+/** A `count(*)::int n` projection: the native client decodes int4 as a number. */
+const decodeCountRow = Schema.decodeUnknownEffect(Schema.Tuple([Schema.Struct({ n: Schema.Int })]));
+
+const decodeUserIdRows = Schema.decodeUnknownEffect(
+  Schema.Array(Schema.Struct({ userId: Schema.String })),
+);
+
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 const stop = async (child: ChildProcess) => {
@@ -415,7 +439,11 @@ try {
 
   assert.deepEqual(
     (
-      await Effect.runPromise(pool.unsafe('SELECT "userId" FROM auth."account" ORDER BY "userId"'))
+      await Effect.runPromise(
+        pool
+          .unsafe('SELECT "userId" FROM auth."account" ORDER BY "userId"')
+          .pipe(Effect.flatMap(decodeUserIdRows)),
+      )
     ).map((r) => r.userId),
     ["person-accepted-0", "person-accepted-1", "person-accepted-2"],
     "quarantined occurrences create no credential",
@@ -832,10 +860,12 @@ try {
   assert.equal(
     (
       await Effect.runPromise(
-        pool.unsafe(
-          "SELECT source_kind FROM auth.credential_cohort_snapshots WHERE snapshot_key=$1",
-          [backupReport.snapshotKey],
-        ),
+        pool
+          .unsafe(
+            "SELECT source_kind FROM auth.credential_cohort_snapshots WHERE snapshot_key=$1",
+            [backupReport.snapshotKey],
+          )
+          .pipe(Effect.flatMap(decodeSourceKindRow)),
       )
     )[0].source_kind,
     "LegacyBackup",
@@ -844,10 +874,12 @@ try {
   assert.equal(
     (
       await Effect.runPromise(
-        pool.unsafe(
-          "SELECT actor_principal FROM auth.identity_security_audit WHERE subject_person_id=$1 AND event_kind=$2",
-          ["person-backup-accepted", "account-provisioned-administratively"],
-        ),
+        pool
+          .unsafe(
+            "SELECT actor_principal FROM auth.identity_security_audit WHERE subject_person_id=$1 AND event_kind=$2",
+            ["person-backup-accepted", "account-provisioned-administratively"],
+          )
+          .pipe(Effect.flatMap(decodeActorPrincipalRow)),
       )
     )[0].actor_principal,
     "administrative:legacy-backup-cohort",
@@ -889,21 +921,35 @@ try {
   );
 
   assert.equal(
-    (await Effect.runPromise(pool.unsafe("SELECT count(*)::int n FROM auth.verification")))[0].n,
-    0,
-  );
-
-  assert.equal(
     (
       await Effect.runPromise(
-        pool.unsafe("SELECT count(*)::int n FROM auth.password_reset_email_outbox"),
+        pool
+          .unsafe("SELECT count(*)::int n FROM auth.verification")
+          .pipe(Effect.flatMap(decodeCountRow)),
       )
     )[0].n,
     0,
   );
 
   assert.equal(
-    (await Effect.runPromise(pool.unsafe("SELECT count(*)::int n FROM auth.session")))[0].n,
+    (
+      await Effect.runPromise(
+        pool
+          .unsafe("SELECT count(*)::int n FROM auth.password_reset_email_outbox")
+          .pipe(Effect.flatMap(decodeCountRow)),
+      )
+    )[0].n,
+    0,
+  );
+
+  assert.equal(
+    (
+      await Effect.runPromise(
+        pool
+          .unsafe("SELECT count(*)::int n FROM auth.session")
+          .pipe(Effect.flatMap(decodeCountRow)),
+      )
+    )[0].n,
     0,
   );
 
@@ -1072,9 +1118,11 @@ try {
   assert.equal(
     (
       await Effect.runPromise(
-        pool.unsafe(
-          'SELECT count(*)::int n FROM auth."user" WHERE id LIKE \'person-accepted-%\' AND "emailVerified"',
-        ),
+        pool
+          .unsafe(
+            'SELECT count(*)::int n FROM auth."user" WHERE id LIKE \'person-accepted-%\' AND "emailVerified"',
+          )
+          .pipe(Effect.flatMap(decodeCountRow)),
       )
     )[0].n,
     0,
@@ -1098,13 +1146,7 @@ try {
           .unsafe('SELECT "emailVerified" FROM auth."user" WHERE id=$1', [
             "person-backup-passwordless",
           ])
-          .pipe(
-            Effect.flatMap(
-              Schema.decodeUnknownEffect(
-                Schema.Array(Schema.Struct({ emailVerified: Schema.Boolean })),
-              ),
-            ),
-          ),
+          .pipe(Effect.flatMap(decodeEmailVerifiedRow)),
       )
     )[0].emailVerified,
     false,
@@ -1113,9 +1155,11 @@ try {
   assert.equal(
     (
       await Effect.runPromise(
-        pool.unsafe('SELECT count(*)::int n FROM auth."account" WHERE "userId"=$1', [
-          "person-backup-passwordless",
-        ]),
+        pool
+          .unsafe('SELECT count(*)::int n FROM auth."account" WHERE "userId"=$1', [
+            "person-backup-passwordless",
+          ])
+          .pipe(Effect.flatMap(decodeCountRow)),
       )
     )[0].n,
     0,
@@ -1124,9 +1168,11 @@ try {
   assert.equal(
     (
       await Effect.runPromise(
-        pool.unsafe('SELECT count(*)::int n FROM auth.session WHERE "userId"=$1', [
-          "person-backup-passwordless",
-        ]),
+        pool
+          .unsafe('SELECT count(*)::int n FROM auth.session WHERE "userId"=$1', [
+            "person-backup-passwordless",
+          ])
+          .pipe(Effect.flatMap(decodeCountRow)),
       )
     )[0].n,
     0,
@@ -1264,7 +1310,9 @@ try {
   assert.equal(
     (
       await Effect.runPromise(
-        pool.unsafe("SELECT count(*)::int n FROM auth.password_reset_email_outbox"),
+        pool
+          .unsafe("SELECT count(*)::int n FROM auth.password_reset_email_outbox")
+          .pipe(Effect.flatMap(decodeCountRow)),
       )
     )[0].n,
     1,
@@ -1283,10 +1331,12 @@ try {
   assert.equal(
     (
       await Effect.runPromise(
-        pool.unsafe(
-          "SELECT count(*)::int n FROM auth.password_reset_email_outbox WHERE subject_person_id=$1 AND status='Pending'",
-          ["person-backup-passwordless"],
-        ),
+        pool
+          .unsafe(
+            "SELECT count(*)::int n FROM auth.password_reset_email_outbox WHERE subject_person_id=$1 AND status='Pending'",
+            ["person-backup-passwordless"],
+          )
+          .pipe(Effect.flatMap(decodeCountRow)),
       )
     )[0].n,
     1,
@@ -1344,13 +1394,7 @@ try {
           .unsafe('SELECT "emailVerified" FROM auth."user" WHERE id=$1', [
             "person-backup-passwordless",
           ])
-          .pipe(
-            Effect.flatMap(
-              Schema.decodeUnknownEffect(
-                Schema.Array(Schema.Struct({ emailVerified: Schema.Boolean })),
-              ),
-            ),
-          ),
+          .pipe(Effect.flatMap(decodeEmailVerifiedRow)),
       )
     )[0].emailVerified,
     false,
@@ -1506,13 +1550,7 @@ try {
             .unsafe('SELECT password FROM auth."account" WHERE "userId"=$1', [
               "person-backup-passwordless",
             ])
-            .pipe(
-              Effect.flatMap(
-                Schema.decodeUnknownEffect(
-                  Schema.Array(Schema.Struct({ password: Schema.String })),
-                ),
-              ),
-            ),
+            .pipe(Effect.flatMap(decodePasswordRow)),
         )
       )[0].password,
       claimedHash,
