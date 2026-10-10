@@ -89,7 +89,6 @@ layer(native, { excludeTestServices: true, timeout: "120 seconds" })(
     );
 
     it.effect.each([
-      { value: null, kind: "null" },
       { value: true, kind: "boolean" },
       { value: 42, kind: "number" },
       { value: "ø;😀", kind: "string" },
@@ -106,6 +105,19 @@ layer(native, { excludeTestServices: true, timeout: "120 seconds" })(
         )(rows);
 
         expect(decoded).toEqual([{ value, kind }]);
+      }),
+    );
+
+    it.effect("binds sql.json(null) as SQL NULL, and only the jsonb literal is JSON null", () =>
+      Effect.gen(function* () {
+        const sql = yield* PgClient.PgClient;
+
+        expect(
+          yield* sql`SELECT ${sql.json(null)} AS value, jsonb_typeof(${sql.json(null)}) AS kind`,
+        ).toEqual([{ value: null, kind: null }]);
+        expect(
+          yield* sql`SELECT 'null'::jsonb AS value, jsonb_typeof('null'::jsonb) AS kind`,
+        ).toEqual([{ value: null, kind: "null" }]);
       }),
     );
 
