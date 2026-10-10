@@ -224,7 +224,7 @@ machine beside the legacy decider, proves equivalence (falsifier 1), switches
 every caller, and then deletes the legacy decider and its equivalence test. No
 shim stays. A slice starts after the falsifiers of the slice before it pass.
 
-1. Receipt, the pilot. It starts after `feat/effect-stable-v4` lands. The legal
+1. Receipt, the pilot. It starts now that stable Effect is on main. The legal
    table of the pilot is the table that `decideReceipt` enforces. A missing
    receipt accepts submit. A `Pending` receipt accepts revise, withdraw,
    approve, and reject. A `Rejected` receipt accepts reopen. An `Approved` or
@@ -251,12 +251,11 @@ others after the second slice.
 
 ## Dependencies
 
-- Stable Effect. The specification `docs/specs/effect-stable-v4.md` exists on
-  the branch `feat/effect-stable-v4` only. Main pins `effect` at `4.0.0-rc.116`
-  in the root catalog (`package.json`, `catalogs.effect-v4`). That version sorts
-  before 4.0.0 in semver, so it does not satisfy `^4.0.0`, the peer range of
-  `@xstate/effect` 0.1.0-alpha.7. The branch pins `effect` at `4.0.0`. The pilot
-  waits for the branch to land.
+- Stable Effect. `feat/effect-stable-v4` landed on main as `c851f6b0` on
+  2026-10-10, and its specification is `docs/specs/effect-stable-v4.md`. The
+  root catalog pins `effect` at `4.0.0`, which satisfies `^4.0.0`, the peer
+  range of `@xstate/effect` 0.1.0-alpha.7. The spikes ran on `d2ad39df`, the
+  parent of that merge.
 - `runCommand` and `Tx`. `docs/specs/commands-and-concurrency.md` freezes both
   (`:23-25`). Neither exists on main: the source of `packages/database`,
   `packages/domain`, and `apps/backend` has no `Tx` service, and the name
@@ -276,9 +275,10 @@ others after the second slice.
   retirement trigger: xstate 6.0.0 stable and `@xstate/effect` 0.1.0 stable.
   `just exceptions` reopens an entry when a pinned version changes, so every
   alpha bump reopens it.
-- Peer check. `AGENTS.md` requires a peer check before adoption. Main fails the
-  Effect peer. `feat/effect-stable-v4` satisfies both peers, with `effect`
-  4.0.0 and the exact `xstate` pin.
+- Peer check. `AGENTS.md` requires a peer check before adoption. Main now
+  pins `effect` 4.0.0 and satisfies the Effect peer. The spikes installed both
+  packages with no peer conflict on the same Effect version. The check on the
+  merged tree of main was not run. The pilot slice runs it.
 - Inline Effect. rat-stack rejects an inline Effect in a machine callback with
   the lint rule `xstate-effect/no-inline-effect`. The pilot slice ports that
   rule (see the rat-stack section) or records why none is needed.
@@ -377,7 +377,7 @@ with numbered logs.
 
 | Question | Result |
 | --- | --- |
-| Does `@xstate/effect` 0.1.0-alpha.7 install with `xstate` 6.0.0-alpha.65 on Effect 4.0.0? | Yes. There was no peer conflict, and one `effect@4.0.0` copy is shared. Main stays on `4.0.0-rc.116`, which does not satisfy the peer range. The peer check on main was not run. |
+| Does `@xstate/effect` 0.1.0-alpha.7 install with `xstate` 6.0.0-alpha.65 on Effect 4.0.0? | Yes. There was no peer conflict, and one `effect@4.0.0` copy is shared. The spikes ran on `d2ad39df`. Main now pins the same Effect version, but the install on main was not run. |
 | Can the machine express guard-ordered typed refusals? | Yes, as refusal edges inside the machine. The pure `transition` fallback was not needed. The second spike moves the refusals out of the machine. |
 | Is it equivalent to `decideReceipt`? | Yes on a property of 200 runs (551 steps, seed 22082034) and on an exhaustive grid of 600 cells, with 0 failures. The machine does not call `decideReceipt`. |
 | Do the tests detect a broken rule? | Yes. The required mutation, `approved` accepts `RejectReceipt`, fails the property with a shrunk counterexample: an approved receipt, then `RejectReceipt`. Six further mutations were caught. All were reverted. |

@@ -1055,8 +1055,13 @@ follows the rat-stack principle `subtract-before-you-add`: remove the unused
 structure before the machinery that builds on the same code.
 
 1. Delete the dead `admission_period_outbox` and its effect, as §12 decision 6
-   recommends. The operator agreed to the deletion on 2026-10-10. The scope
-   below comes from a search of `apps`, `packages`, and `tools` at `815a28f8`.
+   recommends. The operator agreed to the deletion on 2026-10-10. Built and
+   verified on branch `chore/delete-admission-period-outbox`, commit
+   `9b57ddea`, on main `c851f6b0` (the stable Effect merge). It is not landed.
+   The migration is `0086-retire-admission-period-outbox.sql`, and the
+   journey `just e2e admission-periods`, `just check`, and `just test` passed
+   there. The scope below comes from a search of `apps`, `packages`, and
+   `tools` at `815a28f8`, and the line numbers are from that commit.
    - Database adapter: the INSERT and its helpers, `writeOutbox`,
      `encodeOutboxRequest`, and the two imports
      (`packages/database/src/admission-period/postgres.ts:23-24,269,294-314`),
@@ -1080,11 +1085,8 @@ structure before the machinery that builds on the same code.
      (`tools/verification/organization-import-rehearsal-main.ts:249`,
      `organization-import-rehearsal-postgres.ts:453-464,559`, and
      `organization-import-rehearsal.test.ts:425-430`).
-   - Conflicts: `feat/effect-stable-v4` edits the admission period adapter,
-     both rehearsal files, and `checksums.json`. `feat/workers-s2-delivery`
-     edits `organization-import-rehearsal-main.ts`. Build the deletion as a
-     branch stacked on `feat/effect-stable-v4`. `just land` accepts it once
-     that branch has landed.
+   - Conflicts: `feat/effect-stable-v4` landed first (main `c851f6b0`), so the
+     migration number 0086 was free, and the branch needs no stacking.
    - Falsifier: a search of `apps`, `packages`, and `tools` for
      `admission_period_outbox` and `PublishAdmissionPeriodChanged` finds
      nothing, and the admission period journey and the rehearsal tests pass
