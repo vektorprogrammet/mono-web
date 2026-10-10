@@ -1055,9 +1055,9 @@ follows the rat-stack principle `subtract-before-you-add`: remove the unused
 structure before the machinery that builds on the same code.
 
 1. Delete the dead `admission_period_outbox` and its effect, as §12 decision 6
-   recommends. The operator agreed to the deletion on 2026-10-10. Built and
-   verified on branch `chore/delete-admission-period-outbox`, commit
-   `9b57ddea`, on main `c851f6b0` (the stable Effect merge). It is not landed.
+   recommends. The operator agreed to the deletion on 2026-10-10. It is built,
+   verified, and landed on main as `2aa6ce97` (commit `9b57ddea`, on main
+   `c851f6b0`, the stable Effect merge).
    The migration is `0086-retire-admission-period-outbox.sql`, and the
    journey `just e2e admission-periods`, `just check`, and `just test` passed
    there. The scope below comes from a search of `apps`, `packages`, and
