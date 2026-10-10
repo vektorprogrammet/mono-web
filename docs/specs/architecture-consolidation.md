@@ -950,3 +950,131 @@ requirement.
   English matches such as "select from the list".
 - Scouting: 12 read-only scouts, each with a named assignment and a file:line
   contract. Their reports are the source for every table marked [scout].
+## 14. Re-measurement (2026-10-10, main 815a28f8)
+
+This section appends a scan of main at `815a28f8`. It does not change the
+measurement or proposal above. Counts below use tracked TypeScript files.
+
+### Delta since the earlier measurement
+
+- `apps/backend/src/main.ts:204-285` starts 8 fibers: 7 delivery workers and
+  the onboarding expiry sweeper. The earlier count of 7 was accurate at
+  `b3193cb1`; admission-outcome delivery added the eighth fiber.
+- The 8 fibers cover public application, school-service notifications,
+  recruitment, password reset, receipt, team application, admission-outcome
+  mail, and onboarding expiry. The admission-outcome queue uses the shared
+  `outbox-lifecycle.ts` claim helpers and capped exponential backoff
+  (`packages/database/src/admissions/outcome-mail-queue.ts:32-33,188-198`).
+- There are 10 live `*_outbox` tables through migration 0082, up from 9 through
+  migration 0080. Migration 0082 adds `admission_outcome_outbox`
+  (`packages/database/migrations/0082-admission-outcome-mail.sql:157`). The
+  domain receipt and audit counts in §1 do not change in migrations 0081-0082.
+- The team-application worker remains the only production user of
+  `PersistedQueue` (`packages/database/src/team-application/outbox.ts`). The
+  password-reset worker has a private lease and three-attempt quarantine
+  (`packages/database/src/password-recovery.ts:380-395,509-538`). Onboarding
+  delivery still runs inside the request (`apps/backend/src/onboarding/delivery.ts:61-124`).
+- `pollForever` is still the shared polling construct
+  (`apps/backend/src/worker-support.ts:44-61`). `outbox-lifecycle.ts` still
+  serves the public application, school-service, recruitment, receipt, and
+  admission-outcome adapters.
+- `HttpResponseCapsule` and `NativeHttpResponseCapsule` have the same four
+  fields (`apps/backend/src/http-semantics.ts:652-657`,
+  `apps/backend/src/http-api/receipt-transaction.ts:24-29`). The latter is used
+  by five source files and one test. Its uses belong to the consolidation work.
+- `reviseAdmissionPeriod` shows the repeated handler path
+  (`apps/backend/src/admission/http-commands.ts:273-406`): reject query, read
+  `If-Match` and `Idempotency-Key`, decode, open a serializable receipt
+  transaction, resolve authority, load and authorize the period, check its ETag,
+  run the command, and retry serialization once when configured.
+- `admission_period_outbox` still receives writes
+  (`packages/database/src/admission-period/postgres.ts:294-314`). No backend or
+  database source consumes it for delivery. Rehearsal and e2e tools still read
+  it, so removal must update those tools too.
+- `apps/backend/src/main.ts` has 23 named Layer values at lines 83-168.
+- The HTTP compiler lists 9 groups in both effx tsconfig files, while the
+  `just effx-native` comment lists 7. It omits Admissions and AdmissionOutcomes
+  (`packages/http-api/tsconfig.effx.json:9`,
+  `apps/backend/tsconfig.effx.json:9`, `justfile:29-33`). `api.ts` declares
+  15 external API groups, 6 without generated groups
+  (`packages/http-api/src/api.ts:34-49`).
+- The schema collapse has not landed. There is no `packages/database/schema/`
+  directory. The migration registry has 82 entries: 81 top-level migrations and
+  `tutor/0001-tutor-event-store.sql`.
+- `runCommand` in `commands-and-concurrency.md` is still a contract, not an
+  implementation. The source has unrelated helpers with that name, but no
+  `Tx` service or command runner in `packages/database/src`,
+  `packages/domain/src`, or `apps/backend/src`.
+- In-flight work overlaps this area. `feat/effect-stable-v4` changes 509 files,
+  including 131 database, 101 backend, 54 domain, and 31 HTTP API source files.
+  `feat/workers-s2-delivery` changes 65 files, including 27 backend and 16
+  database source files. Its seven-path contract does not include the new
+  admission-outcome worker. `spike/workers-s0` adds one findings document. The
+  dashboard Foldkit branches change dashboard sources. None is included in this
+  measurement.
+
+### Backend source lines per context
+
+Count tracked `.ts` files below `apps/backend/src`, excluding `*.test.ts` and
+`*.spec.ts`. The rows are directory names; they are not a new context map. The
+`test` directory has 497 lines of support code, and 3,372 lines sit directly
+below `src`. The context rows sum to 20,625 lines.
+
+| Context directory | Lines |
+| --- | ---: |
+| receipt | 4,428 |
+| admission | 2,860 |
+| recruitment | 2,283 |
+| http-api | 2,097 |
+| placements | 2,081 |
+| organization | 1,439 |
+| content | 1,258 |
+| team-application | 931 |
+| onboarding | 535 |
+| social-events | 466 |
+| profile | 407 |
+| directory | 324 |
+| schools | 324 |
+| mail | 274 |
+| contact | 185 |
+| application | 93 |
+| delivery | 81 |
+| password-recovery | 62 |
+
+Whole-package counts include tests and count tracked `.ts` files, excluding
+`.d.ts`: `packages/domain` 38,761 lines, `packages/database` 79,419,
+`packages/http-api` 15,158, and `apps/backend` 40,283. These reproduce the
+rounded totals above.
+
+### Ranked simplification order
+
+This order assumes the schema-collapse step 0 lands first and the operator
+accepts §12 decisions 2 and 3. Items 2 and 3 follow the approved
+`commands-and-concurrency.md` contract. Each item names its falsifier.
+
+1. Replace `NativeHttpResponseCapsule` with `HttpResponseCapsule` and share the
+   allowed-header set. Falsifier: the type check fails, or any use of
+   `NativeHttpResponseCapsule` remains after the cutover.
+2. Implement `runCommand` with `Tx` and declared lock sets. Falsifier: the
+   negative controls in `commands-and-concurrency.md` fail to reject a write
+   outside the runner or fail to prove that equal lock sets serialize.
+3. Put lifecycle machines inside `runCommand`. Falsifier: any lifecycle
+   equivalence, reachability, state-set, Tx-only, or PostgreSQL test in
+   `lifecycle-machines.md` fails.
+4. Replace the 17 domain receipt tables and 21 audit tables with one table
+   each, as recommended in §12 decisions 2 and 3. Falsifier: §10.1 (one
+   aggregate adds no table) or §10.7 (one write path) fails.
+5. Replace the delivery paths with one mechanism after Workers S2 lands.
+   Falsifier: §10.1 (new aggregate delivery), §10.10 (predecessor ordering),
+   or any Workers S2 acceptance test fails. Include the admission-outcome path,
+   which the current S2 contract does not list.
+6. Group `main.ts` Layers by context after steps 2-5 remove per-context receipt,
+   audit, and worker Layers. Falsifier: the named Layer count does not fall
+   below 23, or a context-specific receipt, audit, or worker Layer remains.
+
+### Count method
+
+The migration comparison reads registered migration SQL in order. The 0081 and
+0082 files add four tables and drop, rename, or move none. The new outbox count
+is therefore 9 plus the one table from 0082. The source-line counts use
+`git ls-files` and `wc -l`, with the filters stated above.
