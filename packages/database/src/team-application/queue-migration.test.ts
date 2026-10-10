@@ -425,15 +425,20 @@ layer(Layer.merge(migrationCluster, TestPlatform), {
         expect(yield* upgrade(pool)).toEqual(upgradeEvidence);
       }).pipe(Effect.scoped, Effect.orDie),
   );
-
-  // PGlite creates and migrates the full preceding schema inside this test, not the suite Layer.
-  it.effect(
-    "moves in-flight rows with their original ids and states, and drops the claim columns only after no worker can write them, on PGlite",
-    () =>
-      withPostgresTestDatabase(upgrade, move.preceding).pipe(
-        Effect.map((evidence) => expect(evidence).toEqual(upgradeEvidence)),
-        Effect.orDie,
-      ),
-    30_000,
-  );
 });
+
+// PGlite creates and migrates the full preceding schema inside this test, so no disposable cluster starts.
+layer(TestPlatform, { excludeTestServices: true, timeout: "120 seconds" })(
+  "team application queue migration on PGlite",
+  (it) => {
+    it.effect(
+      "moves in-flight rows with their original ids and states, and drops the claim columns only after no worker can write them, on PGlite",
+      () =>
+        withPostgresTestDatabase(upgrade, move.preceding).pipe(
+          Effect.map((evidence) => expect(evidence).toEqual(upgradeEvidence)),
+          Effect.orDie,
+        ),
+      30_000,
+    );
+  },
+);

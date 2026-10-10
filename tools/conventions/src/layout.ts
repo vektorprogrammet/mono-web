@@ -213,6 +213,7 @@ export const toolImportExceptions = [
       "packages/database/runtime/",
       "packages/database/src/content/slug-postgres.test.ts",
       "packages/database/src/content/workspace-visibility-postgres.test.ts",
+      "packages/database/src/search-path-shadow.postgres.test.ts",
       "packages/database/src/organization/national-team-reach-postgres.test.ts",
       "packages/database/src/oauth-refresh-window.test.ts",
       "packages/database/src/team-application/delivery-pgbouncer.test.ts",
@@ -231,6 +232,7 @@ export const toolImportExceptions = [
     reason:
       "Native SQL admission, cancellation, physical-close and recovery tests own disposable PostgreSQL peers through the same test-only fixture boundary. " +
       "The admission outcome policy, frozen evidence, immutable applicant ownership, and decision-instant precision tests prove semantic upgrades and decision/announcement races on disposable PostgreSQL 17/18. " +
+      "The schema search-path law test builds both native pool layers on one disposable cluster and proves that an unqualified production table resolves to public beside a same-named auth table. " +
       "Test harnesses, browser evidence drivers, and PostgreSQL proofs start disposable clusters of the selected major through the one toolchain and reserve their loopback ports through it. The OAuth refresh window test needs a session TimeZone with daylight saving time on the real server. The Content workspace visibility test checks scoped working copies against real PostgreSQL. The Content slug test exercises the 255-character bound and atomic create on the real server. The team application queue migration proves its upgrade on the real server, and the queue's transaction test runs through a disposable PgBouncer in transaction mode. The Organization national-team reach regression runs against a real server to reject home-board administration of a hosted national team while retaining valid national/local authority.",
   },
   {

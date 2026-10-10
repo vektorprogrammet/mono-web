@@ -406,6 +406,15 @@ layer(Layer.merge(cluster, TestPlatform), { excludeTestServices: true, timeout: 
           }).pipe(Effect.scoped),
         120_000,
       );
+    }
+  },
+);
+
+// The PGlite cases create their database inside each test, so no disposable cluster is started.
+layer(TestPlatform, { excludeTestServices: true, timeout: "180 seconds" })(
+  "application statement ownership upgrade on PGlite",
+  (it) => {
+    for (const predecessor of [82, 83] as const) {
       it.effect(
         `preserves rows and enforces ownership when upgrading from ${predecessor}, on PGlite`,
         () => {

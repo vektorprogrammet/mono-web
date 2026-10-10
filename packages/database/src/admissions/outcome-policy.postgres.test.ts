@@ -2443,8 +2443,13 @@ layer(Layer.merge(policy, TestPlatform), { excludeTestServices: true, timeout: "
         }).pipe(Effect.scoped, Effect.orDie),
       120_000,
     );
+  },
+);
 
-    // PGlite creates and migrates the previous schema inside this case, not in the suite Layer.
+// PGlite creates and migrates the previous schema inside this case, so no disposable cluster starts.
+layer(TestPlatform, { excludeTestServices: true, timeout: "60 seconds" })(
+  "admission outcome policy upgrade on PGlite",
+  (it) => {
     it.effect(
       "upgrades each current Substitute with one provenance-marked Admitted revision and rewrites no history, on PGlite",
       () =>

@@ -306,7 +306,13 @@ layer(Layer.merge(osloCluster, TestPlatform), { excludeTestServices: true, timeo
         expect(yield* upgradeFromBefore0077(pool)).toEqual(upgradeEvidence);
       }).pipe(Effect.scoped, Effect.orDie),
     );
+  },
+);
 
+// The PGlite case creates its database inside the test, so no disposable cluster starts.
+layer(TestPlatform, { excludeTestServices: true, timeout: "60 seconds" })(
+  "OAuth refresh window upgrade on PGlite",
+  (it) => {
     it.effect("upgrades families that the earlier statements wrote, on PGlite", () =>
       withPostgresTestDatabase(upgradeFromBefore0077, windows.preceding).pipe(
         Effect.map((evidence) => expect(evidence).toEqual(upgradeEvidence)),
